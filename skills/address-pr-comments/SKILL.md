@@ -13,15 +13,30 @@ Collect PR feedback with `gh`, classify AI/bot vs human comments, validate each 
 
 Address PR comments in this order:
 
-1. Resolve target PR (auto-detect from current branch by default).
-2. Verify `gh` availability/auth.
-3. Collect comments (top-level, reviews, inline).
-4. Classify source (AI/bot vs human) AND classify intent (actionable vs informational).
-5. Validate each actionable comment before changing code.
-6. Apply fixes and run targeted checks.
-7. Commit each resolved comment locally (no push).
-8. Reply to ALL non-informational comments with outcome.
-9. Summarize addressed/rejected items with rationale.
+1. Identify the PR (auto-detect from current branch via `gh pr view`).
+2. Verify `gh` CLI is installed and authenticated.
+3. Collect all comments (top-level, reviews, inline) via `list_comments.py`.
+4. Classify each comment: source (AI/bot vs human) and intent (actionable vs informational).
+5. Validate each actionable comment against current code before making changes.
+6. Apply fixes one comment at a time, run targeted checks per change.
+7. Commit each resolved `valid` comment locally (no push).
+8. Reply to every actionable comment with outcome using `gh api`.
+9. Summarize all addressed, rejected, and skipped items with rationale.
+
+## Prerequisites
+
+- `gh` CLI installed and authenticated (`gh auth status` must pass)
+- Current git branch has an open PR, or you know the PR number
+
+## Error Recovery
+
+| Failure | Response |
+|---------|----------|
+| `gh` not installed / not authenticated | Stop. Tell user to run `gh auth login`. |
+| `list_comments.py` fails (network, API rate limit) | Retry once after 5 seconds. If still fails, report the error and ask user if they want to continue with manual PR number override. |
+| PR not found (wrong number, closed, merged) | Report the specific gh error. Ask user to verify PR number and state. |
+| **Zero comments on PR** | Report: "PR has no comments — nothing to review." |
+| Script returns empty JSON | Verify `gh pr view` works manually. Check that the branch has an open PR. |
 
 ## 1. Resolve PR (Auto-Detect by Default)
 
@@ -33,7 +48,7 @@ python3 ./scripts/list_comments.py --json
 
 The script automatically calls `gh pr view --json number` to resolve the PR from the current branch. No `--pr` argument is needed unless you explicitly want to target a different PR.
 
-If auto-detection fails (no PR open for the current branch), ask the user for the PR number or URL.
+If auto-detection fails (no PR open for the current branch), ask the user for the PR number or URL. For cross-repo access (when not in the repo directory), use `--repo owner/name`.
 
 ## 2. Verify GH CLI
 
@@ -55,7 +70,7 @@ python3 ./scripts/list_comments.py --pr <number> --json
 The script aggregates:
 - Top-level comments
 - Review submissions
-- Inline review comments from unresolved threads by default (including outdated unresolved threads)
+- Inline review comments from unresolved threads by default (unresolved threads that are outdated against the current diff are still included)
 - AI-prompt snippets when present in bot comments
 
 To include resolved inline threads too:
@@ -193,7 +208,7 @@ Use these templates for concise, professional replies:
 | `already_fixed` | `Already resolved in the current code — no changes needed.` |
 | `already_replied` | (Skip — already has a human reply) |
 | `out_of_scope` | `This is outside the scope of this PR. <Optional: suggest follow-up>.` |
-| `needs_clarification` | `Could you clarify <specific question>?` |
+| `needs_clarification` | `Could you clarify <specific question>?` (async — when reviewer replies, invoke this skill again; `has_replies` detection surfaces their response and skips already-handled items) |
 
 **Rules for replies:**
 - Keep replies short (1-2 sentences max).
@@ -212,6 +227,8 @@ Provide:
 - What checks were run and results
 - Reply status: which comments were replied to and which were skipped (informational)
 
+**Note on `needs_clarification`**: These comments are inherently asynchronous. The agent replies with a clarification question, then the reviewer responds later. To process reviewer replies, re-run this skill — the `has_replies` detection will skip already-replied comments and surface only new reviewer responses. Mark the original `needs_clarification` item as resolved once the reviewer provides direction.
+
 ## Quick Commands
 
 ```bash
@@ -220,6 +237,9 @@ python3 ./scripts/list_comments.py --json
 
 # Manual PR override
 python3 ./scripts/list_comments.py --pr <number> --json
+
+# Cross-repo PR (when not in the repo directory)
+python3 ./scripts/list_comments.py --repo owner/name --pr <number> --json
 
 # Include resolved inline threads
 python3 ./scripts/list_comments.py --json --include-resolved

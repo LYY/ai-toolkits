@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# KEEP IN SYNC with skills/address-pr-comments-review/scripts/list_comments.py
+# Both copies must be updated together. Diff before commit to verify parity.
 # Source: skills/address-pr-comments/scripts/list_comments.py
 # Vendored copy for self-contained deployment with npx skills add
 """

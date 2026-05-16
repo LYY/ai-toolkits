@@ -13,12 +13,12 @@ description: >-
 A three-phase interactive workflow for GitHub PR comment review.
 
 - **Phase 1** (this skill): collect, classify, and confirm comments interactively with the user, then produce a review dossier.
-- **Phase 2**: user invokes Sisyphus plan mode (`@plan`) with the dossier — Prometheus generates a proper execution plan (with built-in Metis gap analysis + Momus review).
+- **Phase 2**: user switches to Prometheus mode, gives it the dossier, and has an interactive conversation to generate an execution plan (with built-in Metis gap analysis + Momus review).
 - **Phase 3**: user runs `/start-work` to execute the plan in isolated workspaces.
 
-**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Dossier placement and `@plan` → `/start-work` flow are Sisyphus-specific. Not compatible with other agent platforms (Claude Code, Cursor, Gemini CLI, etc.).
+**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Dossier placement and Prometheus → `/start-work` flow are Sisyphus-specific. Not compatible with other agent platforms (Claude Code, Cursor, Gemini CLI, etc.).
 
-**Self-contained**: uses its own `scripts/list_comments.py` (vendored, no external dependencies).
+**Self-contained**: uses its own `scripts/list_comments.py` (vendored, no Python package dependencies; requires `gh` CLI).
 
 ## Prerequisites
 
@@ -54,7 +54,7 @@ PR address or auto-detect
     ↓   approved
 [5] Generate review dossier → write to .sisyphus/notepads/pr-<N>-dossier/dossier.md
     ↓
-[6] User runs @plan with dossier → Prometheus generates plan → /start-work executes
+[6] User switches to Prometheus, gives dossier → interactive plan generation → /start-work executes
 ```
 
 ### [1] Collect Comments
@@ -63,7 +63,7 @@ PR address or auto-detect
 python3 ./scripts/list_comments.py --json
 ```
 
-The script auto-detects the PR from the current branch via `gh pr view`. Override with `--pr <N>`. Include resolved threads with `--include-resolved`.
+The script auto-detects the PR from the current branch via `gh pr view`. Override with `--pr <N>`. For cross-repo access (when not running from the repo directory), use `--repo owner/name`. Include resolved threads with `--include-resolved`.
 
 Aggregates:
 - Top level PR comments
@@ -247,7 +247,7 @@ This is the last checkpoint before dossier generation.
 
 ### [5] Generate Review Dossier
 
-**Do NOT generate a plan here.** The skill produces a dossier — a comprehensive requirements document. Plan generation is handled by Sisyphus plan mode (Prometheus) in the next phase, which has built-in Metis gap analysis and Momus review.
+**Do NOT generate a plan here.** The skill produces a dossier — a comprehensive requirements document based on everything confirmed in Steps 2-4. Plan generation happens in the next phase via an interactive Prometheus conversation (which has built-in Metis gap analysis and Momus review).
 
 **CRITICAL — Final Cross-Reference Scan**: Before writing the dossier, re-scan the **final confirmed table** (from Step 4) against the original cross-reference results (from Step 2.5). Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
@@ -273,8 +273,9 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 ```markdown
 # Review Dossier: PR #N — {{PR_TITLE}}
 
-> **For Prometheus plan mode**: Read this dossier to generate the execution plan.
-> No further interview needed — all decisions are confirmed below.
+> **For Prometheus**: Read this dossier and generate an execution plan for `/start-work`.
+> All decisions confirmed below. Ask clarifying questions if any task is ambiguous.
+> *Minimum requirements: no same-file concurrency, precise test names, scope guardrails per task, reply-only tasks locked down, final verification wave. How you achieve these is up to you.*
 
 ## Executive Summary
 | Category | Count | Action |
@@ -284,7 +285,7 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 | Already replied (skip) | R | Already has a human reply — no action needed |
 | Informational (skip) | K | No action |
 | **Total plan tasks** | **N+M** | **code tasks + reply tasks** |
-| **Raw comments (before dedup)** | R | Original count from list_comments.py |
+| **Raw comments (before dedup)** | T | Original count from list_comments.py |
 | **Merged duplicates** | D | Comments merged into others above |
 | **Conflicts resolved** | C | User chose one direction among conflicting advice |
 
@@ -309,11 +310,22 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 - **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification)
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
 - **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}} (reply to ALL authors who raised this issue)
+
+  **Choose endpoint by reply kind** (NOT all inline):
   ```bash
+  # inline:
   gh api repos/{{REPO}}/pulls/{{PR}}/comments --method POST \
     -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
     -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
     -F in_reply_to={{COMMENT_ID}}
+
+  # review body:
+  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
+    -F body="@{{AUTHOR}} {{REPLY_TEXT}}"
+
+  # top_level:
+  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
+    -F body="{{REPLY_TEXT}}"
   ```
 - **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
@@ -338,8 +350,8 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
     -F in_reply_to={{COMMENT_ID}}
 
   # review body:
-  gh api repos/{{REPO}}/pulls/{{PR}}/reviews --method POST \
-    -F body="{{REPLY_TEXT}}" -F event=COMMENT
+  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
+    -F body="@{{AUTHOR}} {{REPLY_TEXT}}"
 
   # top_level:
   gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
@@ -367,7 +379,43 @@ No code changes. No replies. LGTM, praise, emoji-only, FYI, and already-replied 
 | invalid | `This suggestion doesn't apply because <brief reason>.` |
 | already_fixed | `Already resolved in the current code — no changes needed.` |
 | out_of_scope | `This is outside the scope of this PR. <Optional: suggest follow-up>.` |
-| needs_clarification | `Confirmed: <resolved direction>.` |
+| needs_clarification | `Confirmed: <resolved direction>.` (direction resolved during Step 3 discussion — unlike auto skill where reply asks the question) |
+| conflict (not chosen) | `Thanks for the suggestion. We went with @other's approach for <reason>.` |
+
+---
+
+## Cross-Reference Checks
+
+| Check | Status |
+|-------|--------|
+| New duplicates | {{NEW_DUP_CHECK}} |
+| Stale duplicates | {{STALE_DUP_CHECK}} |
+| Unresolved conflicts | {{UNRESOLVED_CONFLICT_CHECK}} |
+| Orphaned replies | {{ORPHANED_REPLY_CHECK}} |
+| New relations | {{NEW_RELATION_CHECK}} |
+| Cross-section leakage | {{CROSS_SECTION_CHECK}} |
+| Reply target mismatch | {{REPLY_TARGET_CHECK}} |
+| Stale already_replied | {{STALE_ALREADY_REPLIED_CHECK}} |
+
+## Dependencies
+
+{{DEPENDENCIES}}
+
+If related comments exist (call chain, shared type), note here:
+- Task X and Task Y both modify `shared_type.go` — coordinate changes.
+- Task A is a callee of Task B's caller — order: fix callee first, then caller.
+- Fixing Task X may make Task Y unnecessary — verify after X is complete.
+
+## Scope Guardrails
+
+These constraints prevent scope creep. Prometheus bakes them into every task.
+
+| Rule | Rationale |
+|------|-----------|
+| {{GUARDRAIL_1}} | {{RATIONALE_1}} |
+| {{GUARDRAIL_2}} | {{RATIONALE_2}} |
+
+Common guardrails: no vendor/ refresh, no global refactors beyond the fix, reply-only tasks must not modify code or run tests.
 ```
 
 **Rules for dossier content**:
@@ -403,19 +451,41 @@ After dossier is saved, output:
 ```
 Dossier saved to .sisyphus/notepads/pr-<N>-dossier/dossier.md
 
-Next: activate Sisyphus plan mode (@plan) to generate the execution plan from this dossier.
-Prometheus will handle Metis gap analysis and Momus review internally.
-Then run /start-work to execute.
+Next: switch to Prometheus mode and have a conversation. Paste the dossier
+path and ask Prometheus to generate an execution plan. Interactive
+conversation produces better plans than one-shot @plan — Prometheus can
+ask clarifying questions, refine task granularity, and add precise file
+paths and test commands.
+
+After Prometheus writes the plan, review it, then run /start-work to execute.
 ```
 
 **Do NOT run `@plan` or `/start-work` yourself.** The skill's job ends at dossier generation. The user controls when to proceed.
 
 **What happens next (user-driven)**:
-1. User invokes `@plan "generate execution plan from .sisyphus/notepads/pr-<N>-dossier/dossier.md"`
-2. Prometheus reads the dossier, interviews if needed, runs Metis gap analysis
-3. Prometheus writes the plan to `.sisyphus/plans/pr-<N>-review.md`
-4. User reviews the plan, optionally triggers Momus review
-5. User runs `/start-work` — Atlas executes per-comment tasks (dev → test → reply → commit)
+1. User switches to Prometheus mode (e.g., `@plan` to enter plan context, or directly invoke Prometheus).
+2. User gives Prometheus the dossier: "Read `.sisyphus/notepads/pr-<N>-dossier/dossier.md` and generate an execution plan. Ask me if any task is ambiguous."
+3. Prometheus reads the dossier, asks clarifying questions, refines task structure and execution details.
+4. Prometheus writes the plan to `.sisyphus/plans/pr-<N>-review.md`.
+5. User reviews the plan. Optionally run Momus review for gap analysis.
+6. User reviews and approves (`ok`), then runs `/start-work` — Atlas executes per-comment tasks.
+
+**Why interactive Prometheus over one-shot `@plan`**:
+- Prometheus can ask follow-up questions about ambiguous file paths or test strategies.
+- Interactive refinement produces better task granularity and parallel execution annotations.
+- Direct conversation gives Prometheus more context to fill gaps the dossier might miss.
+
+**After `/start-work` completes**:
+- Review the generated commits (`git log --oneline`).
+- `git push` the branch.
+- Verify that replies appear correctly on the PR (check a few random comment threads).
+- If anything was missed, re-run this skill — already-replied comments will be automatically skipped via `has_replies` detection.
+
+**If `/start-work` fails mid-execution** (partial tasks complete, partial fail):
+1. Check which tasks succeeded via `git log --oneline` (committed tasks) and the PR comment threads (replied tasks).
+2. Re-run this skill — completed tasks with replies will be automatically detected as `already_replied` and skipped.
+3. The skill will produce a new dossier containing only the remaining unhandled items.
+4. Generate a new plan (Prometheus) and re-run `/start-work`.
 
 ## Interaction Checklist
 
@@ -426,7 +496,7 @@ Then run /start-work to execute.
 | 4 | Final table confirmed | User explicitly confirms ("ok", "go ahead") |
 | 5 (before write) | Final cross-reference scan | All 7 checks pass, no unresolved 🔴 items remain |
 | 5 | Dossier written | `.sisyphus/notepads/pr-<N>-dossier/dossier.md` exists and is complete |
-| 6 | Handoff delivered | User sees next-step instructions with `@plan` + `/start-work`
+| 6 | Handoff delivered | User sees next-step instructions with Prometheus conversation + `/start-work` |
 
 ## Key Principles
 
@@ -434,9 +504,9 @@ Then run /start-work to execute.
 - **Good classification saves time**. Accurate `informational` tagging and correct conclusions reduce review cycles.
 - **Every non-informational comment gets a conclusion AND a reply.** No actionable comment is left without a disposition in the final table — and no non-informational comment is left without a reply task in the dossier (Section A or B). Exception: `already_replied` comments go to Section C.
 - **"Skipped" only means informational or already-replied.** `invalid`/`already_fixed`/`out_of_scope`/`needs_clarification` go in Section B (Reply Only), NOT in Section C. The reviewer is waiting for a response. Only `informational` and `already_replied` go in Section C.
-- **Dossier is the boundary and the single source of truth.** The skill produces a dossier, not a plan. Plan generation belongs to Prometheus. The dossier must be exhaustive — Prometheus and Atlas operate with zero business context.
+- **Dossier is the boundary and the single source of truth.** The skill produces a dossier, not a plan. The dossier captures everything confirmed in Steps 2-4 — classification decisions, file paths, test strategies, reply templates. Plan generation happens in the next phase: an interactive Prometheus conversation. Prometheus can ask clarifying questions, but dossier should minimize back-and-forth — the less it has to guess, the better the plan.
 - **Silence is consent by default**. Uncontested items proceed on AI recommendation. If the user wants stricter oversight, they can request item by item review.
-- **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (`@plan` via Prometheus). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
+- **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (interactive Prometheus conversation). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
 - **Duplicates are detected, not created**. Cross-reference check (Step 2.5) merges same file:line issues into single tasks. Plan mode must never see two tasks modifying the same line for the same reason.
 - **Conflicts are surfaced, not buried**. Opposing reviewer advice is flagged 🔴 during interaction and documented in the dossier — chosen direction in Section A/B, rejected direction with explanation in Section B.
 - **Final scan is mandatory**. Discussion changes things. The cross-reference scan at the start of Step 5 catches new duplicates, stale merges, and unresolved conflicts that emerged during conversation. Never skip this gate.
@@ -450,6 +520,11 @@ python3 ./scripts/list_comments.py --json
 # Manual PR override
 python3 ./scripts/list_comments.py --pr <N> --json
 
+# Cross-repo PR (when not in the repo directory)
+python3 ./scripts/list_comments.py --repo owner/name --pr <N> --json
+
 # Include resolved inline threads
 python3 ./scripts/list_comments.py --json --include-resolved
 ```
+
+Reply commands are generated per-task in the dossier (Section A for code changes, Section B for reply-only). See `references/dossier-template.md` for the endpoint selection table.

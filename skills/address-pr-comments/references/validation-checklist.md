@@ -9,6 +9,7 @@ Mark each comment as one of:
 - `valid`: technically correct, in-scope, and still applies to current HEAD.
 - `invalid`: incorrect claim, unsafe recommendation, or contradicts repo conventions.
 - `already_fixed`: issue is no longer present.
+- `already_replied`: comment has `has_replies: true` (detected by `list_comments.py` via thread analysis or time-based heuristic). Skip — no action needed. Override by reclassifying if the reply was insufficient.
 - `out_of_scope`: unrelated to the PR scope.
 - `needs_clarification`: ambiguous ask or missing acceptance criteria.
 
@@ -39,7 +40,7 @@ Before marking a comment `valid`, collect at least one:
 
 ## Implementation Rules
 
-- Batch related fixes together.
+- Validate related comments together, but commit each `valid` one separately (see SKILL.md Step 7).
 - Keep unrelated cleanups out of the patch.
 - Run checks relevant to changed files only, scoped to the modified paths.
 - Create one local commit per resolved `valid` comment.
@@ -54,6 +55,9 @@ Addressed:
 
 Not Addressed:
 - <comment link or reviewer>: <reason: invalid/already_fixed/out_of_scope>
+
+Already Replied (skipped):
+- <comment link or reviewer>: already has a human reply — no action needed
 
 Needs Clarification:
 - <comment link or reviewer>: <specific question>

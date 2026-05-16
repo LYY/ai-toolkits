@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Source: skills/address-pr-comments/scripts/list_comments.py
-# Vendored copy for self-contained deployment with npx skills add
+# KEEP IN SYNC with skills/address-pr-comments/scripts/list_comments.py
+# Both copies must be updated together. Diff before commit to verify parity.
 """
 Collect and normalize GitHub PR feedback via gh CLI.
 
