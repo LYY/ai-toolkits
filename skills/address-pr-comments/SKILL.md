@@ -66,6 +66,8 @@ python3 ./scripts/list_comments.py --pr <number> --json --include-resolved
 
 ## 4. Classify Source + Intent
 
+**IMPORTANT**: Use the **full `body`** field from JSON output for classification, not just `excerpt`. The excerpt is truncated to 220 characters and may cut off the actual content of long review comments.
+
 **Step A: Classify Source**
 
 Prioritize:
