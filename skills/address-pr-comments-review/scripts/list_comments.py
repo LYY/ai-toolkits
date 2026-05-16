@@ -137,6 +137,7 @@ def normalize_top_level(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "is_ai": is_ai_reviewer(login),
                 "created_at": comment.get("createdAt"),
                 "url": comment.get("url"),
+                "body": body,
                 "excerpt": body_excerpt(body),
                 "ai_prompts": extract_ai_prompts(body),
             }
@@ -157,6 +158,7 @@ def normalize_reviews(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "is_ai": is_ai_reviewer(login),
                 "state": review.get("state"),
                 "submitted_at": review.get("submittedAt"),
+                "body": body,
                 "excerpt": body_excerpt(body),
                 "ai_prompts": extract_ai_prompts(body),
             }
@@ -259,6 +261,7 @@ def normalize_inline(
                     if thread_status is not None
                     else None
                 ),
+                "body": body,
                 "excerpt": body_excerpt(body),
                 "ai_prompts": extract_ai_prompts(body),
             }

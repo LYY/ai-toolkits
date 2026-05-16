@@ -59,6 +59,8 @@ Aggregates:
 
 ### [2] Classify + Validate
 
+**CRITICAL**: Read the **full `body`** field from the JSON output, not just `excerpt`. The excerpt is truncated to 220 characters and may cut off the actual content of long review comments. Always use `body` for classification decisions.
+
 For each comment, determine three attributes:
 
 **Source**: `@human` vs `@bot` (coderabbit, etc.)
