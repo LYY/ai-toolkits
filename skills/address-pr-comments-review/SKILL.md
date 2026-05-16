@@ -10,12 +10,13 @@ description: >-
 
 ## Overview
 
-A two-phase interactive workflow for GitHub PR comment review.
+A three-phase interactive workflow for GitHub PR comment review.
 
-- **Phase 1** (this skill): collect, classify, and confirm comments interactively with the user, then generate a Sisyphus execution plan.
-- **Phase 2**: user runs `/start-work` to load the plan and execute per-comment tasks in isolated workspaces.
+- **Phase 1** (this skill): collect, classify, and confirm comments interactively with the user, then produce a review dossier.
+- **Phase 2**: user invokes Sisyphus plan mode (`@plan`) with the dossier — Prometheus generates a proper execution plan (with built-in Metis gap analysis + Momus review).
+- **Phase 3**: user runs `/start-work` to execute the plan in isolated workspaces.
 
-**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Plan generation depends on the Metis/Momus review chain and `/start-work` execution mode. Not compatible with other agent platforms (Claude Code, Cursor, Gemini CLI, etc.).
+**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Dossier placement and `@plan` → `/start-work` flow are Sisyphus-specific. Not compatible with other agent platforms (Claude Code, Cursor, Gemini CLI, etc.).
 
 **Self-contained**: uses its own `scripts/list_comments.py` (vendored, no external dependencies).
 
@@ -38,9 +39,9 @@ PR address or auto-detect
     ↓   discussion complete
 [4] Final confirmation table → user approves
     ↓   approved
-[5] Plan generation: AI draft → Metis review → Momus review → write
+[5] Generate review dossier → write to .sisyphus/notepads/pr-<N>-dossier/dossier.md
     ↓
-[6] User runs /start-work to execute
+[6] User runs @plan with dossier → Prometheus generates plan → /start-work executes
 ```
 
 ### [1] Collect Comments
@@ -110,56 +111,90 @@ Items without 🔴 are accepted as-is per AI conclusion. Speak up if you disagre
 
 After all discussion converges, produce an updated table reflecting every outcome. All 🔴 items must be resolved (conclusion changed or confirmed). User explicitly confirms with "ok" or equivalent.
 
-This is the last checkpoint before plan generation.
+This is the last checkpoint before dossier generation.
 
-### [5] Plan Generation (Sisyphus Format)
+### [5] Generate Review Dossier
 
-Write the plan to `.sisyphus/plans/pr-<N>-review.md`.
+**Do NOT generate a plan here.** The skill produces a dossier — a comprehensive requirements document. Plan generation is handled by Sisyphus plan mode (Prometheus) in the next phase, which has built-in Metis gap analysis and Momus review.
 
-**Process**:
-1. AI drafts the plan from the final confirmed table
-2. **Metis** reviews the draft: finds ambiguity, omissions, hidden AI failure points
-3. **Momus** reviews the draft: checks clarity, verifiability, completeness, actionability
-4. AI applies corrections from both reviews and writes the final plan
+Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the directory if it doesn't exist.
 
-**Plan structure**:
+**Dossier structure**:
 
 ```markdown
-# PR #N Review Plan
+# Review Dossier: PR #N — {{PR_TITLE}}
+
+> **For Prometheus plan mode**: Read this dossier to generate the execution plan.
+> No further interview needed — all decisions are confirmed below.
 
 ## Context
-- PR: <url>
-- Branch: <branch>
-- Analyzed: <timestamp>
-- Actionable: X | To fix: Y
+- PR: {{PR_URL}}
+- Branch: {{BRANCH}}
+- Repository: {{REPO}}
+- Analyzed: {{TIMESTAMP}}
+- Actionable comments: X | To fix: Y
 
-## Tasks
+## Confirmed Actionable Comments
 
-### Task 1: Comment #M — <summary>
-- **Dev**: <changes needed, with file paths and line numbers>
-- **Test**: <test strategy>
-- **Reply**: <inline/review/top_level> → @<author> "template"
-- **Deps**: []
+### Comment #{{ID}}: {{SUMMARY}}
+- **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
+- **Conclusion**: {{CONCLUSION}} — {{RATIONALE}}
+- **What to do**: {{DEV_CHANGES}} (exact file paths, line numbers, code change description)
+- **How to test**: {{TEST_STRATEGY}} (specific test commands, expected results)
+- **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
+  ```
+  {{REPLY_TEMPLATE}}
+  ```
+- **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
 
-### Task 2: ...
+### Comment #{{ID}}: ...
 
 ## Skipped Comments
-- Comment #K: <conclusion> — <reason>
+
+| # | Source | File | Conclusion | Reason |
+|---|--------|------|------------|--------|
+| {{ID}} | @{{AUTHOR}} | {{FILE}} | {{CONCLUSION}} | {{REASON}} |
 
 ## Dependencies
-- Tasks 1..N independent unless otherwise noted
+- Tasks are independent unless noted otherwise
+- {{ANY_DEPENDENCY_NOTES}}
+
+## Reply Templates (Reference for Plan Mode)
+| Outcome | Reply |
+|---------|-------|
+| valid (fixed) | `Fixed in <commit_sha>.` |
+| invalid | `This suggestion doesn't apply because <brief reason>.` |
+| already_fixed | `Already resolved in the current code — no changes needed.` |
+| out_of_scope | `This is outside the scope of this PR. <Optional: suggest follow-up>.` |
+| needs_clarification | `Confirmed: <resolved direction>.` |
 ```
 
-### [6] Handoff to /start-work
+**Rules for dossier content**:
+- Every `valid` comment must have: exact file paths, line numbers, specific code change description, test strategy, reply template, and suggested commit message.
+- Be exhaustive. Prometheus and Atlas operate with zero business context — the dossier is their only source of truth.
+- Use exact file paths from the PR diff. Do not guess or approximate.
+- For `needs_clarification` comments that the user resolved: include the resolved direction, not the original ambiguity.
 
-User runs `/start-work` to load the plan and execute tasks. Each task:
-1. Creates an isolated workspace (git worktree)
-2. Implements the change
-3. Runs targeted tests and checks
-4. Replies to the PR comment inline (or as conversation comment)
-5. Commits locally (no push)
+### [6] Handoff — Next Steps
 
-Do not proceed beyond plan generation. The `/start-work` session handles execution.
+After dossier is saved, output:
+
+```
+Dossier saved to .sisyphus/notepads/pr-<N>-dossier/dossier.md
+
+Next: activate Sisyphus plan mode (@plan) to generate the execution plan from this dossier.
+Prometheus will handle Metis gap analysis and Momus review internally.
+Then run /start-work to execute.
+```
+
+**Do NOT run `@plan` or `/start-work` yourself.** The skill's job ends at dossier generation. The user controls when to proceed.
+
+**What happens next (user-driven)**:
+1. User invokes `@plan "generate execution plan from .sisyphus/notepads/pr-<N>-dossier/dossier.md"`
+2. Prometheus reads the dossier, interviews if needed, runs Metis gap analysis
+3. Prometheus writes the plan to `.sisyphus/plans/pr-<N>-review.md`
+4. User reviews the plan, optionally triggers Momus review
+5. User runs `/start-work` — Atlas executes per-comment tasks (dev → test → reply → commit)
 
 ## Interaction Checklist
 
@@ -167,16 +202,18 @@ Do not proceed beyond plan generation. The `/start-work` session handles executi
 |------|------|-----------|
 | 3 | Overview confirmed | User accepts or remains silent after 🔴 items discussed |
 | 4 | Final table confirmed | User explicitly confirms ("ok", "go ahead") |
-| 5 | Plan approved | Metis + Momus reviews pass |
+| 5 | Dossier written | `.sisyphus/notepads/pr-<N>-dossier/dossier.md` exists and is complete |
+| 6 | Handoff delivered | User sees next-step instructions with `@plan` + `/start-work`
 
 ## Key Principles
 
 - **AI is analyst, user is decider**. The skill classifies and suggests conclusions, but the user makes final calls, especially on `needs_clarification` and high-risk items.
 - **Good classification saves time**. Accurate `informational` tagging and correct conclusions reduce review cycles.
 - **Every non-informational comment gets a conclusion**. No actionable comment is left without a disposition in the final table.
-- **Plan must be cleanly executable**. Metis and Momus exist to catch plans that would waste time on ambiguity or missing context.
+- **Dossier is the boundary**. The skill produces a dossier, NOT a plan. Plan generation (with Metis + Momus) belongs to Prometheus in the next phase. Do not cross this boundary.
+- **Dossier must be exhaustive**. Prometheus and Atlas have zero business context. Every `valid` comment in the dossier needs: exact file paths, specific code changes, test strategies, reply templates, and commit messages.
 - **Silence is consent by default**. Uncontested items proceed on AI recommendation. If the user wants stricter oversight, they can request item by item review.
-- **The two-phase split exists for a reason**. Do not collapse phase 2 into phase 1. Plan generation is the boundary; execution follows separately via `/start-work`.
+- **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (`@plan` via Prometheus). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
 
 ## Quick Commands
 
