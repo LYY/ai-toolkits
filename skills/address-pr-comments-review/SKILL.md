@@ -91,22 +91,80 @@ For each comment, determine three attributes:
 | actionable | `needs_clarification` | Section B | Reply only (with resolved direction) |
 | informational | — | Section C | No action at all |
 
-### [3] Overview Table + Interactive Confirmation
+### [2.5] Cross-Reference Check
 
-Present the full analysis in a structured table:
+**Before presenting the overview table**, scan all classified comments for cross-comment patterns. Multiple reviewers (copilot, bot, human) often flag the same issue or give conflicting advice.
+
+#### Detect Duplicates
+
+Two or more comments point to the **same file + same line + same issue** or substantially overlapping concerns:
+
+| Signal | Example |
+|--------|---------|
+| Same `path:line` | Both @copilot and @alice flag `foo.ts:42` |
+| Different line, same function | `foo.ts:42` and `foo.ts:47` both in `handleSubmit()` |
+| Same semantic issue | "null check missing" and "add guard clause" on same code block |
+
+**Action**: Merge duplicates into one entry in the overview table. List all authors as "noted by @X, @Y". Assign the most specific conclusion (e.g., if one says `valid` and another says `valid`, keep one `valid`; if opinions differ, see Conflicts below).
+
+#### Detect Conflicts
+
+Two or more comments on the **same code** with **opposing or incompatible recommendations**:
+
+| Signal | Example |
+|--------|---------|
+| Opposite changes | @alice: "use const" vs @bob: "use let for reassignment" |
+| Incompatible approaches | @copilot: "extract to helper" vs @alice: "inline for clarity" |
+| Different conclusions | @bot says `valid`, @human says `invalid` on same issue |
+
+**Action**: Merge into one entry, mark 🔴 for discussion, present both options:
 
 ```
-## PR #N Comment Analysis — X total, Y actionable
+| 3 | @alice vs @bob | inline | foo.ts:42 | var declaration choice | ⚠️ conflict | 🔴 resolve |
+```
+
+During Step 3 discussion, present both sides and ask user to choose.
+
+#### Detect Related Comments
+
+Comments on **different files/lines** that are **causally or logically connected**:
+
+| Signal | Example |
+|--------|---------|
+| Call chain | Comment A on `foo.ts:42` (callee), Comment B on `bar.ts:15` (caller) |
+| Shared type/interface | Both touch the same struct/type definition |
+| Sequential workflow | Fixing A might make B's concern irrelevant |
+
+**Action**: Note the relationship in the overview table. In the dossier, add dependency notes so plan mode can order tasks or group related changes.
+
+### [3] Overview Table + Interactive Confirmation
+
+Present the full analysis in a structured table. **Apply [2.5] cross-reference results**: merged duplicates appear as single entries with multiple authors, conflicts are flagged 🔴.
+
+```
+## PR #N Comment Analysis — X total (Y raw), Z actionable (after dedup)
 
 ### Overview
-| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 讨论 |
-|---|------|------|------|------|------|------|
-| 1 | @human | inline | foo.ts:42 | var → const | valid | |
-| 2 | @bot   | inline | bar.ts:15 | rename suggestion | invalid | |
-| 3 | @human | inline | baz.ts:8 | logic question | needs_clarification | 🔴 needs input |
+| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 去重/冲突 | 讨论 |
+|---|------|------|------|------|------|-----------|------|
+| 1 | @alice, @copilot | inline | foo.ts:42 | var → const | valid | ≡ merged (2 reviews) | |
+| 2 | @bot   | inline | bar.ts:15 | rename suggestion | invalid | | |
+| 3 | @alice vs @bob | inline | baz.ts:8 | const vs let choice | ⚠️ conflict | ↯ conflicting advice | 🔴 resolve |
+| 4 | @human | inline | qux.ts:3 | logic question | needs_clarification | | 🔴 needs input |
+
+Legend:
+- ≡ merged — duplicate comments combined into one entry
+- ↯ conflict — opposing recommendations, user must choose
+- 🔴 resolve — needs user decision before proceeding
 
 ### 🔴 Needs Discussion (N items)
-Expand each 🔴 item with context and explicitly ask the user for direction.
+Expand each 🔴 item with context. For conflicts, present both sides:
+
+**Comment #3 — Conflict on baz.ts:8**:
+- @alice suggests: `const result = await fetch()` (immutable)
+- @bob suggests: `let result = await fetch()` (may reassign later)
+- Current code uses `var`. Both agree it should change, disagree on replacement.
+- Which approach? (const / let / other)
 
 ### 📝 Silent Consent (M items)
 Items without 🔴 are accepted as-is per AI conclusion. Speak up if you disagree.
@@ -144,7 +202,17 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 | Needs code change + reply | N | Modify code, run tests, reply inline, commit |
 | Needs reply only | M | Reply inline with explanation, no code changes |
 | Informational (skip) | K | No action |
-| **Total tasks for plan** | **N+M** | **code tasks + reply tasks** |
+| **Total plan tasks** | **N+M** | **code tasks + reply tasks** |
+| **Raw comments (before dedup)** | R | Original count from list_comments.py |
+| **Merged duplicates** | D | Comments merged into others above |
+| **Conflicts resolved** | C | User chose one direction among conflicting advice |
+
+## Dedup & Conflict Notes
+
+| Type | Count | Details |
+|------|-------|---------|
+| Duplicates merged | D | Comments #X, #Y merged into Task A due to same file:line |
+| Conflicts resolved | C | Comment #X vs #Y: user chose @alice's approach over @bob's |
 
 ## Context
 - PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}, Analyzed: {{TIMESTAMP}}
@@ -155,16 +223,18 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 
 ### Comment #{{ID}}: {{SUMMARY}}
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
+- **Also noted by**: @{{DUP_AUTHOR1}}, @{{DUP_AUTHOR2}} (omit if no duplicates)
 - **Conclusion**: `valid`
 - **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification)
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
-- **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}}
+- **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}} (reply to ALL authors who raised this issue)
   ```bash
   gh api repos/{{REPO}}/pulls/{{PR}}/comments --method POST \
     -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
     -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
     -F in_reply_to={{COMMENT_ID}}
   ```
+- **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
 
 ---
@@ -209,6 +279,9 @@ No code changes. No replies. LGTM, praise, emoji-only, FYI.
 - Only `informational` comments (LGTM, praise, emoji, FYI) go in **Section C** (truly no action).
 - For Section A: exact file paths, line numbers, specific code change description, test strategy with commands, reply template, and suggested commit message are ALL required.
 - For Section B: each item must include the conclusion rationale and exact reply text. Include gh api commands with `in_reply_to` for inline replies.
+- **Duplicate handling**: When comments #X and #Y are merged (same file:line, same issue), produce ONE task entry. List all authors. Reply to EACH author individually using their own `in_reply_to` ID. Note the merge in Dedup & Conflict Notes.
+- **Conflict handling**: When user resolves a conflict (choosing @A's approach over @B's), the chosen direction goes in Section A (or B). The rejected direction goes in Section B as a reply-only item: explain to the rejected reviewer why their approach wasn't taken.
+- **Related comments**: When two tasks are causally related (call chain, shared type), add dependency notes below. Plan mode will use these to order tasks or group related changes.
 - Be exhaustive. Prometheus and Atlas operate with zero business context — the dossier is their only source of truth.
 
 ### [6] Handoff — Next Steps
@@ -250,6 +323,8 @@ Then run /start-work to execute.
 - **Dossier is the boundary and the single source of truth.** The skill produces a dossier, not a plan. Plan generation belongs to Prometheus. The dossier must be exhaustive — Prometheus and Atlas operate with zero business context.
 - **Silence is consent by default**. Uncontested items proceed on AI recommendation. If the user wants stricter oversight, they can request item by item review.
 - **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (`@plan` via Prometheus). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
+- **Duplicates are detected, not created**. Cross-reference check (Step 2.5) merges same file:line issues into single tasks. Plan mode must never see two tasks modifying the same line for the same reason.
+- **Conflicts are surfaced, not buried**. Opposing reviewer advice is flagged 🔴 during interaction and documented in the dossier — chosen direction in Section A/B, rejected direction with explanation in Section B.
 
 ## Quick Commands
 

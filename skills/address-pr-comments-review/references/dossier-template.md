@@ -10,7 +10,17 @@
 | Needs code change + reply | {{VALID_COUNT}} | Modify code, run tests, reply inline, commit |
 | Needs reply only | {{REPLY_ONLY_COUNT}} | Reply inline with explanation, no code changes |
 | Informational (skip) | {{INFO_COUNT}} | No action |
-| **Total tasks for plan** | **{{TOTAL_TASKS}}** | **{{VALID_COUNT}} code tasks + {{REPLY_ONLY_COUNT}} reply tasks** |
+| **Total plan tasks** | **{{TOTAL_TASKS}}** | **code tasks + reply tasks** |
+| **Raw comments (before dedup)** | {{RAW_COUNT}} | Original count from list_comments.py |
+| **Merged duplicates** | {{DUP_COUNT}} | Comments merged into entries above |
+| **Conflicts resolved** | {{CONFLICT_COUNT}} | User chose one direction among conflicting advice |
+
+## Dedup & Conflict Notes
+
+| Type | Count | Details |
+|------|-------|---------|
+| Duplicates merged | {{DUP_COUNT}} | {{DUP_DETAILS}} |
+| Conflicts resolved | {{CONFLICT_COUNT}} | {{CONFLICT_DETAILS}} |
 
 ## Context
 
@@ -24,48 +34,52 @@
 ## A. Comments Requiring Code Change + Reply ({{VALID_COUNT}} items)
 
 Each item requires: code modification → run targeted tests → inline reply with commit SHA → local commit.
+If duplicates exist, reply to ALL authors individually.
 
-### Comment #{{COMMENT_ID}}: {{SUMMARY}}
+### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — {{SUMMARY}}
 
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
+- **Also noted by**: @{{DUP_AUTHOR1}}, @{{DUP_AUTHOR2}} (omit if no duplicates)
 - **Conclusion**: `valid`
 - **What to change**: {{DEV_CHANGES}} (exact file path, line numbers, specific code modification)
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
 - **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}}
-
   ```bash
-  # Choose the correct endpoint based on reply kind:
-  # inline:
   gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
     -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
     -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
     -F in_reply_to={{COMMENT_ID}}
-  # review:
-  gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/reviews --method POST \
-    -F body="{{REPLY_TEXT}}" -F event=COMMENT
-  # top_level:
-  gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
-    -F body="{{REPLY_TEXT}}"
   ```
-
+- **Reply to duplicate authors**: Repeat for @{{DUP_AUTHOR}} with `in_reply_to={{DUP_COMMENT_ID}}`
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
 
 ---
 
 ## B. Comments Requiring Reply Only ({{REPLY_ONLY_COUNT}} items)
 
-**No code changes needed.** Each item only requires an inline reply explaining why the suggestion was not applied. No tests, no commits.
+**No code changes needed.** Each item only requires an inline reply explaining the decision. No tests, no commits.
 
-### Comment #{{COMMENT_ID}}: {{SUMMARY}}
+### Reply Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — {{SUMMARY}}
 
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Conclusion**: `{{CONCLUSION}}` — {{RATIONALE}}
 - **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
-
   ```bash
-  # Choose the correct endpoint (same as section A):
   gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
     -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
+    -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
+    -F in_reply_to={{COMMENT_ID}}
+  ```
+
+### Reply Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — Conflict resolution: {{SUMMARY}}
+
+- **Source**: @{{REJECTED_AUTHOR}} (vs @{{CHOSEN_AUTHOR}}) | {{KIND}} | {{FILE_PATH}}:{{LINE}}
+- **Context**: User chose @{{CHOSEN_AUTHOR}}'s approach over @{{REJECTED_AUTHOR}}'s conflicting suggestion.
+- **Conclusion**: `invalid` (conflicting approach not taken)
+- **Reply**: {{REPLY_KIND}} → @{{REJECTED_AUTHOR}}
+  ```bash
+  gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
+    -F body="{{CONFLICT_REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
     -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
     -F in_reply_to={{COMMENT_ID}}
   ```
@@ -74,7 +88,7 @@ Each item requires: code modification → run targeted tests → inline reply wi
 
 ## C. Informational Comments — No Action ({{INFO_COUNT}} items)
 
-No code changes. No replies. These are LGTM, praise, emoji-only, or FYI comments.
+No code changes. No replies. LGTM, praise, emoji-only, FYI.
 
 | # | Source | Kind | Summary |
 |---|--------|------|---------|
@@ -91,6 +105,7 @@ No code changes. No replies. These are LGTM, praise, emoji-only, or FYI comments
 | already_fixed | `Already resolved in the current code — no changes needed.` |
 | out_of_scope | `This is outside the scope of this PR. <Optional: suggest follow-up>.` |
 | needs_clarification | `Confirmed: <resolved direction>.` |
+| conflict (not chosen) | `Thanks for the suggestion. We went with @other's approach for <reason>.` |
 
 ## Reply Endpoints
 
@@ -103,3 +118,7 @@ No code changes. No replies. These are LGTM, praise, emoji-only, or FYI comments
 ## Dependencies
 
 {{DEPENDENCIES_NOTE}}
+
+If related comments exist (call chain, shared type), note here:
+- Task X and Task Y both modify `shared_type.go` — coordinate changes.
+- Task A is a callee of Task B's caller — order: fix callee first, then caller.
