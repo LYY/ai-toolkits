@@ -186,6 +186,22 @@ This is the last checkpoint before dossier generation.
 
 **Do NOT generate a plan here.** The skill produces a dossier — a comprehensive requirements document. Plan generation is handled by Sisyphus plan mode (Prometheus) in the next phase, which has built-in Metis gap analysis and Momus review.
 
+**CRITICAL — Final Cross-Reference Scan**: Before writing the dossier, re-scan the **final confirmed table** (from Step 4) against the original cross-reference results (from Step 2.5). Discussion may have changed conclusions, revealed new connections, or created new duplicates.
+
+Run through this checklist:
+
+| Check | What to look for | Action if found |
+|-------|-----------------|-----------------|
+| **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
+| **Stale duplicates** | Two entries were merged in Step 2.5, but discussion changed one conclusion (e.g., `valid` → `invalid`) — they may no longer be duplicates | Split back to separate entries with their new conclusions |
+| **Unresolved conflicts** | Any entry still marked 🔴 or ↯ without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
+| **Orphaned replies** | A comment was marked `valid` in Step 2 but changed to `invalid` during discussion — does its duplicate partner still need the code change? | Verify the remaining entry is correctly classified |
+| **New relations** | Discussion revealed that fixing Comment #X will also fix Comment #Y's concern (not duplicate, but related) | Add dependency note: "Task Y may become unnecessary after Task X" |
+| **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
+| **Reply target mismatch** | Merged duplicates — all authors listed? Each has an `in_reply_to` ID? | Verify all authors are accounted for |
+
+**Gate rule**: If any 🔴 item remains unresolved, do NOT write the dossier. Return to Step 3. If all checks pass, proceed.
+
 Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the directory if it doesn't exist.
 
 **Dossier structure**:
@@ -309,8 +325,10 @@ Then run /start-work to execute.
 
 | Step | Gate | Condition |
 |------|------|-----------|
+| 2.5 | Cross-reference scanned | Duplicates merged, conflicts flagged, relations noted |
 | 3 | Overview confirmed | User accepts or remains silent after 🔴 items discussed |
 | 4 | Final table confirmed | User explicitly confirms ("ok", "go ahead") |
+| 5 (before write) | Final cross-reference scan | All 7 checks pass, no unresolved 🔴 items remain |
 | 5 | Dossier written | `.sisyphus/notepads/pr-<N>-dossier/dossier.md` exists and is complete |
 | 6 | Handoff delivered | User sees next-step instructions with `@plan` + `/start-work`
 
@@ -325,6 +343,7 @@ Then run /start-work to execute.
 - **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (`@plan` via Prometheus). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
 - **Duplicates are detected, not created**. Cross-reference check (Step 2.5) merges same file:line issues into single tasks. Plan mode must never see two tasks modifying the same line for the same reason.
 - **Conflicts are surfaced, not buried**. Opposing reviewer advice is flagged 🔴 during interaction and documented in the dossier — chosen direction in Section A/B, rejected direction with explanation in Section B.
+- **Final scan is mandatory**. Discussion changes things. The cross-reference scan at the start of Step 5 catches new duplicates, stale merges, and unresolved conflicts that emerged during conversation. Never skip this gate.
 
 ## Quick Commands
 
