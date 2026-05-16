@@ -80,6 +80,17 @@ For each comment, determine three attributes:
 
 **Discussion flag**: Comments with `needs_clarification` or high-risk `valid` items get marked 🔴.
 
+**Classification → Dossier section mapping**:
+
+| Intent | Conclusion | Dossier Section | Action |
+|--------|-----------|-----------------|--------|
+| actionable | `valid` | Section A | Code change + test + reply + commit |
+| actionable | `invalid` | Section B | Reply only (explain why) |
+| actionable | `already_fixed` | Section B | Reply only (confirm already fixed) |
+| actionable | `out_of_scope` | Section B | Reply only (suggest follow-up if needed) |
+| actionable | `needs_clarification` | Section B | Reply only (with resolved direction) |
+| informational | — | Section C | No action at all |
+
 ### [3] Overview Table + Interactive Confirmation
 
 Present the full analysis in a structured table:
@@ -127,37 +138,60 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 > **For Prometheus plan mode**: Read this dossier to generate the execution plan.
 > No further interview needed — all decisions are confirmed below.
 
-## Context
-- PR: {{PR_URL}}
-- Branch: {{BRANCH}}
-- Repository: {{REPO}}
-- Analyzed: {{TIMESTAMP}}
-- Actionable comments: X | To fix: Y
+## Executive Summary
+| Category | Count | Action |
+|----------|-------|--------|
+| Needs code change + reply | N | Modify code, run tests, reply inline, commit |
+| Needs reply only | M | Reply inline with explanation, no code changes |
+| Informational (skip) | K | No action |
+| **Total tasks for plan** | **N+M** | **code tasks + reply tasks** |
 
-## Confirmed Actionable Comments
+## Context
+- PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}, Analyzed: {{TIMESTAMP}}
+
+---
+
+## A. Comments Requiring Code Change + Reply (N items)
 
 ### Comment #{{ID}}: {{SUMMARY}}
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
-- **Conclusion**: {{CONCLUSION}} — {{RATIONALE}}
-- **What to do**: {{DEV_CHANGES}} (exact file paths, line numbers, code change description)
-- **How to test**: {{TEST_STRATEGY}} (specific test commands, expected results)
-- **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
-  ```
-  {{REPLY_TEMPLATE}}
+- **Conclusion**: `valid`
+- **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification)
+- **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
+- **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}}
+  ```bash
+  gh api repos/{{REPO}}/pulls/{{PR}}/comments --method POST \
+    -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
+    -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
+    -F in_reply_to={{COMMENT_ID}}
   ```
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
 
-### Comment #{{ID}}: ...
+---
 
-## Skipped Comments
+## B. Comments Requiring Reply Only (M items)
 
-| # | Source | File | Conclusion | Reason |
-|---|--------|------|------------|--------|
-| {{ID}} | @{{AUTHOR}} | {{FILE}} | {{CONCLUSION}} | {{REASON}} |
+**No code changes needed.** Each item only requires an inline reply explaining the decision. No tests, no commits.
 
-## Dependencies
-- Tasks are independent unless noted otherwise
-- {{ANY_DEPENDENCY_NOTES}}
+### Comment #{{ID}}: {{SUMMARY}}
+- **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
+- **Conclusion**: `{{CONCLUSION}}` — {{RATIONALE}}
+- **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
+  ```bash
+  gh api repos/{{REPO}}/... (same endpoint selection as section A)
+  ```
+
+---
+
+## C. Informational Comments — No Action (K items)
+
+No code changes. No replies. LGTM, praise, emoji-only, FYI.
+
+| # | Source | Kind | Summary |
+|---|--------|------|---------|
+| {{ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} |
+
+---
 
 ## Reply Templates (Reference for Plan Mode)
 | Outcome | Reply |
@@ -170,10 +204,12 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 ```
 
 **Rules for dossier content**:
-- Every `valid` comment must have: exact file paths, line numbers, specific code change description, test strategy, reply template, and suggested commit message.
+- Every `valid` comment goes in **Section A** (code change + reply + test + commit).
+- Every `invalid` / `already_fixed` / `out_of_scope` / `needs_clarification` comment goes in **Section B** (reply only). These are NOT "skipped" — the reviewer is waiting for a response explaining why.
+- Only `informational` comments (LGTM, praise, emoji, FYI) go in **Section C** (truly no action).
+- For Section A: exact file paths, line numbers, specific code change description, test strategy with commands, reply template, and suggested commit message are ALL required.
+- For Section B: each item must include the conclusion rationale and exact reply text. Include gh api commands with `in_reply_to` for inline replies.
 - Be exhaustive. Prometheus and Atlas operate with zero business context — the dossier is their only source of truth.
-- Use exact file paths from the PR diff. Do not guess or approximate.
-- For `needs_clarification` comments that the user resolved: include the resolved direction, not the original ambiguity.
 
 ### [6] Handoff — Next Steps
 
@@ -209,9 +245,9 @@ Then run /start-work to execute.
 
 - **AI is analyst, user is decider**. The skill classifies and suggests conclusions, but the user makes final calls, especially on `needs_clarification` and high-risk items.
 - **Good classification saves time**. Accurate `informational` tagging and correct conclusions reduce review cycles.
-- **Every non-informational comment gets a conclusion**. No actionable comment is left without a disposition in the final table.
-- **Dossier is the boundary**. The skill produces a dossier, NOT a plan. Plan generation (with Metis + Momus) belongs to Prometheus in the next phase. Do not cross this boundary.
-- **Dossier must be exhaustive**. Prometheus and Atlas have zero business context. Every `valid` comment in the dossier needs: exact file paths, specific code changes, test strategies, reply templates, and commit messages.
+- **Every non-informational comment gets a conclusion AND a reply.** No actionable comment is left without a disposition in the final table — and no non-informational comment is left without a reply task in the dossier (Section A or B).
+- **"Skipped" only means informational.** `invalid`/`already_fixed`/`out_of_scope`/`needs_clarification` go in Section B (Reply Only), NOT in Section C. The reviewer is waiting for a response.
+- **Dossier is the boundary and the single source of truth.** The skill produces a dossier, not a plan. Plan generation belongs to Prometheus. The dossier must be exhaustive — Prometheus and Atlas operate with zero business context.
 - **Silence is consent by default**. Uncontested items proceed on AI recommendation. If the user wants stricter oversight, they can request item by item review.
 - **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (`@plan` via Prometheus). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
 
