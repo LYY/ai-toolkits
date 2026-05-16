@@ -22,9 +22,20 @@ A three-phase interactive workflow for GitHub PR comment review.
 
 ## Prerequisites
 
-- `gh` CLI installed and authenticated
+- `gh` CLI installed and authenticated (`gh auth status` must pass)
 - OpenCode + OhMyOpenCode (Sisyphus) environment
 - Current git branch has an open PR, or you know the PR number
+
+## Error Recovery
+
+| Failure | Response |
+|---------|----------|
+| `gh` not installed / not authenticated | Stop. Tell user to run `gh auth login`. |
+| `list_comments.py` fails (network, API rate limit) | Retry once after 5 seconds. If still fails, report the error and ask user if they want to continue with manual PR number override. |
+| PR not found (wrong number, closed, merged) | Report the specific gh error. Ask user to verify PR number and state. |
+| **Zero comments on PR** | Report: "PR has no comments — nothing to review." Suggest the user check if reviews are pending. |
+| **All comments are informational** | Still produce a minimal dossier (Section A=0, B=0, C=all) with a note. User can then decide to skip `/start-work`. |
+| Script returns empty JSON | Verify `gh pr view` works manually. Check that the branch has an open PR. |
 
 ## Workflow
 
@@ -34,6 +45,8 @@ PR address or auto-detect
 [1] Collect comments (list_comments.py)
     ↓
 [2] Classify + validate (per comment analysis)
+    ↓
+[2.5] Cross-reference check (duplicates / conflicts / relations)
     ↓
 [3] Overview table → interactive confirmation (silence = consent)
     ↓   discussion complete
@@ -79,6 +92,15 @@ For each comment, determine three attributes:
 | `needs_clarification` | Need reviewer input to proceed |
 
 **Discussion flag**: Comments with `needs_clarification` or high-risk `valid` items get marked 🔴.
+
+**Edge cases**:
+
+| Situation | Handling |
+|-----------|----------|
+| Comment is minimized (hidden) | Treat as `informational` — no action. GitHub UI hides it; reviewer likely retracted it. |
+| Author is deleted/ghost | Still classify normally. If actionable, reply still goes to the thread even though author is gone. |
+| Empty body | Treat as `informational` — no content to act on. |
+| Comment from PR author themselves | Still classify by content. Self-review notes can be `informational` or `actionable` depending on content. |
 
 **Classification → Dossier section mapping**:
 
@@ -176,9 +198,33 @@ Items without 🔴 are accepted as-is per AI conclusion. Speak up if you disagre
 - `needs_clarification` items require explicit user direction. Do not proceed without it.
 - Discuss 🔴 items first, then confirm the rest are accepted.
 
+**Scaling for large PRs** (20+ actionable comments):
+
+| Problem | Solution |
+|---------|----------|
+| Overview table too long | Show 🔴 items inline, collapse 📝 items to a summary line: "12 silent-consent items (see dossier for details)" |
+| Too many 🔴 to discuss at once | Batch into groups of 5-7, discuss one batch at a time |
+| User overwhelmed | Offer to prioritize: "Should we discuss CRITICAL/high-risk items first, then handle the rest in silent consent?" |
+| Dossier would be enormous | Section A/B items are already individual — plan mode handles scale. Dossier length is expected for large PRs. |
+
 ### [4] Final Confirmation Table
 
-After all discussion converges, produce an updated table reflecting every outcome. All 🔴 items must be resolved (conclusion changed or confirmed). User explicitly confirms with "ok" or equivalent.
+After all discussion converges, produce an updated table reflecting every outcome. All 🔴 items must be resolved (conclusion changed or confirmed).
+
+**Include a change summary** so the user can quickly see what changed from Step 3:
+
+```
+## Changes from Step 3
+- #2: conclusion changed from `valid` to `invalid` (discussion: doesn't apply after all)
+- #3: conflict resolved — chose @alice's `const` approach, rejecting @bob's `let`
+- #5: split from merged entry #4 (discussion revealed different issues)
+- #7: conclusion changed from `needs_clarification` → `valid` (user provided direction)
+
+### Final Overview
+| # | ... (updated table with all changes applied) |
+```
+
+User explicitly confirms with "ok" or equivalent.
 
 This is the last checkpoint before dossier generation.
 
@@ -263,9 +309,25 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Conclusion**: `{{CONCLUSION}}` — {{RATIONALE}}
 - **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
+
+  **Choose endpoint by reply kind** (NOT all inline):
   ```bash
-  gh api repos/{{REPO}}/... (same endpoint selection as section A)
+  # inline:
+  gh api repos/{{REPO}}/pulls/{{PR}}/comments --method POST \
+    -F body="{{REPLY_TEXT}}" -F commit_id={{COMMIT_SHA}} \
+    -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
+    -F in_reply_to={{COMMENT_ID}}
+
+  # review body:
+  gh api repos/{{REPO}}/pulls/{{PR}}/reviews --method POST \
+    -F body="{{REPLY_TEXT}}" -F event=COMMENT
+
+  # top_level:
+  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
+    -F body="{{REPLY_TEXT}}"
   ```
+
+  **Note**: `{{COMMIT_SHA}}` for reply-only tasks = the PR branch's HEAD commit (use `git rev-parse HEAD` in the PR branch). No new commit is created, but inline replies require a valid commit SHA on the PR branch.
 
 ---
 
@@ -296,9 +358,24 @@ No code changes. No replies. LGTM, praise, emoji-only, FYI.
 - For Section A: exact file paths, line numbers, specific code change description, test strategy with commands, reply template, and suggested commit message are ALL required.
 - For Section B: each item must include the conclusion rationale and exact reply text. Include gh api commands with `in_reply_to` for inline replies.
 - **Duplicate handling**: When comments #X and #Y are merged (same file:line, same issue), produce ONE task entry. List all authors. Reply to EACH author individually using their own `in_reply_to` ID. Note the merge in Dedup & Conflict Notes.
+  - All duplicate authors get the same reply content (the fix was applied / the conclusion stands).
+  - Each reply uses the author's own comment ID as `in_reply_to`. Do NOT use the same ID for multiple replies.
+  - For 3+ duplicates: list all IDs explicitly in the task so plan mode can loop.
 - **Conflict handling**: When user resolves a conflict (choosing @A's approach over @B's), the chosen direction goes in Section A (or B). The rejected direction goes in Section B as a reply-only item: explain to the rejected reviewer why their approach wasn't taken.
 - **Related comments**: When two tasks are causally related (call chain, shared type), add dependency notes below. Plan mode will use these to order tasks or group related changes.
 - Be exhaustive. Prometheus and Atlas operate with zero business context — the dossier is their only source of truth.
+
+**After writing the dossier**, verify:
+
+| Check | Command/Condition |
+|-------|-------------------|
+| File exists | `test -f .sisyphus/notepads/pr-<N>-dossier/dossier.md` |
+| Valid markdown | File starts with `# Review Dossier:` |
+| Counts match | Executive Summary counts = actual items in each section |
+| No placeholder left | No `{{...}}` template variables remain — all should be substituted |
+| Reply endpoint correct | Each reply task uses the endpoint matching its `{{REPLY_KIND}}` (inline/review/top_level) |
+
+If any check fails, fix and re-verify before proceeding to Step 6.
 
 ### [6] Handoff — Next Steps
 

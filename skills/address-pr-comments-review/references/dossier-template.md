@@ -57,18 +57,38 @@ If duplicates exist, reply to ALL authors individually.
 
 ## B. Comments Requiring Reply Only ({{REPLY_ONLY_COUNT}} items)
 
-**No code changes needed.** Each item only requires an inline reply explaining the decision. No tests, no commits.
+**No code changes needed.** Each item only requires a reply explaining the decision. No tests, no commits.
+
+**IMPORTANT**: Choose the correct `gh api` endpoint based on `{{REPLY_KIND}}`. Each kind uses a different endpoint:
+
+| Reply Kind | Endpoint | Key Flag |
+|------------|----------|----------|
+| `inline` | `repos/{owner}/{repo}/pulls/{pr}/comments` | `in_reply_to=<id>` |
+| `review` | `repos/{owner}/{repo}/pulls/{pr}/reviews` | `event=COMMENT` |
+| `top_level` | `repos/{owner}/{repo}/issues/{pr}/comments` | — |
+
+**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch. Use `git rev-parse HEAD` from the PR branch (NOT a newly created commit — no code changes exist). `review` and `top_level` replies do NOT need `commit_id`.
 
 ### Reply Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — {{SUMMARY}}
 
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Conclusion**: `{{CONCLUSION}}` — {{RATIONALE}}
 - **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
+
   ```bash
+  # inline:
   gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
     -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
     -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
     -F in_reply_to={{COMMENT_ID}}
+
+  # review:
+  gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/reviews --method POST \
+    -F body="{{REPLY_TEXT}}" -F event=COMMENT
+
+  # top_level:
+  gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
+    -F body="{{REPLY_TEXT}}"
   ```
 
 ### Reply Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — Conflict resolution: {{SUMMARY}}
@@ -77,18 +97,14 @@ If duplicates exist, reply to ALL authors individually.
 - **Context**: User chose @{{CHOSEN_AUTHOR}}'s approach over @{{REJECTED_AUTHOR}}'s conflicting suggestion.
 - **Conclusion**: `invalid` (conflicting approach not taken)
 - **Reply**: {{REPLY_KIND}} → @{{REJECTED_AUTHOR}}
-  ```bash
-  gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
-    -F body="{{CONFLICT_REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
-    -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
-    -F in_reply_to={{COMMENT_ID}}
-  ```
+
+  *(Use the endpoint matching `{{REPLY_KIND}}` as shown above)*
 
 ---
 
 ## C. Informational Comments — No Action ({{INFO_COUNT}} items)
 
-No code changes. No replies. LGTM, praise, emoji-only, FYI.
+No code changes. No replies. LGTM, praise, emoji-only, FYI, minimized/hidden.
 
 | # | Source | Kind | Summary |
 |---|--------|------|---------|
@@ -106,14 +122,6 @@ No code changes. No replies. LGTM, praise, emoji-only, FYI.
 | out_of_scope | `This is outside the scope of this PR. <Optional: suggest follow-up>.` |
 | needs_clarification | `Confirmed: <resolved direction>.` |
 | conflict (not chosen) | `Thanks for the suggestion. We went with @other's approach for <reason>.` |
-
-## Reply Endpoints
-
-| Type | gh api Endpoint | Key Flag |
-|------|----------------|----------|
-| inline | `repos/{owner}/{repo}/pulls/{pr}/comments` | `in_reply_to=<comment_id>` |
-| review | `repos/{owner}/{repo}/pulls/{pr}/reviews` | `event=COMMENT` |
-| top_level | `repos/{owner}/{repo}/issues/{pr}/comments` | — |
 
 ## Dependencies
 
