@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Source: skills/address-pr-comments/scripts/list_comments.py
+# Vendored copy for self-contained deployment with npx skills add
 """
 Collect and normalize GitHub PR feedback via gh CLI.
 
@@ -45,6 +47,9 @@ query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
           comments(first:100) {
             nodes {
               databaseId
+              author {
+                login
+              }
             }
           }
         }
@@ -72,10 +77,13 @@ def ensure_gh() -> None:
     _ = run_gh(["--version"])
 
 
-def resolve_pr_number(pr: int | None) -> int:
+def resolve_pr_number(pr: int | None, repo: str | None = None) -> int:
     if pr:
         return pr
-    data = json.loads(run_gh(["pr", "view", "--json", "number"]))
+    args = ["pr", "view", "--json", "number"]
+    if repo:
+        args.extend(["--repo", repo])
+    data = json.loads(run_gh(args))
     return int(data["number"])
 
 
@@ -122,15 +130,21 @@ def extract_ai_prompts(body: str) -> list[str]:
     return unique
 
 
-def normalize_top_level(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_top_level(
+    comments: list[dict[str, Any]],
+    reply_map: dict[int, bool] | None = None,
+) -> list[dict[str, Any]]:
+    if reply_map is None:
+        reply_map = {}
     normalized = []
     for comment in comments:
         login = comment.get("author", {}).get("login", "")
         body = comment.get("body", "")
+        comment_id = comment.get("id")
         normalized.append(
             {
                 "kind": "top_level",
-                "id": comment.get("id"),
+                "id": comment_id,
                 "author": login,
                 "is_ai": is_ai_reviewer(login),
                 "created_at": comment.get("createdAt"),
@@ -138,20 +152,29 @@ def normalize_top_level(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "body": body,
                 "excerpt": body_excerpt(body),
                 "ai_prompts": extract_ai_prompts(body),
+                "has_replies": bool(
+                    reply_map.get(comment_id) if comment_id is not None else False
+                ),
             }
         )
     return normalized
 
 
-def normalize_reviews(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_reviews(
+    reviews: list[dict[str, Any]],
+    reply_map: dict[int, bool] | None = None,
+) -> list[dict[str, Any]]:
+    if reply_map is None:
+        reply_map = {}
     normalized = []
     for review in reviews:
         login = review.get("author", {}).get("login", "")
         body = review.get("body", "") or ""
+        review_id = review.get("id")
         normalized.append(
             {
                 "kind": "review",
-                "id": review.get("id"),
+                "id": review_id,
                 "author": login,
                 "is_ai": is_ai_reviewer(login),
                 "state": review.get("state"),
@@ -159,6 +182,9 @@ def normalize_reviews(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "body": body,
                 "excerpt": body_excerpt(body),
                 "ai_prompts": extract_ai_prompts(body),
+                "has_replies": bool(
+                    reply_map.get(review_id) if review_id is not None else False
+                ),
             }
         )
     return normalized
@@ -195,12 +221,24 @@ def collect_review_thread_status(
         )
 
         for thread in review_threads.get("nodes", []):
+            thread_comments = thread.get("comments", {}).get("nodes", [])
+            total_comments = len(thread_comments)
+            # A thread has replies if it has > 1 comment AND at least
+            # one comment is from a non-AI (presumably human) author.
+            human_reply_count = sum(
+                1
+                for c in thread_comments
+                if not is_ai_reviewer((c.get("author") or {}).get("login", ""))
+            )
+            has_replies = total_comments > 1 and human_reply_count >= 1
+
             status = {
                 "thread_id": thread.get("id"),
                 "thread_resolved": bool(thread.get("isResolved")),
                 "thread_outdated": bool(thread.get("isOutdated")),
+                "has_replies": has_replies,
             }
-            for comment in thread.get("comments", {}).get("nodes", []):
+            for comment in thread_comments:
                 database_id = comment.get("databaseId")
                 if database_id is not None:
                     by_comment_id[int(database_id)] = status
@@ -259,6 +297,11 @@ def normalize_inline(
                     if thread_status is not None
                     else None
                 ),
+                "has_replies": (
+                    thread_status.get("has_replies")
+                    if thread_status is not None
+                    else False
+                ),
                 "body": body,
                 "excerpt": body_excerpt(body),
                 "ai_prompts": extract_ai_prompts(body),
@@ -267,26 +310,111 @@ def normalize_inline(
     return normalized
 
 
-def collect(pr: int, include_resolved: bool = False) -> dict[str, Any]:
-    pr_view = json.loads(
-        run_gh(
-            [
-                "pr",
-                "view",
-                str(pr),
-                "--json",
-                "number,title,url,comments,reviews",
-            ]
+def build_reply_map(owner: str, repo: str, pr: int) -> dict[int, bool]:
+    """Build a mapping of comment/review ID → has_replies.
+
+    Fetches all issue comments and reviews from the PR, then uses a
+    time-based heuristic: any subsequent comment/review by a different
+    non-bot author is considered a reply.
+    """
+    reply_map: dict[int, bool] = {}
+
+    try:
+        raw_issue_comments = json.loads(
+            run_gh(
+                [
+                    "api",
+                    f"repos/{owner}/{repo}/issues/{pr}/comments",
+                    "--paginate",
+                    "--jq",
+                    "[.[] | {id: .node_id, created_at: .created_at, author: .user.login}]",
+                ]
+            )
         )
-    )
+    except RuntimeError:
+        raw_issue_comments = []
+
+    try:
+        raw_reviews = json.loads(
+            run_gh(
+                [
+                    "api",
+                    f"repos/{owner}/{repo}/pulls/{pr}/reviews",
+                    "--paginate",
+                    "--jq",
+                    "[.[] | {id: .node_id, submitted_at: .submitted_at, author: .user.login, state: .state}]",
+                ]
+            )
+        )
+    except RuntimeError:
+        raw_reviews = []
+
+    # Collect all "events" (comments + reviews) sorted by time.
+    events: list[dict[str, Any]] = []
+    for c in raw_issue_comments:
+        if c.get("created_at"):
+            events.append(
+                {
+                    "kind": "issue_comment",
+                    "id": c["id"],
+                    "time": c["created_at"],
+                    "author": c.get("author", ""),
+                }
+            )
+    for r in raw_reviews:
+        if r.get("submitted_at"):
+            events.append(
+                {
+                    "kind": "review",
+                    "id": r["id"],
+                    "time": r["submitted_at"],
+                    "author": r.get("author", ""),
+                    "state": r.get("state", ""),
+                }
+            )
+
+    events.sort(key=lambda e: e["time"])
+
+    # For each event, scan later events for potential replies.
+    # A reply must: be later in time, have a different non-AI author,
+    # and (for reviews) be a COMMENT (not APPROVE/CHANGES_REQUESTED).
+    for i, event in enumerate(events):
+        target_id = event["id"]
+        for later in events[i + 1 :]:
+            if later["author"] == event["author"]:
+                continue
+            if is_ai_reviewer(later["author"]):
+                continue
+            if later["kind"] == "review" and later.get("state") != "COMMENTED":
+                continue
+            reply_map[target_id] = True
+            break
+
+    return reply_map
+
+
+def collect(
+    pr: int, include_resolved: bool = False, repo: str | None = None
+) -> dict[str, Any]:
+    gh_pr_args = [
+        "pr",
+        "view",
+        str(pr),
+        "--json",
+        "number,title,url,comments,reviews",
+    ]
+    if repo:
+        gh_pr_args.extend(["--repo", repo])
+    pr_view = json.loads(run_gh(gh_pr_args))
     owner, repo = parse_repo_from_pr_url(pr_view["url"])
     inline = json.loads(
         run_gh(["api", f"repos/{owner}/{repo}/pulls/{pr}/comments", "--paginate"])
     )
     review_thread_status = collect_review_thread_status(owner, repo, pr)
+    reply_map = build_reply_map(owner, repo, pr)
 
-    top_level = normalize_top_level(pr_view.get("comments", []))
-    reviews = normalize_reviews(pr_view.get("reviews", []))
+    top_level = normalize_top_level(pr_view.get("comments", []), reply_map)
+    reviews = normalize_reviews(pr_view.get("reviews", []), reply_map)
     inline_comments = normalize_inline(
         inline,
         review_thread_status=review_thread_status,
@@ -368,11 +496,12 @@ def print_text_report(payload: dict[str, Any]) -> None:
 
     for idx, item in enumerate(payload["items"], start=1):
         marker = "AI" if item["is_ai"] else "Human"
+        replied = " ↩" if item.get("has_replies") else ""
         location = ""
         if item.get("path"):
             location = f" | {item['path']}:{item.get('line') or ''}"
         print(
-            f"{idx}. [{item['kind']}] {marker} @{item['author']}{location}\n"
+            f"{idx}. [{item['kind']}]{replied} {marker} @{item['author']}{location}\n"
             f"   {item.get('excerpt', '')}\n"
         )
 
@@ -390,12 +519,18 @@ def main() -> int:
         action="store_true",
         help="Include resolved inline review threads (default: unresolved only)",
     )
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        help="Repository in owner/repo format (required when not running from repo dir)",
+    )
     args = parser.parse_args()
 
     try:
         ensure_gh()
-        pr = resolve_pr_number(args.pr)
-        payload = collect(pr, include_resolved=args.include_resolved)
+        pr = resolve_pr_number(args.pr, repo=args.repo)
+        payload = collect(pr, include_resolved=args.include_resolved, repo=args.repo)
     except Exception as exc:  # CLI utility: return readable failure
         print(f"Error: {exc}", file=sys.stderr)
         return 1

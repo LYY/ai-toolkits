@@ -94,6 +94,8 @@ Identifying informational comments:
 
 When in doubt, treat as actionable.
 
+**Already-replied detection**: Comments with `has_replies: true` in the JSON output already have a human reply (detected via thread analysis for inline comments, or time-based heuristic for review body / top-level comments). Classify these as `already_replied` — skip, no action needed. User can override by reclassifying as another conclusion.
+
 ## 5. Validate Before Fixing (Actionable Comments Only)
 
 Skip informational comments. Validate only actionable comments.
@@ -104,6 +106,7 @@ Mark each actionable comment as one of:
 - `valid`
 - `invalid`
 - `already_fixed`
+- `already_replied` (has human reply — skip, no action needed)
 - `out_of_scope`
 - `needs_clarification`
 
@@ -127,7 +130,7 @@ For every `valid` comment you resolve:
 Rules:
 - Do not combine multiple resolved comments into one commit unless technically inseparable.
 - If inseparable, note all linked comment URLs in your final report for that commit.
-- Do not commit comments marked `invalid`, `already_fixed`, `out_of_scope`, or `needs_clarification`.
+- Do not commit comments marked `invalid`, `already_fixed`, `already_replied`, `out_of_scope`, or `needs_clarification`.
 
 ## 8. Reply to All Non-Informational Comments (MANDATORY)
 
@@ -188,6 +191,7 @@ Use these templates for concise, professional replies:
 | `valid` (fixed) | `Fixed in <commit_sha>.` |
 | `invalid` | `This suggestion doesn't apply because <brief reason>.` |
 | `already_fixed` | `Already resolved in the current code — no changes needed.` |
+| `already_replied` | (Skip — already has a human reply) |
 | `out_of_scope` | `This is outside the scope of this PR. <Optional: suggest follow-up>.` |
 | `needs_clarification` | `Could you clarify <specific question>?` |
 

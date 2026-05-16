@@ -88,6 +88,7 @@ For each comment, determine three attributes:
 | `valid` | Should be addressed |
 | `invalid` | Doesn't apply, with brief reason |
 | `already_fixed` | Already resolved in current code |
+| `already_replied` | Comment already has a human reply — skip |
 | `out_of_scope` | Outside this PR's scope |
 | `needs_clarification` | Need reviewer input to proceed |
 
@@ -101,6 +102,7 @@ For each comment, determine three attributes:
 | Author is deleted/ghost | Still classify normally. If actionable, reply still goes to the thread even though author is gone. |
 | Empty body | Treat as `informational` — no content to act on. |
 | Comment from PR author themselves | Still classify by content. Self-review notes can be `informational` or `actionable` depending on content. |
+| Comment has `has_replies: true` from `list_comments.py` | Classify as `already_replied`. The script detected a non-bot reply in the thread (inline) or a subsequent reply comment/review (review body / top-level). User can override in Step 3 if they want to re-address. |
 
 **Classification → Dossier section mapping**:
 
@@ -109,6 +111,7 @@ For each comment, determine three attributes:
 | actionable | `valid` | Section A | Code change + test + reply + commit |
 | actionable | `invalid` | Section B | Reply only (explain why) |
 | actionable | `already_fixed` | Section B | Reply only (confirm already fixed) |
+| actionable | `already_replied` | Section C | No action — already handled |
 | actionable | `out_of_scope` | Section B | Reply only (suggest follow-up if needed) |
 | actionable | `needs_clarification` | Section B | Reply only (with resolved direction) |
 | informational | — | Section C | No action at all |
@@ -159,6 +162,18 @@ Comments on **different files/lines** that are **causally or logically connected
 
 **Action**: Note the relationship in the overview table. In the dossier, add dependency notes so plan mode can order tasks or group related changes.
 
+#### Detect Already-Replied Comments
+
+`list_comments.py` now outputs a `has_replies` field for every comment:
+
+| Comment kind | Detection method |
+|-------------|-----------------|
+| inline | Review thread has > 1 comment AND at least one is from a non-AI author |
+| review body | A subsequent issue comment or COMMENT review exists by a different non-bot author |
+| top_level | Same as review body — subsequent issue comment by a different non-bot author |
+
+**Action**: Comments with `has_replies: true` are classified as `already_replied` and placed in Section C (no action). The overview table should note these with a `↩ already replied` indicator so the user is aware. User can override in Step 3 by reclassifying as `valid` or another conclusion.
+
 ### [3] Overview Table + Interactive Confirmation
 
 Present the full analysis in a structured table. **Apply [2.5] cross-reference results**: merged duplicates appear as single entries with multiple authors, conflicts are flagged 🔴.
@@ -173,10 +188,12 @@ Present the full analysis in a structured table. **Apply [2.5] cross-reference r
 | 2 | @bot   | inline | bar.ts:15 | rename suggestion | invalid | | |
 | 3 | @alice vs @bob | inline | baz.ts:8 | const vs let choice | ⚠️ conflict | ↯ conflicting advice | 🔴 resolve |
 | 4 | @human | inline | qux.ts:3 | logic question | needs_clarification | | 🔴 needs input |
+| 5 | @reviewer | review | — | LGTM but note on perf | already_replied | ↩ already replied | |
 
 Legend:
 - ≡ merged — duplicate comments combined into one entry
 - ↯ conflict — opposing recommendations, user must choose
+- ↩ already replied — comment already has a human reply; skipped by default
 - 🔴 resolve — needs user decision before proceeding
 
 ### 🔴 Needs Discussion (N items)
@@ -245,6 +262,7 @@ Run through this checklist:
 | **New relations** | Discussion revealed that fixing Comment #X will also fix Comment #Y's concern (not duplicate, but related) | Add dependency note: "Task Y may become unnecessary after Task X" |
 | **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
 | **Reply target mismatch** | Merged duplicates — all authors listed? Each has an `in_reply_to` ID? | Verify all authors are accounted for |
+| **Stale already_replied** | A comment was marked `already_replied` in Step 2, but discussion revealed the reply was insufficient or from a bot | Reclassify as `valid`, `invalid`, etc. |
 
 **Gate rule**: If any 🔴 item remains unresolved, do NOT write the dossier. Return to Step 3. If all checks pass, proceed.
 
@@ -263,6 +281,7 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 |----------|-------|--------|
 | Needs code change + reply | N | Modify code, run tests, reply inline, commit |
 | Needs reply only | M | Reply inline with explanation, no code changes |
+| Already replied (skip) | R | Already has a human reply — no action needed |
 | Informational (skip) | K | No action |
 | **Total plan tasks** | **N+M** | **code tasks + reply tasks** |
 | **Raw comments (before dedup)** | R | Original count from list_comments.py |
@@ -331,13 +350,13 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 
 ---
 
-## C. Informational Comments — No Action (K items)
+## C. Informational & Already-Replied Comments — No Action (K + R items)
 
-No code changes. No replies. LGTM, praise, emoji-only, FYI.
+No code changes. No replies. LGTM, praise, emoji-only, FYI, and already-replied comments.
 
-| # | Source | Kind | Summary |
-|---|--------|------|---------|
-| {{ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} |
+| # | Source | Kind | Summary | Reason |
+|---|--------|------|---------|--------|
+| {{ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} | {{informational / already_replied}} |
 
 ---
 
@@ -354,7 +373,7 @@ No code changes. No replies. LGTM, praise, emoji-only, FYI.
 **Rules for dossier content**:
 - Every `valid` comment goes in **Section A** (code change + reply + test + commit).
 - Every `invalid` / `already_fixed` / `out_of_scope` / `needs_clarification` comment goes in **Section B** (reply only). These are NOT "skipped" — the reviewer is waiting for a response explaining why.
-- Only `informational` comments (LGTM, praise, emoji, FYI) go in **Section C** (truly no action).
+- Only `informational` comments (LGTM, praise, emoji, FYI) and `already_replied` comments (already has a human reply) go in **Section C** (truly no action).
 - For Section A: exact file paths, line numbers, specific code change description, test strategy with commands, reply template, and suggested commit message are ALL required.
 - For Section B: each item must include the conclusion rationale and exact reply text. Include gh api commands with `in_reply_to` for inline replies.
 - **Duplicate handling**: When comments #X and #Y are merged (same file:line, same issue), produce ONE task entry. List all authors. Reply to EACH author individually using their own `in_reply_to` ID. Note the merge in Dedup & Conflict Notes.
@@ -402,7 +421,7 @@ Then run /start-work to execute.
 
 | Step | Gate | Condition |
 |------|------|-----------|
-| 2.5 | Cross-reference scanned | Duplicates merged, conflicts flagged, relations noted |
+| 2.5 | Cross-reference scanned | Duplicates merged, conflicts flagged, relations noted, already-replied detected |
 | 3 | Overview confirmed | User accepts or remains silent after 🔴 items discussed |
 | 4 | Final table confirmed | User explicitly confirms ("ok", "go ahead") |
 | 5 (before write) | Final cross-reference scan | All 7 checks pass, no unresolved 🔴 items remain |
@@ -413,8 +432,8 @@ Then run /start-work to execute.
 
 - **AI is analyst, user is decider**. The skill classifies and suggests conclusions, but the user makes final calls, especially on `needs_clarification` and high-risk items.
 - **Good classification saves time**. Accurate `informational` tagging and correct conclusions reduce review cycles.
-- **Every non-informational comment gets a conclusion AND a reply.** No actionable comment is left without a disposition in the final table — and no non-informational comment is left without a reply task in the dossier (Section A or B).
-- **"Skipped" only means informational.** `invalid`/`already_fixed`/`out_of_scope`/`needs_clarification` go in Section B (Reply Only), NOT in Section C. The reviewer is waiting for a response.
+- **Every non-informational comment gets a conclusion AND a reply.** No actionable comment is left without a disposition in the final table — and no non-informational comment is left without a reply task in the dossier (Section A or B). Exception: `already_replied` comments go to Section C.
+- **"Skipped" only means informational or already-replied.** `invalid`/`already_fixed`/`out_of_scope`/`needs_clarification` go in Section B (Reply Only), NOT in Section C. The reviewer is waiting for a response. Only `informational` and `already_replied` go in Section C.
 - **Dossier is the boundary and the single source of truth.** The skill produces a dossier, not a plan. Plan generation belongs to Prometheus. The dossier must be exhaustive — Prometheus and Atlas operate with zero business context.
 - **Silence is consent by default**. Uncontested items proceed on AI recommendation. If the user wants stricter oversight, they can request item by item review.
 - **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (`@plan` via Prometheus). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
