@@ -115,7 +115,7 @@ When in doubt, treat as actionable.
 
 Skip informational comments. Validate only actionable comments.
 
-Use the checklist in `references/validation-checklist.md`.
+Use the checklist in `references/validation-checklist.md` (in this skill's directory).
 
 Mark each actionable comment as one of:
 - `valid`
@@ -232,34 +232,11 @@ Provide:
 ## Quick Commands
 
 ```bash
-# Auto-detect PR from current branch (default — no --pr needed)
+# Auto-detect PR from current branch
 python3 ./scripts/list_comments.py --json
 
-# Manual PR override
-python3 ./scripts/list_comments.py --pr <number> --json
-
-# Cross-repo PR (when not in the repo directory)
+# Cross-repo PR
 python3 ./scripts/list_comments.py --repo owner/name --pr <number> --json
-
-# Include resolved inline threads
-python3 ./scripts/list_comments.py --json --include-resolved
-
-# Reply to an inline review comment (threaded reply via in_reply_to)
-gh api repos/{owner}/{repo}/pulls/{pr}/comments --method POST \
-  -F body="Fixed in <sha>." \
-  -F commit_id=$(git rev-parse HEAD) \
-  -F path="path/to/file.go" \
-  -F line=<line> \
-  -F side=RIGHT \
-  -F in_reply_to=<comment_id>
-
-# Reply to a review body or top-level PR comment (conversation comment)
-gh api repos/{owner}/{repo}/issues/{pr}/comments --method POST \
-  -F body="@<reviewer> Fixed in <sha>."
-
-# Per-comment local commit workflow (no push)
-git add <files-for-one-comment>
-git diff --staged --stat
-git commit -m "<conventional-commit-message>"
-# DO NOT: git push
 ```
+
+Other variants (`--include-resolved`) and reply commands are shown inline in their respective sections above.

@@ -52,7 +52,7 @@ PR address or auto-detect
     ↓   discussion complete
 [4] Final confirmation table → user approves
     ↓   approved
-[5] Generate review dossier → write to .sisyphus/notepads/pr-<N>-dossier/dossier.md
+[5] Generate review dossier → write to .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
     ↓
 [6] User switches to Prometheus, gives dossier → interactive plan generation → /start-work executes
 ```
@@ -266,7 +266,9 @@ Run through this checklist:
 
 **Gate rule**: If any 🔴 item remains unresolved, do NOT write the dossier. Return to Step 3. If all checks pass, proceed.
 
-Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the directory if it doesn't exist.
+Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md`. Create the directory if it doesn't exist.
+
+Use `date +%Y%m%d-%H%M%S` to generate `<TIMESTAMP>` (e.g., `dossier-20260517-143022.md`). This ensures re-running the skill on the same PR produces a new file without overwriting previous dossiers.
 
 **Dossier structure**:
 
@@ -297,36 +299,49 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 | Conflicts resolved | C | Comment #X vs #Y: user chose @alice's approach over @bob's |
 
 ## Context
-- PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}, Analyzed: {{TIMESTAMP}}
+- PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}
+- Commit style: {{COMMIT_STYLE}} (run `git log --oneline -10` in the PR branch to discover conventions)
+- Analyzed: {{TIMESTAMP}}
+
+---
+
+## Reply Endpoints (shared by Sections A and B)
+
+| Reply Kind | Endpoint | Key Flag |
+|------------|----------|----------|
+| `inline` | `repos/{owner}/{repo}/pulls/{pr}/comments` | `in_reply_to=<id>` |
+| `review` | `repos/{owner}/{repo}/issues/{pr}/comments` | mention @author in body |
+| `top_level` | `repos/{owner}/{repo}/issues/{pr}/comments` | — |
+
+```bash
+# inline:
+gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
+  -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
+  -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
+  -F in_reply_to={{COMMENT_ID}}
+
+# review:
+gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
+  -F body="@{{AUTHOR}} {{REPLY_TEXT}}"
+
+# top_level:
+gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
+  -F body="{{REPLY_TEXT}}"
+```
+
+**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch (`git rev-parse HEAD`). `review` and `top_level` replies do not need `commit_id`.
 
 ---
 
 ## A. Comments Requiring Code Change + Reply (N items)
 
-### Comment #{{ID}}: {{SUMMARY}}
+### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — {{SUMMARY}}
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Also noted by**: @{{DUP_AUTHOR1}}, @{{DUP_AUTHOR2}} (omit if no duplicates)
 - **Conclusion**: `valid`
 - **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification)
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
-- **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}} (reply to ALL authors who raised this issue)
-
-  **Choose endpoint by reply kind** (NOT all inline):
-  ```bash
-  # inline:
-  gh api repos/{{REPO}}/pulls/{{PR}}/comments --method POST \
-    -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
-    -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
-    -F in_reply_to={{COMMENT_ID}}
-
-  # review body:
-  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
-    -F body="@{{AUTHOR}} {{REPLY_TEXT}}"
-
-  # top_level:
-  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
-    -F body="{{REPLY_TEXT}}"
-  ```
+- **Reply after fix**: {{REPLY_KIND}} → @{{AUTHOR}} (use endpoint from the Reply Endpoints reference above)
 - **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
 
@@ -334,31 +349,18 @@ Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier.md`. Create the 
 
 ## B. Comments Requiring Reply Only (M items)
 
-**No code changes needed.** Each item only requires an inline reply explaining the decision. No tests, no commits.
+**No code changes needed.** Each item only requires a reply explaining the decision. No tests, no commits.
 
-### Comment #{{ID}}: {{SUMMARY}}
+### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — {{SUMMARY}}
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Conclusion**: `{{CONCLUSION}}` — {{RATIONALE}}
-- **Reply**: {{REPLY_KIND}} → @{{AUTHOR}}
+- **Reply**: {{REPLY_KIND}} → @{{AUTHOR}} (use endpoint from the Reply Endpoints reference above)
 
-  **Choose endpoint by reply kind** (NOT all inline):
-  ```bash
-  # inline:
-  gh api repos/{{REPO}}/pulls/{{PR}}/comments --method POST \
-    -F body="{{REPLY_TEXT}}" -F commit_id={{COMMIT_SHA}} \
-    -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
-    -F in_reply_to={{COMMENT_ID}}
-
-  # review body:
-  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
-    -F body="@{{AUTHOR}} {{REPLY_TEXT}}"
-
-  # top_level:
-  gh api repos/{{REPO}}/issues/{{PR}}/comments --method POST \
-    -F body="{{REPLY_TEXT}}"
-  ```
-
-  **Note**: `{{COMMIT_SHA}}` for reply-only tasks = the PR branch's HEAD commit (use `git rev-parse HEAD` in the PR branch). No new commit is created, but inline replies require a valid commit SHA on the PR branch.
+### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} — Conflict resolution: {{SUMMARY}}
+- **Source**: @{{REJECTED_AUTHOR}} (vs @{{CHOSEN_AUTHOR}}) | {{KIND}} | {{FILE_PATH}}:{{LINE}}
+- **Context**: User chose @{{CHOSEN_AUTHOR}}'s approach over @{{REJECTED_AUTHOR}}'s conflicting suggestion.
+- **Conclusion**: `invalid` (conflicting approach not taken)
+- **Reply**: {{REPLY_KIND}} → @{{REJECTED_AUTHOR}} (use endpoint from the Reply Endpoints reference above)
 
 ---
 
@@ -368,7 +370,7 @@ No code changes. No replies. LGTM, praise, emoji-only, FYI, and already-replied 
 
 | # | Source | Kind | Summary | Reason |
 |---|--------|------|---------|--------|
-| {{ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} | {{informational / already_replied}} |
+| {{COMMENT_ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} | {{informational / already_replied}} |
 
 ---
 
@@ -419,24 +421,22 @@ Common guardrails: no vendor/ refresh, no global refactors beyond the fix, reply
 ```
 
 **Rules for dossier content**:
-- Every `valid` comment goes in **Section A** (code change + reply + test + commit).
-- Every `invalid` / `already_fixed` / `out_of_scope` / `needs_clarification` comment goes in **Section B** (reply only). These are NOT "skipped" — the reviewer is waiting for a response explaining why.
-- Only `informational` comments (LGTM, praise, emoji, FYI) and `already_replied` comments (already has a human reply) go in **Section C** (truly no action).
-- For Section A: exact file paths, line numbers, specific code change description, test strategy with commands, reply template, and suggested commit message are ALL required.
-- For Section B: each item must include the conclusion rationale and exact reply text. Include gh api commands with `in_reply_to` for inline replies.
+- Conclusion → section mapping follows the table in Step 2 (all conclusions map to Section A, B, or C as defined).
+- For Section A: exact file paths, line numbers, specific code change description, test strategy with commands, reply target (kind + author), and suggested commit message are ALL required. The reply text template is in the Reply Templates section below.
+- For Section B: each item must include the conclusion rationale and reply target (kind + author). The reply text comes from the Reply Templates section; endpoint commands from the Reply Endpoints section above.
 - **Duplicate handling**: When comments #X and #Y are merged (same file:line, same issue), produce ONE task entry. List all authors. Reply to EACH author individually using their own `in_reply_to` ID. Note the merge in Dedup & Conflict Notes.
   - All duplicate authors get the same reply content (the fix was applied / the conclusion stands).
   - Each reply uses the author's own comment ID as `in_reply_to`. Do NOT use the same ID for multiple replies.
   - For 3+ duplicates: list all IDs explicitly in the task so plan mode can loop.
 - **Conflict handling**: When user resolves a conflict (choosing @A's approach over @B's), the chosen direction goes in Section A (or B). The rejected direction goes in Section B as a reply-only item: explain to the rejected reviewer why their approach wasn't taken.
 - **Related comments**: When two tasks are causally related (call chain, shared type), add dependency notes below. Plan mode will use these to order tasks or group related changes.
-- Be exhaustive. Prometheus and Atlas operate with zero business context — the dossier is their only source of truth.
+- Be exhaustive — the dossier captures all decisions from Steps 2-4. Prometheus can ask, but less guesswork means a better plan.
 
 **After writing the dossier**, verify:
 
 | Check | Command/Condition |
 |-------|-------------------|
-| File exists | `test -f .sisyphus/notepads/pr-<N>-dossier/dossier.md` |
+| File exists | `test -f .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md` |
 | Valid markdown | File starts with `# Review Dossier:` |
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain — all should be substituted |
@@ -449,43 +449,22 @@ If any check fails, fix and re-verify before proceeding to Step 6.
 After dossier is saved, output:
 
 ```
-Dossier saved to .sisyphus/notepads/pr-<N>-dossier/dossier.md
+Dossier saved to .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
 
-Next: switch to Prometheus mode and have a conversation. Paste the dossier
-path and ask Prometheus to generate an execution plan. Interactive
-conversation produces better plans than one-shot @plan — Prometheus can
-ask clarifying questions, refine task granularity, and add precise file
-paths and test commands.
+To generate the execution plan, switch to Prometheus mode and paste:
 
-After Prometheus writes the plan, review it, then run /start-work to execute.
+  Read .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
+  and generate an execution plan. Ask me if any task is ambiguous.
+
+Interactive Prometheus produces better plans than one-shot @plan —
+it can ask clarifying questions and refine task structure.
 ```
 
-**Do NOT run `@plan` or `/start-work` yourself.** The skill's job ends at dossier generation. The user controls when to proceed.
+**Do NOT run `@plan` or `/start-work` yourself.** The user drives Phase 2 (Prometheus conversation) and Phase 3 (`/start-work` execution).
 
-**What happens next (user-driven)**:
-1. User switches to Prometheus mode (e.g., `@plan` to enter plan context, or directly invoke Prometheus).
-2. User gives Prometheus the dossier: "Read `.sisyphus/notepads/pr-<N>-dossier/dossier.md` and generate an execution plan. Ask me if any task is ambiguous."
-3. Prometheus reads the dossier, asks clarifying questions, refines task structure and execution details.
-4. Prometheus writes the plan to `.sisyphus/plans/pr-<N>-review.md`.
-5. User reviews the plan. Optionally run Momus review for gap analysis.
-6. User reviews and approves (`ok`), then runs `/start-work` — Atlas executes per-comment tasks.
+**After execution**: review commits (`git log --oneline`), `git push`, verify replies on the PR. If anything was missed, re-run this skill — `has_replies` detection skips already-handled items.
 
-**Why interactive Prometheus over one-shot `@plan`**:
-- Prometheus can ask follow-up questions about ambiguous file paths or test strategies.
-- Interactive refinement produces better task granularity and parallel execution annotations.
-- Direct conversation gives Prometheus more context to fill gaps the dossier might miss.
-
-**After `/start-work` completes**:
-- Review the generated commits (`git log --oneline`).
-- `git push` the branch.
-- Verify that replies appear correctly on the PR (check a few random comment threads).
-- If anything was missed, re-run this skill — already-replied comments will be automatically skipped via `has_replies` detection.
-
-**If `/start-work` fails mid-execution** (partial tasks complete, partial fail):
-1. Check which tasks succeeded via `git log --oneline` (committed tasks) and the PR comment threads (replied tasks).
-2. Re-run this skill — completed tasks with replies will be automatically detected as `already_replied` and skipped.
-3. The skill will produce a new dossier containing only the remaining unhandled items.
-4. Generate a new plan (Prometheus) and re-run `/start-work`.
+**If `/start-work` fails mid-execution**: check which tasks succeeded (commits + PR replies), re-run this skill to generate a dossier of remaining items, then generate a new plan and re-run.
 
 ## Interaction Checklist
 
@@ -494,19 +473,16 @@ After Prometheus writes the plan, review it, then run /start-work to execute.
 | 2.5 | Cross-reference scanned | Duplicates merged, conflicts flagged, relations noted, already-replied detected |
 | 3 | Overview confirmed | User accepts or remains silent after 🔴 items discussed |
 | 4 | Final table confirmed | User explicitly confirms ("ok", "go ahead") |
-| 5 (before write) | Final cross-reference scan | All 7 checks pass, no unresolved 🔴 items remain |
-| 5 | Dossier written | `.sisyphus/notepads/pr-<N>-dossier/dossier.md` exists and is complete |
+| 5 (before write) | Final cross-reference scan | All 8 checks pass, no unresolved 🔴 items remain |
+| 5 | Dossier written | `.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md` exists and is complete |
 | 6 | Handoff delivered | User sees next-step instructions with Prometheus conversation + `/start-work` |
 
 ## Key Principles
 
-- **AI is analyst, user is decider**. The skill classifies and suggests conclusions, but the user makes final calls, especially on `needs_clarification` and high-risk items.
-- **Good classification saves time**. Accurate `informational` tagging and correct conclusions reduce review cycles.
-- **Every non-informational comment gets a conclusion AND a reply.** No actionable comment is left without a disposition in the final table — and no non-informational comment is left without a reply task in the dossier (Section A or B). Exception: `already_replied` comments go to Section C.
-- **"Skipped" only means informational or already-replied.** `invalid`/`already_fixed`/`out_of_scope`/`needs_clarification` go in Section B (Reply Only), NOT in Section C. The reviewer is waiting for a response. Only `informational` and `already_replied` go in Section C.
-- **Dossier is the boundary and the single source of truth.** The skill produces a dossier, not a plan. The dossier captures everything confirmed in Steps 2-4 — classification decisions, file paths, test strategies, reply templates. Plan generation happens in the next phase: an interactive Prometheus conversation. Prometheus can ask clarifying questions, but dossier should minimize back-and-forth — the less it has to guess, the better the plan.
-- **Silence is consent by default**. Uncontested items proceed on AI recommendation. If the user wants stricter oversight, they can request item by item review.
-- **Three phases, not two**. Phase 1 = dossier (this skill). Phase 2 = plan (interactive Prometheus conversation). Phase 3 = execute (`/start-work` via Atlas). Never collapse phases.
+- **AI is analyst, user is decider**. Skill classifies and suggests; user makes final calls on `needs_clarification` and high-risk items.
+- **Silence is consent**. Uncontested items proceed on AI recommendation. Object by item number to override.
+- **Three phases, never collapse**. Phase 1 = dossier (this skill), Phase 2 = interactive Prometheus plan, Phase 3 = `/start-work` execution.
+- **Conclusion → section mapping** is defined in the Step 2 classification table (all conclusions map to A, B, or C as specified).
 - **Duplicates are detected, not created**. Cross-reference check (Step 2.5) merges same file:line issues into single tasks. Plan mode must never see two tasks modifying the same line for the same reason.
 - **Conflicts are surfaced, not buried**. Opposing reviewer advice is flagged 🔴 during interaction and documented in the dossier — chosen direction in Section A/B, rejected direction with explanation in Section B.
 - **Final scan is mandatory**. Discussion changes things. The cross-reference scan at the start of Step 5 catches new duplicates, stale merges, and unresolved conflicts that emerged during conversation. Never skip this gate.
@@ -517,14 +493,8 @@ After Prometheus writes the plan, review it, then run /start-work to execute.
 # Auto-detect PR, collect comments
 python3 ./scripts/list_comments.py --json
 
-# Manual PR override
-python3 ./scripts/list_comments.py --pr <N> --json
-
-# Cross-repo PR (when not in the repo directory)
+# Cross-repo PR
 python3 ./scripts/list_comments.py --repo owner/name --pr <N> --json
-
-# Include resolved inline threads
-python3 ./scripts/list_comments.py --json --include-resolved
 ```
 
-Reply commands are generated per-task in the dossier (Section A for code changes, Section B for reply-only). See `references/dossier-template.md` for the endpoint selection table.
+Other variants and reply commands are in their respective sections above.
