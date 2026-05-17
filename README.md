@@ -13,7 +13,7 @@ npx skills add LYY/ai-toolkits -g -y
 | Skill | 描述 |
 |-------|------|
 | [address-pr-comments](./skills/address-pr-comments/) | 自动处理 GitHub PR review comments — 收集、分类、验证、修复、回复。全自动模式，适合单人快速处理 |
-| [address-pr-comments-review](./skills/address-pr-comments-review/) | 交互式 PR review 处理 — 收集、分类、人工确认、生成 review dossier，再通过 Prometheus 交互生成执行计划，`/start-work` 执行。适合复杂 PR 或需要人工决策的场景 |
+| [address-pr-comments-review](./skills/address-pr-comments-review/) | 交互式 PR review 处理 — 分类确认 → 生成 dossier → Prometheus 交互出 plan → `/start-work` 执行。内置去重、冲突检测、Scope Guardrails、失败恢复 |
 
 ## 特性
 
