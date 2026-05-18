@@ -32,7 +32,7 @@ After writing the dossier file, run these checks.
 | Valid markdown | File starts with `# Review Dossier:` |
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain |
-| Reply endpoint correct | Each reply task uses the endpoint matching its `{{REPLY_KIND}}` |
+| Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
 
 ### 2.2 No-Placeholder Leakage Check (Mandatory)
 

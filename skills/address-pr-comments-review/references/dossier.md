@@ -255,7 +255,7 @@ Cross-reference protocol (cross-file Moderate+), interaction protocol (user cons
 | Valid markdown | File starts with `# Review Dossier:` |
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain -- all should be substituted |
-| Reply endpoint correct | Each reply task uses the endpoint matching its `{{REPLY_KIND}}` (inline/review/top_level) |
+| Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
 | Reply templates referenced correctly | Reply templates are referenced by name, not duplicated inline |
 
 If any check fails, fix and re-verify. The validation protocol (`validation.md`) provides the definitive gate rules.
