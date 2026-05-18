@@ -13,7 +13,7 @@ This file defines the validation and regression protocol -- the checklists and g
 
 ## Precedence
 
-Layer 4 (templates/checklists). Called by SKILL.md Step 5 (before and after dossier write). Validation gates are enforced by the entry skill -- if a check fails, the skill must not proceed. Validation rules reference classification, cross-reference, and dossier protocols but do not override them. They are the last line of defense before handoff.
+Layer 4 (templates/checklists). Called by SKILL.md Step 4 (before and after dossier write) and Step 5 (handoff verification). Validation gates are enforced by the entry skill -- if a check fails, the skill must not proceed. Validation rules reference classification, cross-reference, and dossier protocols but do not override them. They are the last line of defense before handoff.
 
 Validation checks take precedence over template defaults: if a check finds a structural violation (missing Precedence section, cross-file content duplication, placeholder leakage), the violation must be fixed before proceeding. No check is skippable.
 
@@ -33,7 +33,7 @@ Verify every reference file exists at its expected path:
 | classification.md | `references/classification.md` | 🔴 Missing breaks Step 2 |
 | cross-reference.md | `references/cross-reference.md` | 🔴 Missing breaks Step 2.5 |
 | interaction.md | `references/interaction.md` | 🔴 Missing breaks Steps 3-4 |
-| dossier.md | `references/dossier.md` | 🔴 Missing breaks Step 5 |
+| dossier.md | `references/dossier.md` | 🔴 Missing breaks Step 4 |
 | reply.md | `references/reply.md` | 🔴 Missing breaks downstream reply |
 | platform.md | `references/platform.md` | 🟡 Missing means gh commands undocumented |
 | validation.md (this file) | `references/validation.md` | 🔴 Missing means no gate enforcement |
@@ -58,10 +58,10 @@ Verify each file's Precedence section:
 | classification.md | Layer 2 | SKILL.md Step 2 |
 | cross-reference.md | Layer 2 | SKILL.md Step 2.5 |
 | interaction.md | Layer 2 | Steps 3-4 |
-| dossier.md | Layer 3 | Step 5 |
+| dossier.md | Layer 3 | Step 4 |
 | reply.md | Layer 3 | Conclusion assignments |
-| platform.md | Layer 4 | Step 1, Step 5, Step 6 |
-| validation.md | Layer 4 | Step 5 |
+| platform.md | Layer 4 | Step 1, Step 5 |
+| validation.md | Layer 4 | Step 4 |
 
 Violation scanning heuristic: if a reference file's Precedence section claims a different layer than shown above, or if it does not reference its caller step, flag as a structural defect.
 
@@ -282,7 +282,7 @@ This is a hard gate -- no override, no workaround. The 🔴 status is determined
 
 ### 7.2 Confirmation Gate
 
-Step 4 user confirmation is required before Step 5 dossier generation. Confirmation equivalents:
+Step 3 user confirmation is required before Step 4 dossier generation. Confirmation equivalents:
 
 - "ok", "yes", "looks good", "proceed", "confirmed"
 - Any affirmative response

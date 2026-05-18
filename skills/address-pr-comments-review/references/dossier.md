@@ -1,6 +1,6 @@
 # Dossier Contract
 
-This file defines the dossier contract: the structure, content rules, evidence requirements, and quality checks for the review dossier generated after successful interaction (Step 5). The dossier is the final deliverable of Phase 1. It is a requirements document that captures every confirmed decision from Steps 2-4 and feeds Prometheus (Phase 2) for execution plan generation.
+This file defines the dossier contract: the structure, content rules, evidence requirements, and quality checks for the review dossier generated after successful interaction (Step 4). The dossier is the final deliverable of Phase 1. It is a requirements document that captures every confirmed decision from Steps 2-4 and feeds Prometheus (Phase 2) for execution plan generation.
 
 ## Precedence
 
