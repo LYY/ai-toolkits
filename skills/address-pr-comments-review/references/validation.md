@@ -3,7 +3,7 @@
 This file defines the validation and regression protocol -- the checklists and gate rules that ensure dossier integrity before handoff. It is responsible for defining:
 
 - Architecture and structural checks (are reference files in place, do they have Precedence sections, is there no content overlap)
-- The pre-write cross-reference scan (has the final confirmed table changed since Step 2.5 analysis)
+- The pre-write cross-reference scan (has the final confirmed table changed since the cross-reference analysis)
 - Decide Validity checklist (preserved from the archived validation-checklist.md for quick reference)
 - Post-write dossier verification (file existence, valid markdown, count matching, no placeholder leakage, reply endpoint correctness)
 - Reply integrity checks (pre-reply gate, duplicate reply prevention)
@@ -31,7 +31,7 @@ Verify every reference file exists at its expected path:
 |------|------|-------------|
 | overview.md | `references/overview.md` | 🔴 Missing breaks precedence model |
 | classification.md | `references/classification.md` | 🔴 Missing breaks Step 2 |
-| cross-reference.md | `references/cross-reference.md` | 🔴 Missing breaks Step 2.5 |
+| cross-reference.md | `references/cross-reference.md` | 🔴 Missing breaks cross-reference pass |
 | interaction.md | `references/interaction.md` | 🔴 Missing breaks Steps 3-4 |
 | dossier.md | `references/dossier.md` | 🔴 Missing breaks Step 4 |
 | reply.md | `references/reply.md` | 🔴 Missing breaks downstream reply |
@@ -56,7 +56,7 @@ Verify each file's Precedence section:
 |------|---------------|----------------|
 | overview.md | Meta (top of hierarchy) | Structure, no peers |
 | classification.md | Layer 2 | SKILL.md Step 2 |
-| cross-reference.md | Layer 2 | SKILL.md Step 2.5 |
+| cross-reference.md | Layer 2 | SKILL.md Step 2 (cross-reference pass) |
 | interaction.md | Layer 2 | Steps 3-4 |
 | dossier.md | Layer 3 | Step 4 |
 | reply.md | Layer 3 | Conclusion assignments |
@@ -150,7 +150,7 @@ For `already_fixed` specifically, the evidence must be a specific code citation 
 
 ## 3. Pre-Dossier Scan: Final Cross-Reference (Pre-Write)
 
-Before writing the dossier, re-scan the final confirmed table (from Step 4) against the original cross-reference results (from Step 2.5). Discussion may have changed conclusions, revealed new connections, or created new duplicates.
+Before writing the dossier, re-scan the final confirmed table (from Step 4) against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
 ### 3.1 8-Check Checklist
 
@@ -263,7 +263,7 @@ When every comment is `informational`, `already_replied`, or `minimized`, verify
 
 When a duplicate concern exists across multiple reviewers, verify:
 
-- Duplicates were detected and merged into one entry (Step 2.5)
+- Duplicates were detected and merged into one entry
 - The dossier has ONE task entry for the merged concern, not separate tasks
 - ALL authors are listed in the "Also noted by" field
 - EACH author's `in_reply_to` ID is recorded in the dossier
@@ -385,7 +385,7 @@ Multiple reviewers flag the same or overlapping concern.
 
 | Check | Expected | Verification method |
 |-------|----------|---------------------|
-| Duplicate detection | Cross-reference Step 2.5 identified the merge | Duplicate entry in overview table with `≡ merged` |
+| Duplicate detection | Cross-reference identified the merge | Duplicate entry in overview table with `≡ merged` |
 | Dossier entry | One task entry, not two | Single Section A entry |
 | Author listing | All authors listed in "Also noted by" | Field present in dossier task entry |
 | Individual reply IDs | Each author's `in_reply_to` ID recorded | Listed in dossier or reply plan |

@@ -4,7 +4,7 @@ This file defines the interaction protocol for the interactive review confirmati
 
 ## Precedence
 
-Layer 2 (workflow/protocol). Consumes output from classification (Step 2) and cross-reference (Step 2.5) protocols. Governs Steps 3 and 4 of SKILL.md. Interaction rules apply only during the live conversation -- once confirmed, the dossier protocol (Step 4) takes over. Silent consent and 🔴 discussion rules established here have the final say on what counts as "confirmed" for dossier generation.
+Layer 2 (workflow/protocol). Consumes output from classification (Step 2) and cross-reference (second half of Step 2) protocols. Governs Steps 3 and 4 of SKILL.md. Interaction rules apply only during the live conversation -- once confirmed, the dossier protocol (Step 4) takes over. Silent consent and 🔴 discussion rules established here have the final say on what counts as "confirmed" for dossier generation.
 
 ---
 

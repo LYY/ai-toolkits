@@ -100,7 +100,7 @@
 
 | Dimension | Expected Value |
 |-----------|---------------|
-| expected classification | Cross-reference check (Step 2.5) detects duplicate. Merged into one entry with all authors noted. If the common concern is valid, conclusion is `valid`. |
+| expected classification | Cross-reference check detects duplicate. Merged into one entry with all authors noted. If the common concern is valid, conclusion is `valid`. |
 | expected reply posture | One code change. Then reply to EACH author individually using their own `in_reply_to` ID. Same reply content for all duplicate authors. |
 | expected overview-table | Merged single entry with multiple authors listed (e.g., `@copilot, @alice`). Conclusion `valid`. Note: `≡ merged (N reviews)`. |
 | expected dossier escalation | Yes — Section A (one code change task). Dossier must list ALL duplicate authors and their individual `in_reply_to` IDs. Dedup count in Executive Summary. |

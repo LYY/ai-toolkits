@@ -4,7 +4,7 @@ This file defines the dossier contract: the structure, content rules, evidence r
 
 ## Precedence
 
-Layer 3 (decision protocols). Consumes output from classification (Step 2), cross-reference (Step 2.5), and interaction (Steps 3-4). Dossier rules take precedence over template defaults: if the dossier contract specifies a format requirement, platform templates and reply templates must adapt. The dossier is NOT the canonical source for reply policy text. Reply policy is in `reply.md`.
+Layer 3 (decision protocols). Consumes output from classification (Step 2), cross-reference (second half of Step 2), and interaction (Steps 3-4). Dossier rules take precedence over template defaults: if the dossier contract specifies a format requirement, platform templates and reply templates must adapt. The dossier is NOT the canonical source for reply policy text. Reply policy is in `reply.md`.
 
 ---
 
@@ -295,14 +295,14 @@ The final cross-reference scan (see below) includes a dedicated check for cross-
 
 ## Final Cross-Reference Scan (Pre-Write)
 
-Before writing the dossier, re-scan the final confirmed table (from Step 4) against the original cross-reference results (from Step 2.5). Discussion may have changed conclusions, revealed new connections, or created new duplicates.
+Before writing the dossier, re-scan the final confirmed table (from Step 4) against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
 ### 8-Check Checklist
 
 | Check | What to look for | Action if found |
 |-------|-----------------|-----------------|
 | **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
-| **Stale duplicates** | Two entries were merged in Step 2.5, but discussion changed one conclusion (e.g., `valid` -> `invalid`) -- they may no longer be duplicates | Split back to separate entries |
+| **Stale duplicates** | Two entries were merged in cross-reference, but discussion changed one conclusion (e.g., `valid` -> `invalid`) -- they may no longer be duplicates | Split back to separate entries |
 | **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
 | **Orphaned replies** | A comment changed from `valid` to `invalid` during discussion -- does its duplicate partner still need the code change? | Verify the remaining entry is correctly classified |
 | **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |

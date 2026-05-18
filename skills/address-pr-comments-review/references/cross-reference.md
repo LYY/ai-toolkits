@@ -4,7 +4,7 @@ This file defines the cross-reference protocol for detecting patterns across cla
 
 ## Precedence
 
-Layer 2 (workflow/protocol). Called by SKILL.md Step 2.5, after individual classification (Step 2) and before the overview table (Step 3). Cross-reference results transform the raw classified comments into a deduplicated, relation-aware dataset with cross-file escalation metadata. The interaction protocol (Step 3) consumes this transformed dataset. Cross-reference has final say on dedup, conflict strategy, and cross-file pattern detection within its domain -- interaction defers on these matters.
+Layer 2 (workflow/protocol). Called by SKILL.md Step 2 (cross-reference pass), after individual classification (Step 2) and before the overview table (Step 3). Cross-reference results transform the raw classified comments into a deduplicated, relation-aware dataset with cross-file escalation metadata. The interaction protocol (Step 3) consumes this transformed dataset. Cross-reference has final say on dedup, conflict strategy, and cross-file pattern detection within its domain -- interaction defers on these matters.
 
 ---
 
@@ -205,7 +205,7 @@ In PR #1215, a comment on `server/monitor/monitor.go` flagged `CloseAllPublisher
 
 ### Detection Method
 
-Cross-file escalation is a **manual targeted search** performed by the agent during Step 2.5. It is NOT automated clustering or static analysis. The agent does not need a script to perform this.
+Cross-file escalation is a **manual targeted search** performed by the agent during the cross-reference pass of Step 2. It is NOT automated clustering or static analysis. The agent does not need a script to perform this.
 
 When a classified comment flags a structural concern (ordering, initialization, shutdown, concurrency, pattern consistency) in a single file:
 

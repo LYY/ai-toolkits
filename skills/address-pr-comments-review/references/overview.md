@@ -54,11 +54,11 @@ When a decision could be made by rules in multiple layers:
 |------|-------|---------------|-----------------|
 | `overview.md` | Meta | All files | Architecture, precedence model, file map |
 | `classification.md` | Workflow/protocol | SKILL.md Step 2 | Source detection, intent assessment, conclusion assignment, edge cases, dossier section mapping |
-| `cross-reference.md` | Workflow/protocol | SKILL.md Step 2.5 | Duplicate detection, conflict detection, relation detection, already-replied detection |
+| `cross-reference.md` | Workflow/protocol | SKILL.md Step 2 (cross-reference pass) | Duplicate detection, conflict detection, relation detection, already-replied detection |
 | `interaction.md` | Workflow/protocol | SKILL.md Step 3-4 | Overview table format, silent consent, discussion flow, scaling rules, confirmation transitions |
 | `dossier.md` | Decision protocols | SKILL.md Step 4 | Dossier structure, section A/B/C format, reply endpoints, cross-reference checks, dependency notation, scope guardrails, verification post-write |
 | `reply.md` | Decision protocols | dossier.md, interaction.md | Reply templates per conclusion, endpoint kinds (inline/review/top_level), duplicate author reply strategy, conflict reply strategy |
-| `platform.md` | Templates/checklists | SKILL.md Step 1, 5, 6 | `gh` CLI commands, `list_comments.py` usage, OpenCode/Sisyphus paths, dossier file operations, handoff message format |
+| `platform.md` | Templates/checklists | SKILL.md Step 1, 5 | `gh` CLI commands, `list_comments.py` usage, OpenCode/Sisyphus paths, dossier file operations, handoff message format |
 | `validation.md` | Templates/checklists | SKILL.md Step 4-5 | Final cross-reference scan checklist, dossier verification checks, gate rules, regression scenarios |
 
 ---
