@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-# KEEP IN SYNC with skills/address-pr-comments/scripts/list_comments.py
-# Both copies must be updated together. Diff before commit to verify parity.
+# Active copy for address-pr-comments-review.
+# The archived address-pr-comments skill is no longer maintained.
+#
+# Script-to-skill contract: this script outputs JSON with fields
+# consumed by the skill: kind, id, author, is_ai, created_at, url, body,
+# excerpt, ai_prompts, has_replies, thread_resolved, thread_outdated,
+# path, line (path/line are inline-only). See references/script-contract.md.
 """
 Collect and normalize GitHub PR feedback via gh CLI.
 
