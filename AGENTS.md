@@ -58,6 +58,31 @@ npx skills add LYY/ai-toolkits -g -y
 npx skills update <skill-name> -g
 ```
 
+## 废弃 Skill
+
+废弃的 skill 不推荐新用户安装。`skills add` 会全量安装 `skills/` 下所有 skill，要阻止安装，按推荐优先级：
+
+**推荐 — 移入 `archive/`**：保留代码备查，但不会被自动安装：
+
+```bash
+mkdir -p archive
+mv skills/<skill-name> archive/
+```
+
+**备选 — symlink**：用 symlink 接管 `~/.agents/skills/`，手动控制暴露哪些 skill：
+
+```bash
+ln -sf ~/program/github/LYY/ai-toolkits/skills/<skill-name> ~/.agents/skills/<skill-name>
+```
+
+**不推荐 — 直接删除**：从仓库中彻底删除目录。
+
+已在本地安装的废弃 skill，手动清理：
+
+```bash
+rm -rf ~/.agents/skills/<deprecated-skill-name>/
+```
+
 ## 注意事项
 
 - 每次修改 skill 后务必 push，否则 `skills add` 拉不到最新版本
