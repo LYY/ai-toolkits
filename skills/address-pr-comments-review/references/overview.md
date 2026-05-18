@@ -44,7 +44,19 @@ When a decision could be made by rules in multiple layers:
 | Put classification rules in `dossier.md` | Classification rules stay in `classification.md`. Dossier references them. |
 | Repeat cross-reference logic in `interaction.md` | Interaction protocol defers to cross-reference protocol for dedup/conflict concerns. |
 | Define reply templates in `classification.md` | Reply templates belong in `reply.md`. Classification only assigns the conclusion that determines which template to use. |
-| Embed `gh` commands outside `platform.md` | All platform-specific CLI commands live in `platform.md`. Other files reference them by name. |
+| Embed `gh` commands outside their owning file | Collection/runtime `gh` commands → `platform.md`. Reply endpoint `gh api` syntax → `dossier.md` (Reply Endpoints section). Other files reference these files by name. |
+
+## Quick Find
+
+| What do you need? | Go to |
+|---|---|
+| **Classifying a comment?** | `classification.md` |
+| **Detecting duplicates/conflicts?** | `cross-reference.md` |
+| **Running the interactive table?** | `interaction.md` |
+| **Writing the dossier?** | `dossier.md` |
+| **Composing a reply?** | `reply.md` |
+| **Runtime commands (collection, paths, handoff)?** | `platform.md` |
+| **Validation gates and checks?** | `validation.md` |
 
 ---
 
