@@ -4,7 +4,7 @@ This file defines platform-specific commands, paths, and conventions for the add
 
 ## Precedence
 
-Layer 4 (templates/checklists). Provides convenience defaults and command references for all upper layers. Platform commands are referenced by name from SKILL.md (Step 1, Step 5, Step 6) and the dossier contract. Upper layers can override or extend these commands with additional parameters, but must not change the base command signatures documented here.
+Layer 4 (templates/checklists). Provides convenience defaults and command references for all upper layers. Platform commands are referenced by name from SKILL.md (Step 1, Step 5) and the dossier contract. Upper layers can override or extend these commands with additional parameters, but must not change the base command signatures documented here.
 
 ---
 
