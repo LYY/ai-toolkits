@@ -22,7 +22,7 @@ A three-phase interactive workflow for GitHub PR comment review.
 
 ## Prerequisites
 
-- `gh` CLI installed and authenticated (`gh auth status` must pass)
+- `gh` CLI installed and authenticated (see `references/platform.md` for verification)
 - OpenCode + OhMyOpenCode (Sisyphus) environment
 - Current git branch has an open PR, or you know the PR number
 
@@ -68,17 +68,14 @@ PR address or auto-detect
 
 ### [1] Collect Comments
 
-Run `python3 ./scripts/list_comments.py --json` to fetch all comments for the current PR. The script auto-detects the PR from the current branch via `gh pr view`. Override with `--pr <N>`. For cross-repo access (when not running from the repo directory), use `--repo owner/name`. Include resolved threads with `--include-resolved`.
-
-The script aggregates top-level PR comments, review body comments, inline review comments (unresolved threads by default), and AI prompt snippets when present in bot comments.
-
-See `references/platform.md` for all flags and usage variants.
+See `references/platform.md` (Comment Collection section) for collection script usage.
 
 ### [2] Classify & Cross-Reference
 
 **CRITICAL**: Read the full `body` field from JSON output, not `excerpt` (truncated to 220 chars).
 
-Classify each comment per `references/classification.md` (source detection, intent assessment, conclusion taxonomy, edge cases, dossier section mapping). Then scan the classified set for cross-comment patterns per `references/cross-reference.md` (duplicate detection, conflict detection, relation detection, already-replied detection, cross-file escalation rules).
+- **Classify**: Per `references/classification.md` — source detection, intent assessment, conclusion taxonomy, edge cases, dossier section mapping.
+- **Cross-reference**: Per `references/cross-reference.md` — duplicate detection, conflict detection, relation detection, already-replied detection, cross-file escalation rules.
 
 ### [3] Interactive Confirmation
 
@@ -96,14 +93,7 @@ See `references/dossier.md` for the full dossier structure (Executive Summary, R
 
 ### [5] Handoff
 
-```
-Dossier saved to .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
-
-To generate the execution plan, switch to Prometheus mode and paste:
-
-  Read .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
-  and generate an execution plan. Ask me if any task is ambiguous.
-```
+See `references/platform.md` (Handoff section) for the handoff message format.
 
 **Do NOT run `@plan` or `/start-work` yourself.** The user drives Phase 2 (Prometheus conversation) and Phase 3 (`/start-work` execution).
 

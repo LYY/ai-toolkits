@@ -4,7 +4,7 @@ This file defines the classification protocol for analyzing individual PR review
 
 ## Precedence
 
-Layer 2 (workflow/protocol). Called by SKILL.md Step 2. Classification conclusions feed into the cross-reference protocol (second half of Step 2), interaction protocol (Step 3), and dossier generation (Step 5). Classification rules take precedence over reply templates. The conclusion assigned here determines which reply template applies, not the reverse.
+Layer 2 (workflow/protocol). Called by SKILL.md Step 2. Classification conclusions feed into the cross-reference protocol (second half of Step 2), interaction protocol (Step 3), and dossier generation (Step 4). Classification rules take precedence over reply templates. The conclusion assigned here determines which reply template applies, not the reverse.
 
 ---
 
