@@ -4,7 +4,7 @@ This file defines the interaction protocol for the interactive review confirmati
 
 ## Precedence
 
-Layer 2 (workflow/protocol). Consumes output from classification (Step 2) and cross-reference (Step 2.5) protocols. Governs Steps 3 and 4 of SKILL.md. Interaction rules apply only during the live conversation -- once confirmed, the dossier protocol (Step 5) takes over. Silent consent and 🔴 discussion rules established here have the final say on what counts as "confirmed" for dossier generation.
+Layer 2 (workflow/protocol). Consumes output from classification (Step 2) and cross-reference (Step 2.5) protocols. Governs Steps 3 and 4 of SKILL.md. Interaction rules apply only during the live conversation -- once confirmed, the dossier protocol (Step 4) takes over. Silent consent and 🔴 discussion rules established here have the final say on what counts as "confirmed" for dossier generation.
 
 ---
 
@@ -145,7 +145,7 @@ The user must explicitly confirm before dossier generation. Confirmation equival
 
 If the user does not explicitly confirm, ask: "Shall I proceed with dossier generation based on this final table?"
 
-The validation protocol (`validation.md`) enforces that Step 4 confirmation was obtained before Step 5 dossier generation is allowed.
+The validation protocol (`validation.md`) enforces that Step 4 confirmation was obtained before Step 4 dossier generation is allowed.
 
 ---
 
@@ -182,7 +182,7 @@ Step 4: Final Confirmation Table
     ├─ Updated overview table
     └─ User explicit confirmation ("ok" / equivalent)
         │
-Step 5: Dossier Generation (gated by Step 4 confirmation)
+Step 4: Dossier Generation (gated by Step 4 confirmation)
 ```
 
 ---
@@ -199,7 +199,7 @@ There are two distinct gates:
 1. **Step 3 gate**: User accepts or discusses 🔴 items. Remaining items proceed on silent consent.
 2. **Step 4 gate**: User explicitly confirms the final table with "ok" or equivalent.
 
-Both gates must be passed before dossier generation (Step 5). The validation protocol (`validation.md`) enforces this.
+Both gates must be passed before dossier generation (Step 4). The validation protocol (`validation.md`) enforces this.
 
 ### Large PR Scaling
 

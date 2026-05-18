@@ -83,12 +83,12 @@
 
 | Dimension | Expected Value |
 |-----------|---------------|
-| expected classification | `valid` — the fix attempt does not resolve the concern. Re-classify as `valid` requiring a corrected fix. |
+| expected classification | `partially_addressed` — the fix attempt does not resolve the concern. Re-classify as `partially_addressed` requiring a corrected fix. |
 | expected reply posture | Reply explaining the current fix is insufficient and the direction needs correction. Then code change + reply. |
 | expected overview-table | Section A entry, conclusion `valid`, with note: "Partial fix applied but direction is incorrect — requires redo." |
 | expected dossier escalation | Yes — Section A (rework the fix: code change + reply). Must describe the correct fix direction and the specific file/line to change. |
 
-**Edge case within partial fix:** If the partial fix actually resolves the concern partially and the remaining issue is cosmetic/minor, it could be `already_fixed` for the resolved part plus a new `valid` for the remainder. Default to `valid` unless the core concern is genuinely resolved.
+**Edge case within partial fix:** If the partial fix actually resolves the concern partially and the remaining issue is cosmetic/minor, it could be `already_fixed` for the resolved part plus a new `valid` for the remainder. Default to `partially_addressed` unless the core concern is genuinely resolved.
 
 ---
 

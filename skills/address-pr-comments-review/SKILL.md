@@ -78,51 +78,21 @@ See `references/platform.md` for all flags and usage variants.
 
 **CRITICAL**: Read the full `body` field from JSON output, not `excerpt` (truncated to 220 chars).
 
-For each comment, determine:
-- **Source**: `@human` vs `@bot` — see `references/classification.md` (Source Detection)
-- **Intent**: `actionable` vs `informational` — see `references/classification.md` (Intent Assessment)
-- **Conclusion**: `valid`, `invalid`, `already_fixed`, `already_replied`, `out_of_scope`, `needs_clarification`, `partially_addressed` — see `references/classification.md` (Conclusion Taxonomy)
-- **Edge cases**: minimized comments, thread_outdated, thread_resolved, has_replies, deleted/ghost authors, empty body, self-review — see `references/classification.md` (Edge Cases)
-- **Dossier section mapping**: conclusions map to Section A (code change), Section B (reply only), or Section C (skip) — see `references/classification.md` (Dossier Section Mapping)
-
-Then scan the full classified set for cross-comment patterns:
-- **Duplicates**: same file:line + same concern — merge into one entry
-- **Conflicts**: opposing recommendations on same code — flag for discussion
-- **Related**: causally/logically connected comments across files — add dependency notes
-- **Already-replied**: two-level assessment (has a reply vs reply is sufficient)
-- **Cross-file escalation**: same pattern in multiple files — guardrail against scope creep
-
-See `references/cross-reference.md` for detection signals, merge strategies, and escalation rules.
+Classify each comment per `references/classification.md` (source detection, intent assessment, conclusion taxonomy, edge cases, dossier section mapping). Then scan the classified set for cross-comment patterns per `references/cross-reference.md` (duplicate detection, conflict detection, relation detection, already-replied detection, cross-file escalation rules).
 
 ### [3] Interactive Confirmation
 
-Present the full analysis in a structured overview table with headers: `# | 来源 | 类型 | 文件 | 摘要 | 结论 | 去重/冲突 | 讨论`. Even when zero items are actionable, the table is mandatory.
-
-Discussion order:
-1. Resolve flagged items (conflicts, needs_clarification, high-risk valid) one by one
-2. Non-flagged items proceed by silent consent — user can object by number at any time
-3. After all discussion converges, produce an updated final confirmation table with a change summary
-
-User explicitly confirms with "ok" or equivalent before proceeding to dossier generation.
-
-See `references/interaction.md` for table format, legend, silent consent rules, discussion gating, scaling strategies for large PRs, and confirmation gate rules.
+Present the structured overview table per `references/interaction.md` (mandatory, even when zero items are actionable). Follow the interaction flow: resolve flagged items first, non-flagged items proceed by silent consent, then produce a final confirmation table with change summary. User must explicitly confirm before proceeding to dossier generation.
 
 ### [4] Generate Review Dossier
 
-Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md`. Use `date +%Y%m%d-%H%M%S` for the timestamp. The dossier is a requirements document, not an execution plan — plan generation happens in Phase 2.
+Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md`. The dossier is a requirements document, not an execution plan — plan generation happens in Phase 2.
 
-**Before writing**: run a final cross-reference scan against the confirmed table. Check for new duplicates, stale duplicates, unresolved conflicts, orphaned replies, new relations, cross-section leakage, reply target mismatch, and stale already_replied items. If any item remains unresolved, return to Step 3.
+**Before writing**: run the final cross-reference scan per `references/validation.md` (8-item checklist). If any item remains unresolved, return to Step 3.
+
+**After writing**: verify file existence, valid markdown, count matching, no placeholder leakage, and endpoint correctness per `references/validation.md`.
 
 See `references/dossier.md` for the full dossier structure (Executive Summary, Reply Endpoints, Sections A/B/C templates, duplicate and conflict handling, dependency notation, scope guardrails).
-
-See `references/validation.md` for the 8-item pre-write cross-reference scan checklist and post-write dossier verification checks.
-
-**After writing**, verify:
-- File exists at expected path
-- File starts with `# Review Dossier:`
-- Executive Summary counts match actual items in each section
-- No `{{...}}` template placeholders remain unfilled
-- Every reply task uses the correct endpoint kind
 
 ### [5] Handoff
 
@@ -143,14 +113,7 @@ To generate the execution plan, switch to Prometheus mode and paste:
 
 ## Reply Policy
 
-The reply policy governs when and how to reply to PR comments. Key rules:
-
-- **Pre-Reply Gate**: before composing any reply, verify the thread does not already have a sufficient human reply. If it does, do NOT reply. Four checks must all pass.
-- **Change Summary Rule**: `Fixed in <sha>` alone is insufficient when the fix is misleading, partial, or non-obvious. Always add a change summary unless the change is truly self-explanatory.
-- **Duplicate Author Reply**: when comments are merged as duplicates, compose ONE reply and send it to each author individually via their own `in_reply_to` ID.
-- **Partial Fix Reply**: acknowledge the existing fix attempt, explain why it is insufficient, describe the correct fix direction.
-
-See `references/reply.md` for the full pre-reply gate checklist, change summary rule, reply templates per conclusion, duplicate author strategy, and partial fix reply requirements.
+The reply policy governs when and how to reply to PR comments. See `references/reply.md` for the complete set of rules: the pre-reply gate checklist, change summary requirements, duplicate author reply strategy, partial fix reply requirements, and reply templates per conclusion.
 
 ## Interaction Checklist
 

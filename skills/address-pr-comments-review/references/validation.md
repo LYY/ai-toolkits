@@ -87,7 +87,7 @@ If overlap is found between two files, the file at the LOWER layer in the preced
 The `list_comments.py` script must be present at the skill root:
 
 ```bash
-test -f skills/address-pr-comments-review/list_comments.py
+test -f skills/address-pr-comments-review/scripts/list_comments.py
 ```
 
 If the script is missing, comment collection is impossible and the skill cannot proceed.
@@ -154,16 +154,7 @@ Before writing the dossier, re-scan the final confirmed table (from Step 4) agai
 
 ### 3.1 8-Check Checklist
 
-| Check | What to look for | Action if found |
-|-------|-----------------|-----------------|
-| **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
-| **Stale duplicates** | Two entries were merged in Step 2.5, but discussion changed one conclusion (e.g., `valid` -> `invalid`) -- they may no longer be duplicates | Split back to separate entries |
-| **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
-| **Orphaned replies** | A comment changed from `valid` to `invalid` during discussion -- does its duplicate partner still need the code change? | Verify the remaining entry is correctly classified |
-| **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |
-| **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
-| **Reply target mismatch** | Merged duplicates -- all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
-| **Stale already_replied** | A comment marked `already_replied` but discussion revealed the reply was insufficient or from a bot | Reclassify |
+See `dossier.md` (Final Cross-Reference Scan section) for the complete 8-check checklist covering new duplicates, stale duplicates, unresolved conflicts, orphaned replies, new relations, cross-section leakage, reply target mismatch, and stale already_replied items.
 
 ### 3.2 Gate Rule
 
