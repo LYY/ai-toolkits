@@ -24,7 +24,7 @@ npx skills add LYY/ai-toolkits -g -y
 - **Scope Guardrails** (review 模式): dossier 内置防 scope creep 约束，禁止计划执行时顺手重构
 - **异步流程支持**: `needs_clarification` 评论支持 reviewer 回复后重跑 skill，自动跳过已处理项
 - **失败恢复** (review 模式): `/start-work` 中途失败可重新生成 dossier，仅处理剩余未完成项
-- **面向 agent 设计**: 按执行阶段组织 reference（analyze → interact → output → platform），按需加载，不做学术分层
+- **面向 agent 设计**: 按执行阶段组织 reference（classify → cross-reference → interaction → dossier-output），按需加载，不做学术分层
 
 ## 开发
 

@@ -1,16 +1,17 @@
 # Architecture: address-pr-comments-review
 
-维护者视图的 skill 架构说明。运行时 agent 不读此文件——它只需要 `SKILL.md` 和 4 个 reference 文件。
+维护者视图的 skill 架构说明。运行时 agent 不读此文件——它只需要 `SKILL.md` 和 5 个 reference 文件。
 
 ## 文件结构
 
 ```
 skills/address-pr-comments-review/
-├── SKILL.md                  ← 编排入口（workflow steps、prerequisites、error recovery）
+├── SKILL.md                  ← 编排入口（on-demand loading table、workflow with gates、error recovery）
 ├── references/
-│   ├── analyze.md            ← Step 2: 分类 + 交叉引用（source/intent/conclusion + dedup/conflict/escalation）
-│   ├── interaction.md        ← Step 3: 交互确认（overview table、silent consent、discussion flow）
-│   ├── output.md             ← Step 4: dossier + reply + 验证（模板、reply policy、gates）
+│   ├── classify.md           ← Step 2a: 逐条分类（source/intent/conclusion/edge cases/section mapping）
+│   ├── cross-reference.md    ← Step 2b: 全局交叉比对（dedup/conflict/relation/cross-file escalation）
+│   ├── interaction.md        ← Step 3: 交互确认（overview table、silent consent、🔴 discussion、fast path）
+│   ├── dossier-output.md     ← Step 4: dossier + reply + 验证（模板、reply policy、8-check gates）
 │   └── platform.md           ← 运行时命令 + JSON contract
 └── scripts/list_comments.py  ← PR 评论采集脚本
 ```
@@ -27,10 +28,11 @@ skills/address-pr-comments-review/
 
 | 文件 | 拥有的规则 | 不拥有的规则 |
 |------|-----------|-------------|
-| `analyze.md` | source detection, intent, conclusion taxonomy, evidence requirements, edge cases, section mapping, duplicate/conflict/relation/cross-file detection | interaction flow, reply templates, dossier format |
-| `interaction.md` | overview table format, silent consent, 🔴 discussion flow, scaling, confirmation gates | comment classification, dossier structure |
-| `output.md` | dossier structure (A/B/C), reply endpoints, reply templates + gate, validation checks, regression scenarios | classification rules, interaction flow |
-| `platform.md` | list_comments.py usage, JSON contract, prerequisites, dossier paths, handoff format | reply API commands (owned by output.md) |
+| `classify.md` | source detection, intent, conclusion taxonomy, edge cases, evidence requirements, section mapping | cross-reference (duplicate/conflict/relation), interaction flow |
+| `cross-reference.md` | duplicate/conflict/relation detection, cross-file escalation | individual classification, reply templates |
+| `interaction.md` | overview table format, silent consent, 🔴 discussion flow, scaling, zero-actionable fast path | comment classification, dossier structure |
+| `dossier-output.md` | dossier structure (A/B/C), reply endpoints, reply policy + gate, 8-check validation | classification rules, interaction flow |
+| `platform.md` | list_comments.py usage, JSON contract, prerequisites, dossier paths, handoff format | reply API commands (owned by dossier-output.md) |
 
 ## Eval Matrix
 
