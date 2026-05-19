@@ -12,122 +12,86 @@ description: >-
 
 A three-phase interactive workflow for GitHub PR comment review.
 
-- **Phase 1** (this skill): collect, classify, and confirm comments interactively with the user, then produce a review dossier.
-- **Phase 2**: user switches to Prometheus mode, gives it the dossier, and has an interactive conversation to generate an execution plan (with built-in Metis gap analysis + Momus review).
+- **Phase 1** (this skill): collect, classify, and confirm comments interactively, then produce a review dossier.
+- **Phase 2**: user switches to Prometheus mode, gives it the dossier, and has an interactive conversation to generate an execution plan.
 - **Phase 3**: user runs `/start-work` to execute the plan in isolated workspaces.
 
-**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Dossier placement and Prometheus to `/start-work` flow are Sisyphus-specific. Not compatible with other agent platforms.
+**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Dossier placement and Prometheus to `/start-work` flow are Sisyphus-specific.
+**Self-contained**: uses vendored `scripts/list_comments.py` (no Python package dependencies; requires `gh` CLI).
 
-**Self-contained**: uses its own `scripts/list_comments.py` (vendored, no Python package dependencies; requires `gh` CLI).
+## On-Demand Loading
 
-## Quick Reference
+Load only the file needed for the current step. No file assumes you've read previous ones.
 
-| For operators who need to... | Open this file |
-|---|---|
-| **Classify + cross-reference** (Step 2: classify, detect duplicates/conflicts/relations) | `references/analyze.md` |
-| **Run the interactive confirmation table** (Step 3) | `references/interaction.md` |
-| **Write dossier + compose replies + validate** (Step 4) | `references/output.md` |
-| **Runtime commands** (collection, paths, handoff) | `references/platform.md` |
+| Step | What You're Doing | Load | ~Lines |
+|------|------------------|------|--------|
+| 1 | Collect comments from PR | `platform.md` | 150 |
+| 2a | Classify each comment individually | `classify.md` | 330 |
+| 2b | Detect duplicates, conflicts, relations across full set | `cross-reference.md` | 340 |
+| 3 | Present overview table, discuss 🔴 items, get confirmation | `interaction.md` | 200 |
+| 4a | Pre-write cross-reference scan (8 checks) | `dossier-output.md` §Validation Gates | 100 |
+| 4b | Generate dossier (Sections A/B/C, guardrails, dependencies) | `dossier-output.md` §Dossier Structure | 200 |
+| 4c | Compose replies (gate check, templates, duplicate strategy) | `dossier-output.md` §Reply Policy | 200 |
+| 5 | Handoff message to user | `platform.md` §Handoff | 20 |
 
-## Minimal Path
-
-Only 4 reference files to read, loaded per phase rather than all at once:
-
-| Phase | File | When to read |
-|-------|------|-------------|
-| Step 1-2 | `references/platform.md` | Before collecting comments (script usage, JSON contract) |
-| Step 2 | `references/analyze.md` | Before classifying and cross-referencing comments |
-| Step 3 | `references/interaction.md` | Before presenting the overview table |
-| Step 4-5 | `references/output.md` | Before writing dossier, composing replies, or running validation gates |
-
-Load only the file you need for the current step. No file assumes you've read the previous ones — each is self-contained for its phase.
+**Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion.
 
 ## Prerequisites
 
-- `gh` CLI installed and authenticated (see `references/platform.md` for verification)
+- `gh` CLI installed and authenticated (`gh auth status`)
 - OpenCode + OhMyOpenCode (Sisyphus) environment
-- Current git branch has an open PR, or you know the PR number
+- Current branch has an open PR, or PR number is known
 
 ## Error Recovery
 
-| Failure | Response |
-|---------|----------|
+| Failure | Action |
+|---------|--------|
 | `gh` not installed / not authenticated | Stop. Tell user to run `gh auth login`. |
-| `list_comments.py` fails (network, API rate limit) | Retry once after 5 seconds. If still fails, report the error and ask user if they want to continue with manual PR number override. |
-| PR not found (wrong number, closed, merged) | Report the specific gh error. Ask user to verify PR number and state. |
-| **Zero comments on PR** | Report: "PR has no comments — nothing to review." Suggest the user check if reviews are pending. |
-| **All comments are informational** | Still produce a minimal dossier (Section A=0, B=0, C=all) with a note. User can then decide to skip `/start-work`. |
-| Script returns empty JSON | Verify `gh pr view` works manually. Check that the branch has an open PR. |
+| `list_comments.py` fails (network, API rate limit) | Retry once after 5s. If still fails, report error, ask user. |
+| PR not found | Report gh error. Ask user to verify PR number/state. |
+| Zero comments | Report "PR has no comments — nothing to review." |
+| All comments informational | Produce minimal dossier (Sections A=0, B=0, C=all). User can skip `/start-work`. |
+| Script returns empty JSON | Verify `gh pr view` works manually. Check branch has open PR. |
 
-## Workflow
+## Workflow (with Gates)
 
 ```
-PR address or auto-detect
-    ↓
-[1] Collect comments (list_comments.py)
-    ↓
-[2] Classify + cross-reference
-    ↓
-[3] Interactive confirmation (silence = consent)
-    ↓
-[4] Generate review dossier
-    ↓
+[1] Collect (platform.md)
+  │
+[2a] Classify (classify.md)
+  │
+[2b] Cross-Ref (cross-reference.md)
+  │  ├─ duplicates merged, conflicts flagged, relations noted
+  │  └─ already-replied detected
+  │
+[3] Interactive Table (interaction.md)
+  │  ├─ 🔴 items discussed & resolved  ← BLOCKING GATE
+  │  ├─ Silent consent for non-🔴 items
+  │  └─ User explicitly confirms ("ok" / "proceed" / etc.)
+  │
+[4a] Pre-Write Scan (dossier-output.md §Validation Gates)
+  │  └─ 8 checks pass  ← BLOCKING GATE
+  │
+[4b] Dossier → .sisyphus/notepads/pr-<N>-dossier/
+  │
+[4c] Replies (dossier-output.md §Reply Policy)
+  │
 [5] Handoff → Prometheus → /start-work
 ```
 
-### [1] Collect Comments
+**Do NOT run Prometheus or `/start-work` yourself.** User drives Phase 2 & 3.
 
-See `references/platform.md` (Comment Collection section) for collection script usage.
-
-### [2] Classify & Cross-Reference
-
-**CRITICAL**: Read the full `body` field from JSON output, not `excerpt` (truncated to 220 chars).
-
-Per `references/analyze.md` — source detection, intent assessment, conclusion taxonomy, edge cases, dossier section mapping, duplicate detection, conflict detection, relation detection, already-replied detection, and cross-file escalation rules.
-
-### [3] Interactive Confirmation
-
-Present the structured overview table per `references/interaction.md` (mandatory, even when zero items are actionable). Follow the interaction flow: resolve flagged items first, non-flagged items proceed by silent consent, then produce a final confirmation table with change summary. User must explicitly confirm before proceeding to dossier generation.
-
-### [4] Generate Review Dossier
-
-Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md`. The dossier is a requirements document, not an execution plan — plan generation happens in Phase 2.
-
-Per `references/output.md` — dossier structure (Executive Summary, Reply Endpoints, Sections A/B/C templates, duplicate and conflict handling, dependency notation, scope guardrails), reply policy (pre-reply gate, change summaries, reply templates per conclusion), and validation gates (pre-write cross-reference scan, post-write verification).
-
-### [5] Handoff
-
-See `references/platform.md` (Handoff section) for the handoff message format.
-
-**Do NOT run `@plan` or `/start-work` yourself.** The user drives Phase 2 (Prometheus conversation) and Phase 3 (`/start-work` execution).
-
-**After execution**: review commits (`git log --oneline`), `git push`, verify replies on the PR. If anything was missed, re-run this skill — `has_replies` detection skips already-handled items.
-
-**If `/start-work` fails mid-execution**: check which tasks succeeded (commits + PR replies), re-run this skill to generate a dossier of remaining items, then generate a new plan and re-run.
-
-## Reply Policy
-
-The reply policy governs when and how to reply to PR comments. See `references/output.md` (Reply Policy section) for the complete set of rules: the pre-reply gate checklist, change summary requirements, duplicate author reply strategy, partial fix reply requirements, and reply templates per conclusion.
-
-## Interaction Checklist
-
-| Step | Gate | Condition |
-|------|------|-----------|
-| 2 | Cross-reference scanned | Duplicates merged, conflicts flagged, relations noted, already-replied detected |
-| 3 | Overview confirmed | User accepts or remains silent after flagged items discussed |
-| 3 | Final table confirmed | User explicitly confirms ("ok", "go ahead") |
-| 4 (before write) | Final cross-reference scan | All 8 checks pass, no unresolved items remain |
-| 4 | Dossier written | File exists and is complete (no unfilled placeholders) |
-| 5 | Handoff delivered | User sees next-step instructions with Prometheus conversation + `/start-work` |
+**After `/start-work` succeeds**: `git log --oneline`, `git push`, verify PR replies.
+**If `/start-work` fails mid-execution**: re-run this skill — `has_replies` detection skips handled items.
 
 ## Key Principles
 
-- **AI is analyst, user is decider**. Skill classifies and suggests; user makes final calls on `needs_clarification` and high-risk items.
-- **Silence is consent**. Uncontested items proceed on AI recommendation. Object by item number to override.
-- **Three phases, never collapse**. Phase 1 = dossier (this skill), Phase 2 = interactive Prometheus plan, Phase 3 = `/start-work` execution.
-- **Duplicates are detected, not created**. Cross-reference merges same file:line issues into single tasks. Plan mode must never see two tasks modifying the same line for the same reason.
-- **Conflicts are surfaced, not buried**. Opposing reviewer advice is flagged during interaction and documented in the dossier.
-- **Final scan is mandatory**. Discussion changes things. The cross-reference scan before dossier generation catches new duplicates, stale merges, and unresolved conflicts. Never skip this gate.
+- **AI is analyst, user is decider.** Skill classifies; user decides on 🔴 items.
+- **Silence is consent.** Uncontested items proceed on AI recommendation.
+- **Three phases, never collapse.** Dossier → Prometheus plan → `/start-work` execution.
+- **Duplicates are detected, not created.** Same `file:line` + same concern = one task.
+- **Conflicts are surfaced, not buried.** Opposing advice is flagged and documented.
+- **Final scan is mandatory.** Discussion changes things — never skip the pre-write 8-check scan.
 
 ## Quick Commands
 

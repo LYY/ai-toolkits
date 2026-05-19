@@ -107,11 +107,10 @@ The script uses an internal `issue_comment` event kind exclusively within `build
 
 | Protocol File | Key Fields Consumed |
 |---------------|---------------------|
-| classification.md | `author`, `is_ai`, `body`, `has_replies`, `thread_outdated`, `thread_resolved`, `path`, `line`, `kind` |
-| cross-reference.md | `has_replies`, `kind`, `path`, `line`, `id`, `author` |
-| dossier.md | `id`, `author`, `kind`, `path`, `line`, `url` |
-| reply.md | `id`, `author`, `kind`, `path`, `line` |
-| interaction.md | `id`, `author`, `kind`, `path`, `line`, `url` |
+| `classify.md` | `author`, `is_ai`, `body`, `has_replies`, `thread_outdated`, `thread_resolved`, `path`, `line`, `kind` |
+| `cross-reference.md` | `has_replies`, `kind`, `path`, `line`, `id`, `author` |
+| `dossier-output.md` | `id`, `author`, `kind`, `path`, `line`, `url` |
+| `interaction.md` | `id`, `author`, `kind`, `path`, `line`, `url` |
 
 ## Dossier Path & Timestamp
 
@@ -156,6 +155,6 @@ Replace `<N>` and `<TIMESTAMP>` with actual values.
 
 ## Reply Endpoint Commands
 
-Reply API commands are owned by `dossier.md` (Reply Endpoints section). For reply endpoint commands, see `references/dossier.md`.
+Reply API commands are owned by `dossier-output.md` (Reply Endpoints section). For reply endpoint commands, see `references/dossier-output.md`.
 
 **Commit SHA note**: Inline replies require a valid commit SHA on the PR branch (`git rev-parse HEAD`). `review` and `top_level` replies do not need `commit_id`.

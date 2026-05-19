@@ -6,9 +6,9 @@ Step 4 dossier generation, reply policy, and validation gates. Produces the revi
 
 ## Dossier Structure
 
-This file defines the dossier contract: the structure, content rules, evidence requirements, and quality checks for the review dossier generated after successful interaction (Step 4). The dossier is the final deliverable of Phase 1. It is a requirements document that captures every confirmed decision from Steps 2-4 and feeds Prometheus (Phase 2) for execution plan generation.
+The dossier is the final deliverable of Phase 1 — a requirements document that captures every confirmed decision from Steps 2-4 and feeds Prometheus (Phase 2) for execution plan generation.
 
-The dossier opens with an executive summary table:
+### Executive Summary
 
 ```markdown
 ## Executive Summary
@@ -40,10 +40,6 @@ A single table following the executive summary lists merged duplicates (which co
 ---
 
 ## Reply Endpoints
-
-The dossier must include a reference table of `gh api` commands for each reply kind. Reply TEMPLATES are in `reply.md` -- not duplicated here.
-
-**Ownership**: This section owns reply endpoint command templates. Gate logic and verification procedures are defined in Validation Gates below.
 
 ```markdown
 ## Reply Endpoints (shared by Sections A and B)
@@ -99,7 +95,7 @@ Every Section A entry MUST contain: exact file paths and line numbers, code chan
 
 ### Evidence Requirements
 
-Evidence requirements are defined in `classification.md` (Evidence Requirements section). This section does not repeat them.
+Evidence requirements are defined in `classify.md` (Evidence Requirements section).
 
 ---
 
@@ -109,14 +105,14 @@ Section B captures every comment confirmed as needing a reply but no code change
 
 ### Section B Task Template
 
-One canonical example. For conflict resolution (rejected direction), add `- **Context**: User chose @A over @B` and set `- **Conclusion**: \`invalid\``.
-
 ```markdown
 ### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} -- {{SUMMARY}}
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Conclusion**: `{{CONCLUSION}}` -- {{RATIONALE}}
 - **Reply**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
 ```
+
+For conflict resolution (rejected direction), add `- **Context**: User chose @A over @B` and set `- **Conclusion**: \`invalid\``.
 
 ### Required Fields (ALL Mandatory)
 
@@ -130,17 +126,11 @@ When user chooses @A's approach over @B's: chosen direction goes to Section A (i
 
 ## Section C: Informational & Already-Replied Comments -- No Action
 
-Section C captures comments that require no action. No code changes, no replies.
-
-### Section C Table Format
-
 ```markdown
 | # | Source | Kind | Summary | Reason |
 |---|--------|------|---------|--------|
 | {{COMMENT_ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} | {{informational / already_replied}} |
 ```
-
-### Section C Rules
 
 `informational` (praise, LGTM, emoji, FYI, nit, retraction), `already_replied` (sufficient human reply), and `minimized` by author go here. No code change, no reply, no follow-up. NOT counted as plan tasks.
 
@@ -158,48 +148,15 @@ Primary entry follows cross-file escalation rules; duplicate authors follow dupl
 
 Chosen direction goes to Section A (code change) or Section B (reply-only). Rejected direction goes to Section B with `invalid` conclusion. Document in Dedup & Conflict Notes. "What to change" references both approaches and explains the choice.
 
-## Cross-Section Leakage Prevention
+## Cross-Section Rule
 
-The dossier contract explicitly forbids these violations:
-
-| Violation | What it looks like | Correct move |
-|-----------|-------------------|--------------|
-| Code-change task that only needs a reply | Task in Section A but conclusion says `invalid` or `already_fixed` | Move to Section B |
-| Reply-only task that implies code changes | Task in Section B but description references code modifications | Move to Section A, or keep in B with note explaining no code change |
-| Informational item promoted to actionable | Item in Section C but its conclusion requires action | Move to Section A or B based on conclusion |
-| `partially_addressed` placed in Section B | Fix attempt exists but is insufficient -- incorrectly treated as reply-only | Move to Section A (requires code change + reply) |
-| Cross-file escalation creates extra Section A tasks | Multiple Section A entries created for the same cross-file pattern | Only the primary commented file is Section A. Remaining files are scope-guardrails |
-
-### Enforcement
-
-The final cross-reference scan (see below) includes a dedicated check for cross-section leakage. If any item is in the wrong section, the scan blocks dossier writing.
-
----
-
-## Final Cross-Reference Scan (Pre-Write)
-
-Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
-
-See below (Section 1: Pre-Dossier Scan) for the complete 8-Check Checklist. Gate enforcement follows below (Section 4: Gate Rules) -- this section defines the checks, below defines how to gate.
-
-### Gate Rule
-
-Any unresolved item blocks dossier writing. Return to Step 3 if blocked. If all pass, proceed. The dossier includes a results table:
-
-```markdown
-## Cross-Reference Checks
-| Check | Status |
-|-------|--------|
-| New duplicates | {{NEW_DUP_CHECK}} |
-| Stale duplicates | {{STALE_DUP_CHECK}} |
-| ... (all 8 checks) | ... |
-```
+Every item's dossier section MUST match its conclusion per the Section Mapping table in `classify.md`. If a conclusion changes during Step 3 interaction, re-assign the section. The pre-write cross-reference scan (see Validation Gates) catches any section misplacement automatically.
 
 ---
 
 ## Dependencies
 
-When comments are causally or logically related, capture after Cross-Reference Checks. Types: `fixes_needed_before`, `may_become_unnecessary`, `should_be_grouped`.
+When comments are causally or logically related (detected per `cross-reference.md`), capture after Cross-Reference Checks. Types: `fixes_needed_before`, `may_become_unnecessary`, `should_be_grouped`.
 
 ```markdown
 ## Dependencies
@@ -231,24 +188,9 @@ Cross-reference protocol (cross-file Moderate+), interaction protocol (user cons
 
 ---
 
-## Post-Write Verification
-
-| Check | Command/Condition |
-|-------|-------------------|
-| File exists | `test -f .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md` |
-| Valid markdown | File starts with `# Review Dossier:` |
-| Counts match | Executive Summary counts = actual items in each section |
-| No placeholder left | No `{{...}}` template variables remain -- all should be substituted |
-| Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
-| Reply templates referenced correctly | Reply templates are referenced by name, not duplicated inline |
-
-If any check fails, fix and re-verify. Gate enforcement follows Validation Gates below (Section 2: Post-Write Dossier Verification and Section 4: Gate Rules). This section defines the checks; below defines how to gate.
-
----
-
 ## Reply Policy
 
-This file defines the reply policy for responding to PR review comments. It covers when and how to reply, what content is required for each conclusion type, the pre-reply gate that prevents duplicate replies, and when a change summary is mandatory alongside a fix confirmation. It is responsible for ensuring every reply is correctly addressed, properly formatted, directed to the right endpoint, and never sent twice to the same thread.
+Governs when and how to reply to PR comments.
 
 ### Pre-Reply Gate
 
@@ -258,7 +200,7 @@ This file defines the reply policy for responding to PR review comments. It cove
 
 | # | Check | Condition to pass | Action if failed |
 |---|-------|-------------------|------------------|
-| 1 | **Already replied?** | Does this thread have `has_replies: true` with a substantively sufficient human reply (per cross-reference rules in analyze.md Level 2)? | Do NOT reply. The existing reply already addresses the concern. If the existing reply is insufficient, do NOT reply either -- flag for user override at Step 3. |
+| 1 | **Already replied?** | Does this thread have `has_replies: true` with a substantively sufficient human reply (per `classify.md` has_replies rules)? | Do NOT reply. The existing reply already addresses the concern. If the existing reply is insufficient, flag for user override at Step 3. |
 | 2 | **Duplicate author?** | Is this comment one of multiple that were merged as duplicates? | Compose ONE reply. Send it to EACH author individually via their own `in_reply_to` ID. Do not reply to only one author. |
 | 3 | **Change summary needed?** | Does the conclusion require a change summary alongside the fix confirmation (see Change Summary Rule below)? | Add a change summary before `Fixed in <sha>`. Do not send a bare `Fixed in <sha>` alone. |
 | 4 | **Conclusion still valid?** | Has the code state changed since classification (e.g., a new commit was pushed, or the diff shifted)? | Re-verify the conclusion against current HEAD. If the issue no longer exists, reclassify before replying. |
@@ -328,23 +270,21 @@ Each conclusion maps to exactly one reply template. The template is the default;
 
 | Conclusion | Template | Change summary required? | Notes |
 |-----------|----------|-------------------------|-------|
-| valid (fixed) | `Fixed in <commit_sha>.` | See Change Summary Rule above | Bare SHA only when fix is self-explanatory. Always check the rule. |
+| valid (fixed) | `Fixed in <commit_sha>.` + change summary IF partial/direction-correction/non-obvious | See Change Summary Rule | Bare SHA only when fix is self-explanatory. Always check the rule. |
 | invalid | `This suggestion doesn't apply because <reason>.` | No | Reason is mandatory -- one sentence minimum. |
-| already_fixed | `Already resolved in the current code -- no changes needed.` | No | Evidence of the existing fix must be citeable per classification protocol. |
+| already_fixed | `Already resolved in the current code -- no changes needed.` | No | Evidence of the existing fix must be citeable per `classify.md`. |
 | out_of_scope | `This is outside the scope of this PR. <follow-up>.` | No | Follow-up suggestion is optional but recommended. |
-| needs_clarification | `Confirmed: <resolved direction>.` | No | Direction is resolved during Step 3 interaction, unlike auto mode where the reply asks the question. |
-| partially_addressed | `Acknowledged. The existing fix at <sha> addresses <X> but does not address <Y>. <Corrected/reworked> in <sha> to <describe correct fix>.` | Yes -- always | See Partial Fix Reply section below for full requirements. |
+| needs_clarification | `Confirmed: <resolved direction>.` | No | Direction is resolved during Step 3 interaction. |
+| partially_addressed | `Acknowledged. The existing fix at <sha> addresses <X> but does not address <Y>. <Corrected/reworked> in <sha> to <describe correct fix>.` | Yes -- always | See Partial Fix Reply section below. |
 | conflict (not chosen) | `Thanks for the suggestion. We went with @other's approach for <reason>.` | No | Reason must neutrally explain the choice without disparaging the rejected approach. |
 
 #### Partial Fix Reply (partially_addressed)
 
 When the classification protocol assigned `partially_addressed`, the reply MUST include three components in order:
 
-1. **Acknowledge the existing attempt**: Cite the commit SHA and what it attempted to fix. This shows the reviewer you saw their original feedback was addressed, even if incompletely.
-
-2. **Explain the insufficiency**: State why the existing fix does not resolve the core concern. Reference the specific code lines that remain problematic. Use neutral factual language, not blame.
-
-3. **Describe the correct fix**: State what was done in the new fix (or what will be done). Reference the new commit SHA if the fix is already applied.
+1. **Acknowledge the existing attempt**: Cite the commit SHA and what it attempted to fix.
+2. **Explain the insufficiency**: State why the existing fix does not resolve the core concern. Reference the specific code lines. Use neutral factual language.
+3. **Describe the correct fix**: State what was done in the new fix (or what will be done). Reference the new commit SHA.
 
 Format:
 
@@ -355,7 +295,7 @@ should happen AFTER stop completes. This rework in def456 moves the
 call to the correct position in the shutdown sequence.
 ```
 
-Do NOT omit the acknowledgment. A `partially_addressed` reply that jumps straight to "Fixed in <sha>" without acknowledging the previous attempt reads as dismissive. The acknowledgment is not optional.
+Do NOT omit the acknowledgment. A `partially_addressed` reply that jumps straight to "Fixed in <sha>" without acknowledging the previous attempt reads as dismissive.
 
 #### Duplicate Author Reply Strategy
 
@@ -366,39 +306,27 @@ When a comment was merged as a duplicate (same concern, multiple authors):
 - Do NOT reply to only one author, even if the others are bots
 - Do NOT create separate reply tasks for each author in the dossier -- one task, multiple `in_reply_to` IDs
 
-The reply content is identical across authors. The only difference is the `in_reply_to` parameter in the API call. This is a per-`in_reply_to` dispatch, not a per-author content variation.
+The reply content is identical across authors. The only difference is the `in_reply_to` parameter in the API call.
 
 #### Already-Replied Blocking
 
-When cross-reference rules in analyze.md Level 2 determines a reply is sufficient:
+When `classify.md` determines a reply is sufficient:
 
 - The reply is blocked. Do not compose, draft, or prepare a reply.
 - The existing reply stands. No override without explicit user action at Step 3.
-- This applies even if the existing reply is by a different person or takes a different tone. If the reply substantively addresses the concern, it is sufficient.
+- This applies even if the existing reply is by a different person or takes a different tone.
 
-When cross-reference rules in analyze.md Level 2 determines a reply is NOT sufficient:
+When `classify.md` determines a reply is NOT sufficient:
 
 - Default to blocked (conservative). The existing thread has activity.
 - Flag the insufficiency for the user at Step 3 with a pending indicator.
 - Do NOT compose a reply unilaterally. Only proceed if the user explicitly reclassifies the comment.
 
-This two-level approach prevents the agent from overruling an existing reply while giving the user visibility into potentially unresolved threads.
-
----
-
-### Endpoint Selection (Reference Only)
-
-Endpoint commands are defined in `dossier.md` (Reply Endpoints section). This file does not repeat them.
-
 ---
 
 ## Validation Gates
 
-This file defines the validation and regression protocol -- the checklists and gate rules that ensure dossier integrity before handoff. It covers: pre-write cross-reference scan, post-write dossier verification, gate rules (🔴 gate, confirmation gate, block procedure), and regression scenarios.
-
-`eval-matrix.md` is the canonical scenario corpus. This file defines the verification gates; `eval-matrix.md` defines the behavioral acceptance criteria.
-
----
+Checks and gate rules that ensure dossier integrity before handoff. See `docs/address-pr-comments-review/eval-matrix.md` for the canonical scenario corpus.
 
 ### 1. Pre-Dossier Scan: Final Cross-Reference (Pre-Write)
 
@@ -437,39 +365,23 @@ After writing the dossier file, run these checks.
 
 #### 2.2 No-Placeholder Leakage Check (Mandatory)
 
-Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`, `{{NEW_DUP_CHECK}}`, `{{STALE_DUP_CHECK}}`.
+Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`.
 
 **Gate rule**: If any placeholder remains unfilled, do NOT hand off to Prometheus. Regenerate the dossier.
 
 ---
 
-### 3. Capability Upgrade Checks
+### 3. Gate Rules
 
-These checks validate that the redesigned skill's new capabilities are working correctly. Each maps to a specific regression scenario in `eval-matrix.md`:
-
-| Capability Check | Maps To |
-|------------------|---------|
-| `thread_outdated` behavior | Scenarios 1 & 2 |
-| `partially_addressed` | Scenario 5 |
-| `cross-file` escalation | Scenario 7 |
-| `zero-actionable` table | Scenario 4 |
-| `duplicate-reply` prevention | Scenario 6 |
-
-See `eval-matrix.md` for scenario-specific verification guidance.
-
----
-
-### 4. Gate Rules
-
-#### 4.1 The 🔴 Gate
+#### 3.1 The 🔴 Gate
 
 If any 🔴 item remains unresolved after Step 4 interaction (conflicts unresolved, needs_clarification unanswered, high-risk valid items not acknowledged), the skill MUST NOT write the dossier. It must return to Step 3 for further discussion. This is a hard gate -- no override, no workaround.
 
-#### 4.2 Confirmation Gate
+#### 3.2 Confirmation Gate
 
 Step 3 user confirmation is required before Step 4 dossier generation. Confirmation equivalents: "ok", "yes", "looks good", "proceed", "confirmed", or any affirmative response. If the user does not explicitly confirm, the skill must ask: "Shall I proceed with dossier generation based on this final table?" Dossier generation must not proceed without explicit confirmation.
 
-#### 4.3 How to Block
+#### 3.3 How to Block
 
 When a check fails:
 1. **State the failure**: "Validation check failed: [check name]. [Detail of what was found]."
@@ -479,22 +391,18 @@ When a check fails:
 
 ---
 
-### 5. Regression Scenarios
+### 4. Regression Scenario Quick Reference
 
-`eval-matrix.md` is the canonical scenario corpus. This file defines the verification gates; `eval-matrix.md` defines the behavioral acceptance criteria. The following reference table provides a quick lookup for each scenario; the full 4-dimension specification (expected classification, reply posture, overview-table treatment, dossier escalation) lives in `eval-matrix.md`.
+For detailed behavioral acceptance criteria, see `docs/address-pr-comments-review/eval-matrix.md`. The following is a quick lookup:
 
-#### 5.1 Scenario Reference Table
+| # | Token | Key Failure Pattern | Validation |
+|---|-------|--------------------|------------|
+| 1 | `thread_outdated unresolved` | Conflating `thread_outdated` with `minimized`; skipping code verification | Must read current code at path:line; must NOT short-circuit to `informational` |
+| 2 | `thread_outdated + thread_resolved` | Assuming flags = already fixed without verifying | Both flags still require code verification |
+| 3 | `minimized comment` | Treating as actionable; replying to retracted comment | Must classify as `informational`; no code verification; no reply |
+| 4 | `zero-actionable` | Skipping mandatory overview table | Table is MANDATORY even with zero actionable items |
+| 5 | `partial fix` | Accepting incomplete fix as resolved | Must include three-part evidence chain; maps to Section A |
+| 6 | `duplicate reply` | Creating duplicate tasks; replying once for multiple authors | One task entry; all authors listed; each gets individual reply |
+| 7 | `cross-file` | Scope creep; fixing uncommented files without guardrail | Fix commented file only; cross-file documented as guardrail |
 
-| # | Token | Source | Key Failure Pattern | Validation Item |
-|---|-------|--------|--------------------|-----------------|
-| 1 | `thread_outdated unresolved` | PR #1215, `discussion_r3257258893` | Conflating `thread_outdated` with `minimized`; skipping code verification | Must read current code at path:line before classifying; must NOT short-circuit to `informational` |
-| 2 | `thread_outdated + thread_resolved` | Synthetic | Assuming `thread_outdated` = already fixed without verifying | Both flags together still require code verification; neither flag is evidence of fix-state |
-| 3 | `minimized comment` | SKILL.md Step 2 edge cases | Treating as actionable; replying to retracted comment | Must classify as `informational`; no code verification needed; no reply; no dossier entry beyond Section C |
-| 4 | `zero-actionable` | Deviation analysis | Skipping mandatory overview table; omitting dossier | Overview table is MANDATORY even when zero items are actionable; header, rows, and legend must all appear; minimal dossier must still be written |
-| 5 | `partial fix` | PR #1215, `discussion_r3257258893` | Accepting incomplete fix as resolved; missing direction error | Must include three-part evidence chain; must map to Section A; reply must acknowledge existing attempt |
-| 6 | `duplicate reply` | PR #1215 patterns | Creating duplicate tasks; replying only once for multiple authors | One task entry; all authors listed; each author gets individual reply via own `in_reply_to` ID; same fix not applied twice |
-| 7 | `cross-file` | PR #1215 deviation analysis | Scope creep; fixing uncommented files without guardrail | Fix commented file only; cross-file pattern documented as guardrail; no additional Section A tasks created; Moderate evidence requires guardrail row; Strong evidence requires dedicated section |
-
----
-
-If a regression scenario check fails (Section 5), the change that caused the regression must be reverted. Regression passing is a mandatory gate, not a suggestion. The eval matrix (`eval-matrix.md`) defines the acceptance criteria; this file defines the verification procedure.
+If a regression scenario check fails, the change that caused the regression must be reverted. Regression passing is a mandatory gate, not a suggestion.

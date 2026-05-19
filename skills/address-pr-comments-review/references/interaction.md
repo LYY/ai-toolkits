@@ -72,7 +72,7 @@ For `needs_clarification` items, state what information is missing and what deci
 | `🔴 high-risk` | User must acknowledge or override before proceeding |
 | No 🔴 | No blocking discussion needed; proceed directly |
 
-All 🔴 items must be resolved (conclusion changed or confirmed) before the final confirmation table is produced. The validation protocol (`validation.md`) enforces this.
+All 🔴 items must be resolved (conclusion changed or confirmed) before the final confirmation table is produced. The validation gates in `dossier-output.md` enforce this.
 
 ### 3. Silent Consent for Non-🔴 Items
 
@@ -87,7 +87,16 @@ The AI may prompt: "The remaining M items are accepted by silent consent unless 
 
 Any item can be objected to by number at any point. If the user objects, move that item into discussion and update the conclusion as needed.
 
-### 4. Scaling for Large PRs (20+ Actionable Comments)
+### 4. Zero-Actionable Fast Path
+
+When ALL comments are `informational`, `already_replied`, or otherwise non-actionable:
+
+1. Produce overview table (mandatory — all items listed)
+2. Immediately state: "All N comments require no action. Dossier will have 0 code-change tasks, 0 reply-only tasks."
+3. Skip Step 3.5 discussion (no 🔴 items to discuss)
+4. Proceed directly to Step 4 — produce minimal dossier (Executive Summary only, Sections A/B empty, Section C table)
+
+### 5. Scaling for Large PRs (20+ Actionable Comments)
 
 | Problem | Solution |
 |---------|----------|
@@ -141,7 +150,7 @@ The user must explicitly confirm before dossier generation. Confirmation equival
 
 If the user does not explicitly confirm, ask: "Shall I proceed with dossier generation based on this final table?"
 
-The validation protocol (`validation.md`) enforces that Step 4 confirmation was obtained before Step 4 dossier generation is allowed.
+The validation gates in `dossier-output.md` enforce that Step 4 confirmation was obtained before dossier generation is allowed.
 
 ---
 
