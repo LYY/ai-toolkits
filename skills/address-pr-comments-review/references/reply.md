@@ -170,17 +170,7 @@ This two-level approach prevents the agent from overruling an existing reply whi
 
 ## Endpoint Selection (Reference Only)
 
-Endpoint commands are documented in `dossier.md` (the `gh api` commands with all required parameters). This file only maps conclusion kinds to endpoint kinds.
-
-| Comment kind | Endpoint | Key parameter |
-|-------------|----------|---------------|
-| inline | `repos/{owner}/{repo}/pulls/{pr}/comments` | `in_reply_to=<comment_id>` |
-| review body | `repos/{owner}/{repo}/issues/{pr}/comments` | mention @author in body |
-| top_level | `repos/{owner}/{repo}/issues/{pr}/comments` | -- |
-
-**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch. Review and top_level replies do not need `commit_id`.
-
-See `dossier.md` Reply Endpoints section for exact `gh api` command syntax with all flags.
+Endpoint commands are defined in `dossier.md` (Reply Endpoints section). This file does not repeat them.
 
 ---
 

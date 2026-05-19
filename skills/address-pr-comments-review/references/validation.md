@@ -14,7 +14,20 @@ For classification rules, see `references/classification.md`. For regression sce
 
 ## 1. Pre-Dossier Scan: Final Cross-Reference (Pre-Write)
 
-Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates. See `dossier.md` (Final Cross-Reference Scan section) for the complete 8-check checklist.
+Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
+
+### 8-Check Checklist
+
+| Check | What to look for | Action if found |
+|-------|-----------------|-----------------|
+| **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
+| **Stale duplicates** | Two entries were merged in cross-reference, but discussion changed one conclusion (e.g., `valid` -> `invalid`) -- they may no longer be duplicates | Split back to separate entries |
+| **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
+| **Orphaned replies** | A comment changed from `valid` to `invalid` during discussion -- does its duplicate partner still need the code change? | Verify the remaining entry is correctly classified |
+| **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |
+| **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
+| **Reply target mismatch** | Merged duplicates -- all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
+| **Stale already_replied** | A comment marked `already_replied` but discussion revealed the reply was insufficient or from a bot | Reclassify |
 
 **Gate rule**: If any unresolved item remains after the scan, do NOT write the dossier. Return to Step 3.
 

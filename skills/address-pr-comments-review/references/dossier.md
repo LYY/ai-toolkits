@@ -105,22 +105,7 @@ Every Section A entry MUST contain: exact file paths and line numbers, code chan
 
 ### Evidence Requirements
 
-**Standard `valid` entries**: Confirm the issue exists at the referenced `path:line` on current HEAD.
-
-**`partially_addressed` entries**: MUST include three-part evidence from classification:
-1. Fix attempt citation (commit sha + what changed)
-2. Remaining issue citation (what still shows the problem)
-3. Insufficiency explanation (what the fix misses vs what reviewer asked for)
-
-Without all three, a `partially_addressed` entry is incomplete. Place in "What to change" or a supplementary note.
-
-**Cross-file escalation** (Moderate/Strong evidence): MUST include:
-1. Evidence level from `cross-reference.md`
-2. Grep command and results
-3. List of files with the same pattern
-4. Scope guardrail: fix only the commented file
-
-Strong evidence: append `## Cross-File Pattern Detected` before Scope Guardrails. Moderate evidence: capture as Scope Guardrail row + Dedup & Conflict Notes row. The dossier documents what cross-reference found, not re-detect.
+Evidence requirements are defined in `classification.md` (Evidence Requirements section). This section does not repeat them.
 
 ---
 ## Section B: Comments Requiring Reply Only
@@ -193,18 +178,8 @@ The final cross-reference scan (see below) includes a dedicated check for cross-
 ## Final Cross-Reference Scan (Pre-Write)
 Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
-### 8-Check Checklist
 
-| Check | What to look for | Action if found |
-|-------|-----------------|-----------------|
-| **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
-| **Stale duplicates** | Two entries were merged in cross-reference, but discussion changed one conclusion (e.g., `valid` -> `invalid`) -- they may no longer be duplicates | Split back to separate entries |
-| **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
-| **Orphaned replies** | A comment changed from `valid` to `invalid` during discussion -- does its duplicate partner still need the code change? | Verify the remaining entry is correctly classified |
-| **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |
-| **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
-| **Reply target mismatch** | Merged duplicates -- all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
-| **Stale already_replied** | A comment marked `already_replied` but discussion revealed the reply was insufficient or from a bot | Reclassify |
+See `validation.md` (Section 1: Pre-Dossier Scan) for the complete 8-Check Checklist.
 
 ### Gate Rule
 
