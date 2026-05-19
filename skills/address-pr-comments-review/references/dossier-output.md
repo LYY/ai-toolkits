@@ -231,7 +231,7 @@ A change summary that describes what was done and why MUST accompany `Fixed in <
 
 | Situation | Example | Why pure SHA is misleading |
 |-----------|---------|---------------------------|
-| **Direction correction** | Reviewer asked to move `CloseAllPublishers()` AFTER `manager.StopAll()`. Current code moved it BEFORE. | The fix exists but makes the problem worse. `Fixed in <sha>` implies the concern was correctly resolved. |
+| **Direction correction** | Reviewer asked to call `cleanup()` AFTER `process()`. Current code calls it BEFORE. | The fix exists but makes the problem worse. `Fixed in <sha>` implies the concern was correctly resolved. |
 | **Partial fix** | Fix addressed one location but the same pattern exists at N other locations. | The core concern is not fully resolved. `Fixed in <sha>` implies completion. The reply must explain the scope boundary. |
 | **Reframed concern** | The fix takes a different approach than the reviewer suggested but achieves the same intent. | The reviewer may not recognize their concern in the alternate implementation. The reply must describe the approach taken. |
 | **Non-obvious change** | The fix involves a subtle refactor, a dependency change, or multiple files. | The commit SHA alone does not convey the scope or reasoning. |
@@ -242,11 +242,11 @@ A change summary that describes what was done and why MUST accompany `Fixed in <
 Precede or follow `Fixed in <sha>` with a 1-2 sentence description of what changed and why:
 
 ```
-Fixed in abc123. The fix changes the shutdown sequence -- CloseAllPublishers()
-now runs after manager.StopAll() completes, matching the reviewer's concern.
+Fixed in abc123. The fix reorders the initialization sequence — cleanup()
+now runs after process() completes, matching the reviewer's concern.
 ```
 
-For partial fixes, add scope boundary: "Fixed in abc123 (monitor.go only). Same issue in 4 other files — follow-up PR to follow."
+For partial fixes, add scope boundary: "Fixed in abc123 (src/auth/login.go only). Same issue in src/auth/register.go — follow-up PR to follow."
 For direction corrections, acknowledge: "Corrected the fix direction in abc123. Previous attempt placed Close before Stop; now correctly runs after."
 
 ---
@@ -276,10 +276,10 @@ When the classification protocol assigned `partially_addressed`, the reply MUST 
 Format:
 
 ```
-The fix at abc123 addressed the CloseAllPublishers() ordering by moving
-it before manager.StopAll(), but the reviewer's concern was that close
-should happen AFTER stop completes. This rework in def456 moves the
-call to the correct position in the shutdown sequence.
+The fix at abc123 addressed the cleanup ordering by moving it before
+process(), but the reviewer's concern was that cleanup should happen
+AFTER process completes. This rework in def456 moves the
+call to the correct position in the execution sequence.
 ```
 
 Do NOT omit the acknowledgment. A `partially_addressed` reply that jumps straight to "Fixed in <sha>" without acknowledging the previous attempt reads as dismissive.

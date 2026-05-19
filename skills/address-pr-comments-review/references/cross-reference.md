@@ -134,9 +134,9 @@ Always default to `already_replied` when `has_replies: true`, even when the repl
 
 When a review comment flags an issue in one file, and a targeted search confirms the same pattern exists in other files, escalate the concern from a single-file fix to a documented cross-file pattern. This prevents the agent from staying stuck on one file while a structural issue propagates through the codebase.
 
-### Motivation (PR #1215)
+### Motivation
 
-In PR #1215, a comment on `server/monitor/monitor.go` flagged `CloseAllPublishers()` called before `manager.StopAll()`. The same shutdown ordering issue existed in 4 other `server/*` files, but the workflow treated it as a `monitor.go`-only concern. Cross-file escalation prevents this failure by requiring the agent to search and document the broader pattern.
+When a reviewer flags a structural bug in one file, the same pattern often exists in sibling files. Without escalation, the workflow treats it as a single-file concern, leaving the broader pattern unfixed. Cross-file escalation requires searching for and documenting the pattern to prevent this.
 
 ### Detection Method
 
@@ -162,7 +162,7 @@ Escalation is gated by the number of confirmed matches beyond the original file:
 
 ### Evidence Quality Rules
 
-- Count only files where the pattern is genuinely the SAME concern (e.g., same function call at the wrong ordering point). Do NOT count files where the pattern differs structurally -- e.g., `defer CloseAllPublishers()` is NOT the same issue as bare `CloseAllPublishers()` at the wrong lifecycle point.
+- Count only files where the pattern is genuinely the SAME concern (e.g., same function call at the wrong point in a lifecycle). Do NOT count files where the pattern differs structurally — e.g., `try { cleanup() }` is NOT the same issue as bare `cleanup()` at the wrong lifecycle point.
 - Document the grep command and its exact or approximate results in the escalation note so the user can verify.
 - If the pattern exists in test files only, reduce the evidence level by one tier. Test setup and teardown are structurally different from production code.
 
