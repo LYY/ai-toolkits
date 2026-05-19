@@ -25,14 +25,14 @@ Load only the file needed for the current step. No file assumes you've read prev
 
 | Step | What You're Doing | Load | ~Lines |
 |------|------------------|------|--------|
-| 1 | Collect comments from PR | `platform.md` | 150 |
-| 2a | Classify each comment individually | `classify.md` | 330 |
-| 2b | Detect duplicates, conflicts, relations across full set | `cross-reference.md` | 340 |
-| 3 | Present overview table, discuss 🔴 items, get confirmation | `interaction.md` | 200 |
-| 4a | Pre-write cross-reference scan (8 checks) | `dossier-output.md` §Validation Gates | 100 |
-| 4b | Generate dossier (Sections A/B/C, guardrails, dependencies) | `dossier-output.md` §Dossier Structure | 200 |
-| 4c | Compose replies (gate check, templates, duplicate strategy) | `dossier-output.md` §Reply Policy | 200 |
-| 5 | Handoff message to user | `platform.md` §Handoff | 20 |
+| 1 | Collect comments from PR | `references/platform.md` | 150 |
+| 2a | Classify each comment individually | `references/classify.md` | 330 |
+| 2b | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
+| 3 | Present overview table, discuss 🔴 items, get confirmation | `references/interaction.md` | 200 |
+| 4a | Pre-write cross-reference scan (8 checks) | `references/dossier-output.md` §Validation Gates | 100 |
+| 4b | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
+| 4c | Compose replies (gate check, templates, duplicate strategy) | `references/dossier-output.md` §Reply Policy | 200 |
+| 5 | Handoff message to user | `references/platform.md` §Handoff | 20 |
 
 **Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion.
 
@@ -55,25 +55,25 @@ Load only the file needed for the current step. No file assumes you've read prev
 ## Workflow (with Gates)
 
 ```
-[1] Collect (platform.md)
+[1] Collect (references/platform.md)
   │
-[2a] Classify (classify.md)
+[2a] Classify (references/classify.md)
   │
-[2b] Cross-Ref (cross-reference.md)
+[2b] Cross-Ref (references/cross-reference.md)
   │  ├─ duplicates merged, conflicts flagged, relations noted
   │  └─ already-replied detected
   │
-[3] Interactive Table (interaction.md)
+[3] Interactive Table (references/interaction.md)
   │  ├─ 🔴 items discussed & resolved  ← BLOCKING GATE
   │  ├─ Silent consent for non-🔴 items
   │  └─ User explicitly confirms ("ok" / "proceed" / etc.)
   │
-[4a] Pre-Write Scan (dossier-output.md §Validation Gates)
+[4a] Pre-Write Scan (references/dossier-output.md §Validation Gates)
   │  └─ 8 checks pass  ← BLOCKING GATE
   │
 [4b] Dossier → .sisyphus/notepads/pr-<N>-dossier/
   │
-[4c] Replies (dossier-output.md §Reply Policy)
+[4c] Replies (references/dossier-output.md §Reply Policy)
   │
 [5] Handoff → Prometheus → /start-work
 ```
@@ -92,12 +92,15 @@ Load only the file needed for the current step. No file assumes you've read prev
 ## Quick Commands
 
 ```bash
+# Resolve SCRIPT: <skill-dir>/scripts/list_comments.py
+# (<skill-dir> = directory containing this SKILL.md)
+
 # Auto-detect PR, collect comments
-python3 ./scripts/list_comments.py --json
+python3 "$SCRIPT" --json
 
 # Cross-repo PR
-python3 ./scripts/list_comments.py --repo owner/name --pr <N> --json
+python3 "$SCRIPT" --repo owner/name --pr <N> --json
 
 # Include resolved threads
-python3 ./scripts/list_comments.py --include-resolved --json
+python3 "$SCRIPT" --include-resolved --json
 ```

@@ -18,7 +18,7 @@ skills/address-pr-comments-review/
 
 ## 设计原则
 
-参见 `AGENTS.md` 中 `## Skill 设计原则` 章节。核心要点：
+参见 [AGENTS.md](../../AGENTS.md) 中 Skill 设计原则章节。核心要点：
 
 - **面向 agent 设计**：按执行阶段组织，不按协议层位分类
 - **按需加载**：每个 phase 只需读 1 个 reference 文件，各自包含核心职责。跨文件引用仅限前向（后续 step 加载）和后向（同一 session 已读）
@@ -36,4 +36,4 @@ skills/address-pr-comments-review/
 
 ## Eval Matrix
 
-`docs/address-pr-comments-review/eval-matrix.md` 包含 7 个回归场景。用于验证 skill 的行为正确性。不是 runtime 文件。
+[eval-matrix.md](./eval-matrix.md) 包含 7 个回归场景，用于验证 skill 的行为正确性。

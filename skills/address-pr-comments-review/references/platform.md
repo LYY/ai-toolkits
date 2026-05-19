@@ -12,22 +12,25 @@ Before running any collection commands:
 
 ## Comment Collection
 
-All comment collection uses `scripts/list_comments.py` (vendored within the skill, no Python package dependencies).
+All comment collection uses `scripts/list_comments.py` (vendored within the skill, no Python package dependencies). The script lives at `<skill-dir>/scripts/list_comments.py`, where `<skill-dir>` is the directory containing `SKILL.md` — the same base path from which you loaded this file, minus the `references/` prefix.
 
 ### Command
 
 ```bash
+# Resolve SCRIPT to the full path relative to SKILL.md's directory:
+# SCRIPT="<skill-dir>/scripts/list_comments.py"
+
 # Auto-detect PR from current branch
-python3 ./scripts/list_comments.py --json
+python3 "$SCRIPT" --json
 
 # Explicit PR number
-python3 ./scripts/list_comments.py --pr <N> --json
+python3 "$SCRIPT" --pr <N> --json
 
 # Cross-repo (run from any directory)
-python3 ./scripts/list_comments.py --repo owner/name --pr <N> --json
+python3 "$SCRIPT" --repo owner/name --pr <N> --json
 
 # Include resolved threads
-python3 ./scripts/list_comments.py --include-resolved --json
+python3 "$SCRIPT" --include-resolved --json
 ```
 
 ### Flags

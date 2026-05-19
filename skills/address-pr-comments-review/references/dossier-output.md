@@ -293,7 +293,7 @@ The reply content is identical across authors. The only difference is the `in_re
 
 ## Validation Gates
 
-Checks and gate rules that ensure dossier integrity before handoff. See `docs/address-pr-comments-review/eval-matrix.md` for the canonical scenario corpus.
+Checks and gate rules that ensure dossier integrity before handoff.
 
 ### 1. Pre-Dossier Scan: Final Cross-Reference (Pre-Write)
 
@@ -357,4 +357,4 @@ When a check fails:
 
 ---
 
-If a regression scenario check fails, revert the change that caused the regression. Regression passing is a mandatory gate. See `docs/address-pr-comments-review/eval-matrix.md` for detailed behavioral acceptance criteria.
+If a regression scenario check fails, revert the change that caused the regression. Regression passing is a mandatory gate.

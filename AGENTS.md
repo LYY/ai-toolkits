@@ -72,7 +72,7 @@ mv skills/<skill-name> archive/
 **备选 — symlink**：用 symlink 接管 `~/.agents/skills/`，手动控制暴露哪些 skill：
 
 ```bash
-ln -sf ~/program/github/LYY/ai-toolkits/skills/<skill-name> ~/.agents/skills/<skill-name>
+ln -sf <repo-path>/skills/<skill-name> ~/.agents/skills/<skill-name>
 ```
 
 **不推荐 — 直接删除**：从仓库中彻底删除目录。
