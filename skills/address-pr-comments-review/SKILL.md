@@ -20,6 +20,18 @@ A three-phase interactive workflow for GitHub PR comment review.
 
 **Self-contained**: uses its own `scripts/list_comments.py` (vendored, no Python package dependencies; requires `gh` CLI).
 
+## Quick Reference
+
+| For operators who need to... | Open this file |
+|---|---|
+| **Classify a comment** (source, intent, conclusion) | `references/classification.md` |
+| **Detect duplicates, conflicts, or relations** | `references/cross-reference.md` |
+| **Run the interactive confirmation table** | `references/interaction.md` |
+| **Write the review dossier** | `references/dossier.md` |
+| **Compose a reply to a comment** | `references/reply.md` |
+| **Find runtime commands** (collection, paths, handoff) | `references/platform.md` |
+| **Run validation gates and checks** | `references/validation.md` |
+
 ## Prerequisites
 
 - `gh` CLI installed and authenticated (see `references/platform.md` for verification)
