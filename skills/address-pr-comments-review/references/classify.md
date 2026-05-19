@@ -157,33 +157,13 @@ NOT acceptable evidence:
 
 This conclusion bridges `valid` (no fix attempted) and `already_fixed` (concern fully resolved). It acknowledges effort while requiring further work.
 
-**Applicable conditions (ALL three must be met):**
-
-1. There is evidence of a fix attempt -- a commit or code change that appears to respond to the reviewer's concern
-2. The fix does NOT fully resolve the reviewer's core concern -- the issue or a meaningful part of it persists in the current code
-3. The remaining issue is substantive, not cosmetic -- it requires genuine rework, not a touch-up
-
-**When NOT to apply:**
-
-- If no fix was attempted at all -> classify as `valid` directly (do not use `partially_addressed` as a softer `valid`)
-- If the fix fully resolves the concern -> classify as `already_fixed`
-- If the fix is cosmetic or minor AND the core concern IS resolved -> classify as `already_fixed` (mention the remaining minor issue in the reply text, not as a separate conclusion)
-- If the concern genuinely cannot be fixed (constraint, dependency, external limitation) -> classify as `invalid` with an explanation
-
-**Sub-types with examples:**
-
-| Sub-type | Description | Example |
-|----------|-------------|---------|
-| Incomplete scope | Fix addressed one location but the same pattern exists elsewhere | Fixed `CloseAllPublishers()` ordering in `monitor.go` but not in 4 other `server/` files |
-| Wrong direction | Fix exists but makes the problem worse | Added `CloseAllPublishers()` BEFORE `manager.StopAll()` when close should happen AFTER stop |
-| Partial logic | Fix handles the happy path but misses edge cases | Added null check for one input parameter but not for related parameters |
-| Insufficient margin | Fix reduces the risk but does not eliminate it | Reduced timeout from 30s to 10s but remaining 10s window still causes races |
-
 **Evidence required (ALL three):**
 
 1. Citation of the existing fix attempt: "Commit `<sha>` attempted to fix by changing `<X>` at `<file>:<line>`"
 2. Citation of the remaining issue: "Current code at `<file>:<line>` still shows `<problem>`"
-3. Explanation of insufficiency: "The fix addresses `<X>` but does not address `<Y>`. The reviewer asked for `<Z>`."
+3. Explanation of insufficiency: "The fix addresses `<X>` but does not address `<Y>`."
+
+Common patterns: incomplete scope (same pattern elsewhere), wrong direction (fix makes it worse), partial logic (misses edge cases), insufficient margin (reduces but doesn't eliminate). If no fix was attempted → `valid`. If fix fully resolves → `already_fixed`. If fix is cosmetic + concern resolved → `already_fixed`.
 
 **Action:** Code change + reply. The reply must acknowledge the existing fix attempt, explain why it is insufficient, and describe the correct fix direction. Maps to dossier Section A.
 
@@ -270,43 +250,6 @@ Follow this three-step process:
 **Definition:** The comment author is the same as the PR author.
 
 **Classification:** Classify by content using the same rules as any other comment. Self-review notes can be `informational` (author noting something for awareness) or `actionable` (author flagging an issue they identified themselves). Do NOT dismiss self-review comments. They often contain the most accurate insights since the author knows the code best.
-
----
-
-## Evidence Requirements
-
-This section defines what constitutes acceptable evidence for high-risk conclusions. These conclusions require proof beyond a reasonable doubt because misclassifying them has a high cost.
-
-### already_fixed
-
-**Requires ONE of these evidence forms:**
-
-1. **Direct code citation:** "Current code at `<file>:<line>` shows `<correct code>`. The reviewer's concern about `<X>` no longer applies." The citation must be specific enough that someone reading it can verify the fix independently.
-2. **Commit evidence:** "Commit `<sha>` applied the fix at `<file>:<line>`. Before the commit, `<old behavior>`. After the commit, `<new behavior>`."
-
-**Forbidden as evidence:**
-
-- `thread_outdated: true` -- not proof
-- `thread_resolved: true` -- not proof
-- A bot reply saying "Good catch" or "Let's fix this" -- not proof
-- "The code looks different now" without specific citation -- not proof
-- A human said "I fixed this" in a comment but the code does not reflect it -- not proof
-
-### partially_addressed
-
-**Requires ALL three evidence forms:**
-
-1. Citation of the existing fix attempt: what changed, where, and in which commit
-2. Citation of the remaining issue: the specific code lines or behavior that still do not match the reviewer's request
-3. Explanation of insufficiency: why the attempted fix does not resolve the core concern, stated in terms of what the reviewer asked for vs what was done
-
-### already_replied
-
-**Requires:**
-
-1. `has_replies: true` confirmed in the JSON output
-2. Verification that the reply author is human, not a bot
-3. (Recommended but not required) A quote from the reply that shows the concern was substantively addressed
 
 ---
 

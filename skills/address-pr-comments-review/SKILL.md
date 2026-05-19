@@ -47,11 +47,10 @@ Load only the file needed for the current step. No file assumes you've read prev
 | Failure | Action |
 |---------|--------|
 | `gh` not installed / not authenticated | Stop. Tell user to run `gh auth login`. |
-| `list_comments.py` fails (network, API rate limit) | Retry once after 5s. If still fails, report error, ask user. |
+| `list_comments.py` fails (network, API rate limit, empty JSON) | Retry once after 5s. If still fails, verify `gh pr view` works manually, report error, ask user. |
 | PR not found | Report gh error. Ask user to verify PR number/state. |
 | Zero comments | Report "PR has no comments — nothing to review." |
 | All comments informational | Produce minimal dossier (Sections A=0, B=0, C=all). User can skip `/start-work`. |
-| Script returns empty JSON | Verify `gh pr view` works manually. Check branch has open PR. |
 
 ## Workflow (with Gates)
 
@@ -87,11 +86,8 @@ Load only the file needed for the current step. No file assumes you've read prev
 ## Key Principles
 
 - **AI is analyst, user is decider.** Skill classifies; user decides on 🔴 items.
-- **Silence is consent.** Uncontested items proceed on AI recommendation.
-- **Three phases, never collapse.** Dossier → Prometheus plan → `/start-work` execution.
 - **Duplicates are detected, not created.** Same `file:line` + same concern = one task.
 - **Conflicts are surfaced, not buried.** Opposing advice is flagged and documented.
-- **Final scan is mandatory.** Discussion changes things — never skip the pre-write 8-check scan.
 
 ## Quick Commands
 

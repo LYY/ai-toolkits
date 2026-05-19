@@ -168,28 +168,3 @@ The change summary between Step 3 and Step 4 shows the user what their decisions
 
 If no changes resulted from discussion, state explicitly: "No changes from Step 3 -- all conclusions confirmed."
 
----
-
-## Interaction Flow Summary
-
-```
-Step 3: Produce overview table (MANDATORY)
-    └─ SELF-CHECK: table header present?
-    └─ Zero-actionable? Table still mandatory.
-        │
-Step 3.5: Interactive Discussion
-    ├─ Discuss 🔴 items (blocking -- resolve before proceeding)
-    ├─ Silent consent for non-🔴 items
-    └─ Large PR? Apply compression strategy
-        │
-Step 4: Final Confirmation Table
-    ├─ Change summary (what changed from Step 3)
-    ├─ Updated overview table
-    └─ User explicit confirmation ("ok" / equivalent)
-        │
-Step 4: Dossier Generation (gated by Step 4 confirmation)
-```
-
----
-
-

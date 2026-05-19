@@ -239,28 +239,15 @@ A change summary that describes what was done and why MUST accompany `Fixed in <
 
 #### Change Summary Format
 
-The change summary precedes or follows the `Fixed in <sha>` line, depending on what needs explaining:
+Precede or follow `Fixed in <sha>` with a 1-2 sentence description of what changed and why:
 
 ```
-Fixed in abc123. The fix changes the shutdown sequence in monitor.go --
-CloseAllPublishers() now runs after manager.StopAll() completes,
-matching the reviewer's concern about publisher ordering.
+Fixed in abc123. The fix changes the shutdown sequence -- CloseAllPublishers()
+now runs after manager.StopAll() completes, matching the reviewer's concern.
 ```
 
-For partial fixes, the summary must include the scope boundary:
-
-```
-Fixed in abc123 (monitor.go only). The same ordering issue exists in
-4 other server/* files. A follow-up PR will address the remaining files.
-```
-
-For direction corrections, the summary must acknowledge the previous approach was wrong:
-
-```
-Corrected the fix direction in abc123. The previous attempt placed
-CloseAllPublishers() before StopAll(), which made the ordering worse.
-Now runs after StopAll() as intended.
-```
+For partial fixes, add scope boundary: "Fixed in abc123 (monitor.go only). Same issue in 4 other files — follow-up PR to follow."
+For direction corrections, acknowledge: "Corrected the fix direction in abc123. Previous attempt placed Close before Stop; now correctly runs after."
 
 ---
 
@@ -391,18 +378,4 @@ When a check fails:
 
 ---
 
-### 4. Regression Scenario Quick Reference
-
-For detailed behavioral acceptance criteria, see `docs/address-pr-comments-review/eval-matrix.md`. The following is a quick lookup:
-
-| # | Token | Key Failure Pattern | Validation |
-|---|-------|--------------------|------------|
-| 1 | `thread_outdated unresolved` | Conflating `thread_outdated` with `minimized`; skipping code verification | Must read current code at path:line; must NOT short-circuit to `informational` |
-| 2 | `thread_outdated + thread_resolved` | Assuming flags = already fixed without verifying | Both flags still require code verification |
-| 3 | `minimized comment` | Treating as actionable; replying to retracted comment | Must classify as `informational`; no code verification; no reply |
-| 4 | `zero-actionable` | Skipping mandatory overview table | Table is MANDATORY even with zero actionable items |
-| 5 | `partial fix` | Accepting incomplete fix as resolved | Must include three-part evidence chain; maps to Section A |
-| 6 | `duplicate reply` | Creating duplicate tasks; replying once for multiple authors | One task entry; all authors listed; each gets individual reply |
-| 7 | `cross-file` | Scope creep; fixing uncommented files without guardrail | Fix commented file only; cross-file documented as guardrail |
-
-If a regression scenario check fails, the change that caused the regression must be reverted. Regression passing is a mandatory gate, not a suggestion.
+If a regression scenario check fails, revert the change that caused the regression. Regression passing is a mandatory gate. See `docs/address-pr-comments-review/eval-matrix.md` for detailed behavioral acceptance criteria.

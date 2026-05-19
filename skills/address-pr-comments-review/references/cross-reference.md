@@ -113,47 +113,7 @@ Two comments are related, not duplicates, when:
 
 ## Already-Replied Detection
 
-### Purpose
-
-Identify comments that already have a human reply and assess whether the reply is sufficient to consider the concern resolved. Prevent re-addressing already-handled feedback while surfacing threads with pending or insufficient replies.
-
-### Detection Signal
-
-The `has_replies` field from `list_comments.py` output. This field is `true` when the comment thread has at least one subsequent comment from a non-bot author.
-
-| Comment kind | Detection method |
-|-------------|-----------------|
-| inline | Review thread has more than 1 comment AND at least one is from a non-AI author |
-| review body | A subsequent issue comment or COMMENT review exists by a different non-bot author |
-| top_level | Same as review body -- subsequent issue comment by a different non-bot author |
-
-### Two-Level Assessment
-
-**Level 1 -- Has a Reply (detection):**
-
-Raw signal from the `has_replies` field. Boolean -- either the thread has a human reply or it does not. This is the gate condition.
-
-**Level 2 -- Reply Is Sufficient (assessment):**
-
-Not all replies are final. Having a reply does not guarantee the concern is resolved. The protocol must assess sufficiency:
-
-| Reply characteristic | Sufficient? | Rationale |
-|--------------------|-------------|-----------|
-| PR author confirms fix ("Fixed in abc123", "Done", "Good catch") | Sufficient | The concern was addressed |
-| Reviewer approves ("Resolved", "LGTM", "Thanks") | Sufficient | The reviewer accepted the resolution |
-| PR author states intent ("I'll fix this", "Will address") | Not sufficient | Intent is not a fix. The concern is pending. |
-| Bot-generated status update without human confirmation | Not sufficient | No human verified the fix. Flag for override. |
-| Reply asks follow-up question or raises a sub-concern | Not sufficient | The thread is still active. May be a new actionable item. |
-| Reply from a human is ambiguous ("ok", "noted", emoticon-only) | Not sufficient | Unclear if resolved. Default to insufficient. |
-
-### Sufficiency Action
-
-- `has_replies: true` AND reply is **sufficient**: classify as `already_replied` (Section C, no action). The reply genuinely resolved the concern.
-- `has_replies: true` BUT reply is **not sufficient**: still default to `already_replied` conclusion conservatively, but add a pending flag in the overview table (e.g., `replied (pending)`). The user can reclassify during Step 3. This signals that the thread has activity but may not be resolved.
-
-### Rationale for Conservative Default
-
-Always default to `already_replied` when `has_replies: true`, even when the reply appears insufficient. This prevents the protocol from re-opening threads without explicit user consent. The user overrides during Step 3 discussion if needed. The pending flag gives the user visibility without forcing a decision.
+See `classify.md` §has_replies and §already_replied for the detection protocol and conclusion rules. This section only covers the cross-reference interaction: when duplicates share a reply, and conservative default behavior for insufficient replies.
 
 ### Duplicate Comments and Already-Replied
 
@@ -161,6 +121,10 @@ When a duplicate comment (same concern, different author) is detected and the pr
 - If the primary comment's reply is sufficient, the duplicate is also considered already-replied
 - If the primary comment's reply is not sufficient, the duplicate inherits the pending status
 - In both cases, each author still gets an individual reply (or no reply, depending on sufficiency)
+
+### Conservative Default
+
+Always default to `already_replied` when `has_replies: true`, even when the reply appears insufficient. This prevents re-opening threads without explicit user consent. The user overrides during Step 3 discussion. Flag insufficient replies with `replied (pending)` in the overview table.
 
 ---
 
