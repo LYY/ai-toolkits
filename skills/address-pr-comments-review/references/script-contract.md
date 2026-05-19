@@ -1,6 +1,8 @@
 # Script Contract: `list_comments.py`
 
-This document defines the implicit interface contract between `scripts/list_comments.py` and the `address-pr-comments-review` skill. The skill consumes the script's JSON output; changes to this contract must be coordinated with all protocol files (classification.md, cross-reference.md, dossier.md, reply.md, interaction.md).
+This document is the **canonical script/data boundary** between `scripts/list_comments.py` and the `address-pr-comments-review` skill. It defines the authoritative schema for the script's JSON output. Changes to this contract must be coordinated with all protocol files (classification.md, cross-reference.md, dossier.md, reply.md, interaction.md).
+
+Field tables in this file are the single source of truth for JSON field schemas. Protocol documentation must reference this contract by field name rather than re-listing field definitions. Duplicating field schemas elsewhere creates drift risk.
 
 ## JSON Output Structure
 
