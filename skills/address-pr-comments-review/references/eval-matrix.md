@@ -1,5 +1,7 @@
 # Eval Matrix: address-pr-comments-review
 
+> **Canonical scenario corpus** for the address-pr-comments-review skill. This file is the authoritative source for the seven regression scenarios and QA tokens referenced by `validation.md`.
+>
 > **RED Phase artifact.** Defines expected behavior the redesign must preserve and the failure modes it must newly cover.
 > Each scenario specifies 4 dimensions: expected classification, expected reply posture, expected overview-table treatment, and whether dossier escalation is required.
 
@@ -89,6 +91,8 @@
 | expected dossier escalation | Yes — Section A (rework the fix: code change + reply). Must describe the correct fix direction and the specific file/line to change. |
 
 **Edge case within partial fix:** If the partial fix actually resolves the concern partially and the remaining issue is cosmetic/minor, it could be `already_fixed` for the resolved part plus a new `valid` for the remainder. Default to `partially_addressed` unless the core concern is genuinely resolved.
+
+**Token-to-conclusion mapping:** The `partial fix` scenario token maps to the `partially_addressed` classification conclusion defined in `classification.md`.
 
 ---
 
