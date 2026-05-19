@@ -32,6 +32,22 @@ A three-phase interactive workflow for GitHub PR comment review.
 | **Find runtime commands** (collection, paths, handoff) | `references/platform.md` |
 | **Run validation gates and checks** | `references/validation.md` |
 
+## Minimal Path
+
+Execution-critical files for an agent to read, in priority order:
+
+| Priority | File | What it tells the agent |
+|----------|------|------------------------|
+| 1 | `references/classification.md` | How to classify a comment (source, intent, conclusion) |
+| 2 | `references/cross-reference.md` | How to detect duplicates, conflicts, and relations |
+| 3 | `references/interaction.md` | How to present the interactive confirmation table |
+| 4 | `references/dossier.md` | How to write the review dossier (templates, sections, guardrails) |
+| 5 | `references/platform.md` | Runtime commands: collection, paths, handoff format |
+| 6 | `references/validation.md` | Validation gates and final cross-reference scan checklist |
+| 7 | `references/reply.md` | Reply policy: pre-reply gate, change summaries, templates |
+
+Read in this order. Each file assumes you've read the previous ones. Skip only if the agent already has the rules in context from a prior run.
+
 ## Prerequisites
 
 - `gh` CLI installed and authenticated (see `references/platform.md` for verification)
@@ -40,16 +56,14 @@ A three-phase interactive workflow for GitHub PR comment review.
 
 ## Reference Architecture
 
-This skill uses a four-layer reference architecture. Detailed rules live in dedicated protocol files under `references/`. SKILL.md orchestrates them.
-
 | Layer | Files | Role |
 |-------|-------|------|
-| Entry | `SKILL.md` | Entry point, phases, orchestration, error recovery |
-| Workflow | `classification.md`, `cross-reference.md`, `interaction.md` | How each step works |
-| Decision | `dossier.md`, `reply.md` | What to produce |
-| Templates | `platform.md`, `validation.md` | Commands, checklists, gate rules |
+| Entry | `SKILL.md` | Orchestration, phases, error recovery |
+| Workflow | `classification.md`, `cross-reference.md`, `interaction.md` | Step rules |
+| Decision | `dossier.md`, `reply.md` | Output formats |
+| Templates | `platform.md`, `validation.md` | Commands, gates |
 
-See `references/overview.md` for the full precedence model and file map.
+See `references/overview.md` for the full architecture overview and file map.
 
 ## Error Recovery
 
