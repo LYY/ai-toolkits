@@ -53,6 +53,8 @@ A single table following the executive summary lists merged duplicates (which co
 ## Reply Endpoints
 The dossier must include a reference table of `gh api` commands for each reply kind. Reply TEMPLATES are in `reply.md` -- not duplicated here.
 
+**Ownership**: This section owns reply endpoint command templates. Gate logic and verification procedures are defined in `references/validation.md`.
+
 ```markdown
 ## Reply Endpoints (shared by Sections A and B)
 
@@ -179,7 +181,7 @@ The final cross-reference scan (see below) includes a dedicated check for cross-
 Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
 
-See `validation.md` (Section 1: Pre-Dossier Scan) for the complete 8-Check Checklist.
+See `validation.md` (Section 1: Pre-Dossier Scan) for the complete 8-Check Checklist. Gate enforcement follows `validation.md` (Section 4: Gate Rules) -- this section defines the checks, `validation.md` defines how to gate.
 
 ### Gate Rule
 
@@ -233,7 +235,7 @@ Cross-reference protocol (cross-file Moderate+), interaction protocol (user cons
 | Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
 | Reply templates referenced correctly | Reply templates are referenced by name, not duplicated inline |
 
-If any check fails, fix and re-verify. The validation protocol (`validation.md`) provides the definitive gate rules.
+If any check fails, fix and re-verify. Gate enforcement follows `references/validation.md` (Section 2: Post-Write Dossier Verification and Section 4: Gate Rules). This section defines the checks; `validation.md` defines how to gate.
 
 ---
 ## Key Design Decisions
