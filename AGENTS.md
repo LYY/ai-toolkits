@@ -127,6 +127,7 @@ skill 完成后，从 agent 视角过一遍：
 - [ ] 每个 reference 文件里还有没有 Precedence / Scope / Key Design Decisions 段落？如果有，移除
 - [ ] SKILL.md 的 Minimal Path 是否指引"按 step 按需加载"，而不是"按序全读"？
 - [ ] `references/` 文件总数是否 ≤ 5？超过则检查是否有过度拆分
+- [ ] 对每个跨文件引用，画出 agent 执行时间线，确认引用指向当前 step 或相邻 step 加载的文件？跳跃引用到无关文件 → 不安全
 
 ## 注意事项
 
