@@ -83,6 +83,47 @@ ln -sf ~/program/github/LYY/ai-toolkits/skills/<skill-name> ~/.agents/skills/<sk
 rm -rf ~/.agents/skills/<deprecated-skill-name>/
 ```
 
+## Skill 设计原则（面向 agent，而非面向人类维护者）
+
+skill 的主要受众是 **runtime agent**（执行操作的 AI），次要受众才是人类维护者。以下原则从 `address-pr-comments-review` 的精简过程中提炼：
+
+### 1. references/ 只放 agent 运行时需要读的内容
+
+维护者文档（架构设计、设计决策、eval matrix、precedence model）放在 `docs/`，不要混入 `references/`。agent 加载 skill 时不应浪费 token 在读这些内容上。
+
+### 2. 按执行阶段组织文件，不要按"职责域"学术分类
+
+对 agent 而言，`classification + cross-reference` 是同一个 Step 2 的动作，`dossier + reply + validation` 是同一个 Step 4 的产出。拆成"一个协议层一个文件"会增加跨文件追踪成本。agent 关心的是"这一 step 我该做什么"，而不是"这个文件属于 Layer 2 还是 Layer 3"。
+
+### 3. 一个概念不要跨文件追踪
+
+如果一个结论（如 `partially_addressed`）的行为需要跨越 classification → dossier → reply → validation 四个文件才能完整理解，那就该合并。agent 不应在 4 个文件之间跳转来搞清楚一个东西怎么处理。
+
+### 4. 去掉维护者元数据段落
+
+以下段落对 agent 执行无价值，应移除或归入 `docs/`：
+- `## Precedence` — agent 跟着 SKILL.md 的 step 走，不需要知道文件属于第几层
+- `## Scope / ## Out of Scope` — 文件内容自明职责
+- `## Key Design Decisions` — 设计决策记录，不是操作指令
+
+### 5. 按需加载，不要强制全读
+
+SKILL.md 的 Minimal Path 应指引 agent "这一 step 只需读这一个文件"，而不是"请按序读完所有 7 个文件"。每个 reference 文件应自包含，不假设已读过其他文件。
+
+### 6. SKILL.md 是编排入口
+
+SKILL.md 只放 workflow steps、prerequisites、error recovery、quick reference。不要把操作规则内联写到 SKILL.md 里——那是 reference 文件的职责。SKILL.md 负责"告诉你什么时候去读哪个文件"。
+
+### 精简自检清单
+
+skill 完成后，从 agent 视角过一遍：
+
+- [ ] `references/` 下的每个文件，agent 真的会在执行时读吗？如果不会，移到 `docs/`
+- [ ] 有没有同一个概念需要跨 3+ 个文件才能理解？如果有，合并
+- [ ] 每个 reference 文件里还有没有 Precedence / Scope / Key Design Decisions 段落？如果有，移除
+- [ ] SKILL.md 的 Minimal Path 是否指引"按 step 按需加载"，而不是"按序全读"？
+- [ ] `references/` 文件总数是否 ≤ 5？超过则检查是否有过度拆分
+
 ## 注意事项
 
 - 每次修改 skill 后务必 push，否则 `skills add` 拉不到最新版本

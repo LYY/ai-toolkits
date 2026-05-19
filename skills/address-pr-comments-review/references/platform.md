@@ -1,30 +1,6 @@
 # Platform Integration
 
-This file defines platform-specific commands, paths, and conventions for the address-pr-comments-review skill. It is responsible for documenting all CLI commands, file operations, and environment requirements that are specific to the OpenCode + OhMyOpenCode (Sisyphus) platform.
-
-## Precedence
-
-Layer 4 (templates/checklists). Provides convenience defaults and command references for all upper layers. Platform commands are referenced by name from SKILL.md (Step 1, Step 5) and the dossier contract. Upper layers can override or extend these commands with additional parameters, but must not change the base command signatures documented here.
-
----
-
-## Scope
-
-This file covers:
-- **Comment collection**: `list_comments.py` script usage, flags (`--json`, `--pr`, `--repo`, `--include-resolved`), auto-detection from current branch
-- **Prerequisites**: `gh` CLI installation and authentication (`gh auth status`)
-- **Platform lock**: compatibility boundaries (OpenCode only, not Claude Code / Cursor / Gemini CLI)
-- **Dossier file operations**: path generation (`.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md`), directory creation, timestamp format (`date +%Y%m%d-%H%M%S`)
-- **Verification commands**: `test -f` for dossier existence, `git log --oneline` for commit style discovery
-- **Handoff message format**: the exact text to output after dossier is saved
-
-## Out of Scope
-
-- Reply API commands (inline/review/top_level endpoints) → owned by `dossier.md` (Reply Endpoints section). This file documents comment collection only.
-- Reply templates or content → `reply.md`
-- Dossier structure or section rules → `dossier.md`
-- Verification gate logic → `validation.md`
-- Classification or cross-reference rules → `classification.md`, `cross-reference.md`
+Runtime commands, paths, and the `list_comments.py` script contract. Platform lock: OpenCode + OhMyOpenCode (Sisyphus) only.
 
 ## Prerequisites
 
@@ -67,6 +43,76 @@ python3 ./scripts/list_comments.py --include-resolved --json
 
 When `--pr` is omitted, the script runs `gh pr view` to detect the PR from the current branch. This requires an open PR for the current branch. If auto-detection fails, provide `--pr` explicitly.
 
+## Script JSON Contract
+
+The script emits a JSON array of normalized comment objects. Each object represents a single PR feedback item (inline, review, or top_level).
+
+### Common Fields (All Output Kinds)
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `kind` | string | yes | One of: `inline`, `review`, `top_level` |
+| `id` | integer | yes | GitHub comment/review ID (used for `in_reply_to` in gh API) |
+| `author` | string | yes | Author login. May be `null` (ghost account). |
+| `is_ai` | boolean | yes | `true` if author is a known bot/AI reviewer |
+| `body` | string | yes | Full comment body text (may be empty string). **Authoritative for classification — `excerpt` is truncated and must not be used.** |
+| `excerpt` | string | yes | Truncated body (~220 chars). Not authoritative for classification. |
+| `ai_prompts` | string | yes | Extracted AI prompt blocks from the body. Empty string if none found. |
+
+### Timestamp and URL Fields
+
+Timestamp and URL fields vary by output kind:
+
+| Field | Applies to | Required | Description |
+|-------|-----------|----------|-------------|
+| `created_at` | inline, top_level | yes (when present) | ISO 8601 timestamp of comment creation. Absent for `review` kind. |
+| `submitted_at` | review | yes (when present) | ISO 8601 timestamp of review submission. Only present for `kind=review`. |
+| `url` | inline, top_level | yes (when present) | GitHub URL for the comment. Absent for `review` kind. |
+
+### Thread Metadata Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `has_replies` | boolean | yes | `true` if the thread has at least one non-AI reply. Primary signal for `already_replied` classification. |
+| `thread_resolved` | boolean | yes (inline only) | `true` if the thread was marked resolved in GitHub UI. Weak signal — NOT evidence of fix-state. Only present for `kind=inline`. |
+| `thread_outdated` | boolean | yes (inline only) | `true` if the diff context shifted since the comment was posted. NOT evidence of fix-state — triggers mandatory code verification. Only present for `kind=inline`. |
+
+### Inline-Specific Fields
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `path` | string | no (inline only) | File path relative to repo root. Only present when `kind=inline`. |
+| `line` | integer | no (inline only) | Line number in the file. Only present when `kind=inline`. |
+
+These fields are absent for `review` and `top_level` kinds.
+
+### Review-Specific Fields
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `state` | string | yes (review only) | Review state (e.g. `APPROVED`, `CHANGES_REQUESTED`, `COMMENT`). Only present when `kind=review`. |
+
+### Internal: `issue_comment` Event
+
+The script uses an internal `issue_comment` event kind exclusively within `build_reply_map()` for chronological event sorting and reply detection. This kind is **never part of the public JSON output array**. Protocol files must not treat `issue_comment` as a public comment kind.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kind` | string | Always `"issue_comment"` |
+| `id` | integer | GitHub comment ID |
+| `time` | string | ISO 8601 timestamp |
+| `author` | string | Author login |
+
+### Field Usage by Protocol
+
+| Protocol File | Key Fields Consumed |
+|---------------|---------------------|
+| classification.md | `author`, `is_ai`, `body`, `has_replies`, `thread_outdated`, `thread_resolved`, `path`, `line`, `kind` |
+| cross-reference.md | `has_replies`, `kind`, `path`, `line`, `id`, `author` |
+| dossier.md | `id`, `author`, `kind`, `path`, `line`, `url` |
+| reply.md | `id`, `author`, `kind`, `path`, `line` |
+| interaction.md | `id`, `author`, `kind`, `path`, `line`, `url` |
+
 ## Dossier Path & Timestamp
 
 After comments are collected and processed, the dossier is written to:
@@ -106,30 +152,10 @@ To generate the execution plan, switch to Prometheus mode and paste:
   and generate an execution plan. Ask me if any task is ambiguous.
 ```
 
-Replace `<N>` and `<TIMESTAMP>` with actual values. This handoff is the bridge from Phase 1 (this skill) to Phase 2 (Prometheus plan generation).
+Replace `<N>` and `<TIMESTAMP>` with actual values.
 
-## Ownership Boundary
+## Reply Endpoint Commands
 
-**Collection commands** (`list_comments.py`) and **runtime commands** (directory operations, timestamps, `gh` auth) are owned by this file. **Reply endpoint commands** (inline/review/top_level API calls) are owned by `references/dossier.md` (Reply Endpoints section). Do not add reply endpoint commands to this file.
+Reply API commands are owned by `dossier.md` (Reply Endpoints section). For reply endpoint commands, see `references/dossier.md`.
 
-## Key Design Decisions
-
-### Platform Lock Is Explicit
-
-This skill requires OpenCode + OhMyOpenCode (Sisyphus). The dossier placement path and the Prometheus → `/start-work` flow are Sisyphus-specific. These constraints are not configurable.
-
-### Self-Contained Script
-
-`list_comments.py` is vendored within the skill directory with no Python package dependencies. Only `gh` CLI is required externally. This avoids dependency management issues when using the skill across different environments.
-
-### Cross-Repo Access
-
-The `--repo owner/name` flag allows collecting comments from a remote PR without being in the repo directory. This is important for reviewers who don't have the codebase locally.
-
-### Command Ownership Boundary
-
-This file owns comment collection commands (`list_comments.py`) and prerequisite verification. Reply API commands (inline/review/top_level endpoints) are owned by `dossier.md` (Reply Endpoints section). For reply endpoint commands, see `references/dossier.md`.
-
-### Commit SHA for Inline Replies
-
-Inline replies require a valid commit SHA on the PR branch. The command `git rev-parse HEAD` provides this. Review and top-level replies do not need `commit_id`.
+**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch (`git rev-parse HEAD`). `review` and `top_level` replies do not need `commit_id`.

@@ -24,46 +24,29 @@ A three-phase interactive workflow for GitHub PR comment review.
 
 | For operators who need to... | Open this file |
 |---|---|
-| **Classify a comment** (source, intent, conclusion) | `references/classification.md` |
-| **Detect duplicates, conflicts, or relations** | `references/cross-reference.md` |
-| **Run the interactive confirmation table** | `references/interaction.md` |
-| **Write the review dossier** | `references/dossier.md` |
-| **Compose a reply to a comment** | `references/reply.md` |
-| **Find runtime commands** (collection, paths, handoff) | `references/platform.md` |
-| **Run validation gates and checks** | `references/validation.md` |
+| **Classify + cross-reference** (Step 2: classify, detect duplicates/conflicts/relations) | `references/analyze.md` |
+| **Run the interactive confirmation table** (Step 3) | `references/interaction.md` |
+| **Write dossier + compose replies + validate** (Step 4) | `references/output.md` |
+| **Runtime commands** (collection, paths, handoff) | `references/platform.md` |
 
 ## Minimal Path
 
-Execution-critical files for an agent to read, in priority order:
+Only 4 reference files to read, loaded per phase rather than all at once:
 
-| Priority | File | What it tells the agent |
-|----------|------|------------------------|
-| 1 | `references/classification.md` | How to classify a comment (source, intent, conclusion) |
-| 2 | `references/cross-reference.md` | How to detect duplicates, conflicts, and relations |
-| 3 | `references/interaction.md` | How to present the interactive confirmation table |
-| 4 | `references/dossier.md` | How to write the review dossier (templates, sections, guardrails) |
-| 5 | `references/platform.md` | Runtime commands: collection, paths, handoff format |
-| 6 | `references/validation.md` | Validation gates and final cross-reference scan checklist |
-| 7 | `references/reply.md` | Reply policy: pre-reply gate, change summaries, templates |
+| Phase | File | When to read |
+|-------|------|-------------|
+| Step 1-2 | `references/platform.md` | Before collecting comments (script usage, JSON contract) |
+| Step 2 | `references/analyze.md` | Before classifying and cross-referencing comments |
+| Step 3 | `references/interaction.md` | Before presenting the overview table |
+| Step 4-5 | `references/output.md` | Before writing dossier, composing replies, or running validation gates |
 
-Read in this order. Each file assumes you've read the previous ones. Skip only if the agent already has the rules in context from a prior run.
+Load only the file you need for the current step. No file assumes you've read the previous ones — each is self-contained for its phase.
 
 ## Prerequisites
 
 - `gh` CLI installed and authenticated (see `references/platform.md` for verification)
 - OpenCode + OhMyOpenCode (Sisyphus) environment
 - Current git branch has an open PR, or you know the PR number
-
-## Reference Architecture
-
-| Layer | Files | Role |
-|-------|-------|------|
-| Entry | `SKILL.md` | Orchestration, phases, error recovery |
-| Workflow | `classification.md`, `cross-reference.md`, `interaction.md` | Step rules |
-| Decision | `dossier.md`, `reply.md` | Output formats |
-| Templates | `platform.md`, `validation.md` | Commands, gates |
-
-See `references/overview.md` for the full architecture overview and file map.
 
 ## Error Recovery
 
@@ -100,8 +83,7 @@ See `references/platform.md` (Comment Collection section) for collection script 
 
 **CRITICAL**: Read the full `body` field from JSON output, not `excerpt` (truncated to 220 chars).
 
-- **Classify**: Per `references/classification.md` — source detection, intent assessment, conclusion taxonomy, edge cases, dossier section mapping.
-- **Cross-reference**: Per `references/cross-reference.md` — duplicate detection, conflict detection, relation detection, already-replied detection, cross-file escalation rules.
+Per `references/analyze.md` — source detection, intent assessment, conclusion taxonomy, edge cases, dossier section mapping, duplicate detection, conflict detection, relation detection, already-replied detection, and cross-file escalation rules.
 
 ### [3] Interactive Confirmation
 
@@ -111,11 +93,7 @@ Present the structured overview table per `references/interaction.md` (mandatory
 
 Write the dossier to `.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md`. The dossier is a requirements document, not an execution plan — plan generation happens in Phase 2.
 
-**Before writing**: run the final cross-reference scan per `references/validation.md` (8-item checklist). If any item remains unresolved, return to Step 3.
-
-**After writing**: verify file existence, valid markdown, count matching, no placeholder leakage, and endpoint correctness per `references/validation.md`.
-
-See `references/dossier.md` for the full dossier structure (Executive Summary, Reply Endpoints, Sections A/B/C templates, duplicate and conflict handling, dependency notation, scope guardrails).
+Per `references/output.md` — dossier structure (Executive Summary, Reply Endpoints, Sections A/B/C templates, duplicate and conflict handling, dependency notation, scope guardrails), reply policy (pre-reply gate, change summaries, reply templates per conclusion), and validation gates (pre-write cross-reference scan, post-write verification).
 
 ### [5] Handoff
 
@@ -129,7 +107,7 @@ See `references/platform.md` (Handoff section) for the handoff message format.
 
 ## Reply Policy
 
-The reply policy governs when and how to reply to PR comments. See `references/reply.md` for the complete set of rules: the pre-reply gate checklist, change summary requirements, duplicate author reply strategy, partial fix reply requirements, and reply templates per conclusion.
+The reply policy governs when and how to reply to PR comments. See `references/output.md` (Reply Policy section) for the complete set of rules: the pre-reply gate checklist, change summary requirements, duplicate author reply strategy, partial fix reply requirements, and reply templates per conclusion.
 
 ## Interaction Checklist
 
