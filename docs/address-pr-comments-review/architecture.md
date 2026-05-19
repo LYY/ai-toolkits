@@ -1,96 +1,37 @@
-# Architecture Overview & Precedence Model
+# Architecture: address-pr-comments-review
 
-This file is the canonical ownership/file-map reference for the address-pr-comments-review skill.
+维护者视图的 skill 架构说明。运行时 agent 不读此文件——它只需要 `SKILL.md` 和 4 个 reference 文件。
 
-## Responsibility
-
-This file defines the layered reference structure, the separation of concerns across reference files, and the precedence model that governs how rules resolve when multiple protocol layers apply to the same decision. It is the meta-layer that establishes how the other layers relate.
-
-## Audience Distinction
-
-Two files serve as entry points into this skill, and they serve different audiences:
-
-| File | Audience | Purpose |
-|------|----------|---------|
-| `SKILL.md` | **Runtime agent** | Loaded by the agent during execution. Defines phases (collect, classify, interact, dossier, handoff), platform lock, prerequisites, and error recovery. The agent follows this step by step. |
-| `overview.md` (this file) | **Author / maintainer** | Architecture documentation, ownership boundaries, file map, and precedence rules. Not loaded during execution. Readers come here to understand why files are organized the way they are. |
-
-SKILL.md is the what-to-do file. overview.md is the why-it-works-this-way file.
-
----
-
-## Precedence Model
-
-The address-pr-comments-review system follows a four-layer precedence model:
+## 文件结构
 
 ```
-entry skill → workflow/protocol → decision protocols → templates/checklists
+skills/address-pr-comments-review/
+├── SKILL.md                  ← 编排入口（workflow steps、prerequisites、error recovery）
+├── references/
+│   ├── analyze.md            ← Step 2: 分类 + 交叉引用（source/intent/conclusion + dedup/conflict/escalation）
+│   ├── interaction.md        ← Step 3: 交互确认（overview table、silent consent、discussion flow）
+│   ├── output.md             ← Step 4: dossier + reply + 验证（模板、reply policy、gates）
+│   └── platform.md           ← 运行时命令 + JSON contract
+└── scripts/list_comments.py  ← PR 评论采集脚本
 ```
 
-| Layer | Files | Precedence | Role |
-|-------|-------|------------|------|
-| **Entry skill** | `SKILL.md` | Highest | Entry point. Loads references. Defines phases (collect, classify, interact, dossier, handoff). Platform lock. Prerequisites. Error recovery. |
-| **Workflow / protocol** | `classification.md`, `cross-reference.md`, `interaction.md` | 2nd | Define the HOW for each major workflow step. Classification protocol, cross-reference protocol, interaction protocol. These are referenced by name from SKILL.md steps. |
-| **Decision protocols** | `dossier.md`, `reply.md` | 3rd | Define WHAT to produce. Dossier contract specifies the document structure. Reply policy specifies the communication rules. |
-| **Templates / checklists** | `platform.md`, `validation.md` | 4th | Provide concrete templates, checklists, platform-specific commands, and verification gates. Lowest precedence because they are referenced by upper layers, not the reverse. |
+## 设计原则
 
-### How Precedence Resolves
+参见 `AGENTS.md` 中 `## Skill 设计原则` 章节。核心要点：
 
-When a decision could be made by rules in multiple layers:
+- **面向 agent 设计**：按执行阶段组织，不按协议层位分类
+- **按需加载**：每个 phase 只需读 1 个 reference 文件，各自包含
+- **references/ 不放维护者内容**：架构文档、eval matrix 归入 `docs/`
 
-1. **Explicit rule beats inferred rule.** If `SKILL.md` says "always scan before write", that overrides any implicit assumption in a protocol file.
-2. **Upper layer overrides lower layer.** A rule in `classification.md` (layer 2) overrides a suggestion in `reply.md` (layer 3).
-3. **Within the same layer, specificity wins.** The cross-reference protocol (`cross-reference.md`) has final say on dedup strategy within its domain; the interaction protocol defers to it on cross-reference matters.
-4. **Template defaults are overridable.** Values in `platform.md` are convenience defaults, not rules. Upper layers can override them explicitly.
-5. **No rule is silently duplicated.** If a rule exists in one layer, it is not restated in another. Precedence resolution follows the chain above.
+## 各文件职责边界
 
-### Layer Boundaries
-
-| Don't | Do |
-|-------|-----|
-| Put classification rules in `dossier.md` | Classification rules stay in `classification.md`. Dossier references them. |
-| Repeat cross-reference logic in `interaction.md` | Interaction protocol defers to cross-reference protocol for dedup/conflict concerns. |
-| Define reply templates in `classification.md` | Reply templates belong in `reply.md`. Classification only assigns the conclusion that determines which template to use. |
-| Embed `gh` commands outside their owning file | Collection/runtime `gh` commands go in `platform.md`. Reply endpoint `gh api` syntax goes in `dossier.md` (Reply Endpoints section). Other files reference these files by name. |
-
----
-
-## Quick Find
-
-| What do you need? | Go to |
-|---|---|
-| **Loading the skill or running the workflow?** | `SKILL.md` |
-| **Understanding the architecture or file ownership?** | `overview.md` (this file) |
-| **Classifying a comment?** | `classification.md` |
-| **Detecting duplicates/conflicts?** | `cross-reference.md` |
-| **Running the interactive table?** | `interaction.md` |
-| **Writing the dossier?** | `dossier.md` |
-| **Composing a reply?** | `reply.md` |
-| **Runtime commands (collection, paths, handoff)?** | `platform.md` |
-| **Validation gates and checks?** | `validation.md` |
-| **Behavioral acceptance criteria and eval scenarios?** | `eval-matrix.md` |
-| **JSON output contract from list_comments.py?** | `script-contract.md` |
-
----
-
-## File Map
-
-| File | Layer | Referenced by | Content summary |
-|------|-------|---------------|-----------------|
-| `overview.md` | Meta | All files | Architecture, precedence model, file map, canonical ownership reference. Author-facing only. |
-| `SKILL.md` | Entry skill | Loaded by agent at runtime | Entry point. Defines phases (collect, classify, interact, dossier, handoff). Platform lock. Prerequisites. Error recovery. Contains quick-reference table pointing to reference files. |
-| `classification.md` | Workflow/protocol | SKILL.md Step 2 | Source detection, intent assessment, conclusion assignment, edge cases, dossier section mapping |
-| `cross-reference.md` | Workflow/protocol | SKILL.md Step 2 (cross-reference pass) | Duplicate detection, conflict detection, relation detection, already-replied detection |
-| `interaction.md` | Workflow/protocol | SKILL.md Steps 3-4 | Overview table format, silent consent, discussion flow, scaling rules, confirmation transitions |
-| `dossier.md` | Decision protocols | SKILL.md Step 4 | Dossier structure, section A/B/C format, reply endpoints, cross-reference checks, dependency notation, scope guardrails, verification post-write |
-| `reply.md` | Decision protocols | dossier.md, interaction.md | Reply templates per conclusion, endpoint kinds (inline/review/top_level), duplicate author reply strategy, conflict reply strategy |
-| `platform.md` | Templates/checklists | SKILL.md Steps 1, 5 | `gh` CLI commands, `list_comments.py` usage, OpenCode/Sisyphus paths, dossier file operations, handoff message format |
-| `validation.md` | Templates/checklists | SKILL.md Steps 4-5 | Final cross-reference scan checklist, dossier verification checks, gate rules, regression scenarios |
-| `eval-matrix.md` | Test suite (not a protocol layer) | All protocol files | Behavioral acceptance criteria. Defines expected classification, reply posture, overview-table treatment, and dossier escalation for each eval scenario. Validates precedence correctness and rule coverage. |
-| `script-contract.md` | Contract (not a protocol layer) | classification.md, cross-reference.md, dossier.md, reply.md | Implicit interface contract between `scripts/list_comments.py` and the protocol files. Defines JSON output structure, consumed fields, and field semantics. Changes must be coordinated with all consuming protocol files. |
-
----
+| 文件 | 拥有的规则 | 不拥有的规则 |
+|------|-----------|-------------|
+| `analyze.md` | source detection, intent, conclusion taxonomy, evidence requirements, edge cases, section mapping, duplicate/conflict/relation/cross-file detection | interaction flow, reply templates, dossier format |
+| `interaction.md` | overview table format, silent consent, 🔴 discussion flow, scaling, confirmation gates | comment classification, dossier structure |
+| `output.md` | dossier structure (A/B/C), reply endpoints, reply templates + gate, validation checks, regression scenarios | classification rules, interaction flow |
+| `platform.md` | list_comments.py usage, JSON contract, prerequisites, dossier paths, handoff format | reply API commands (owned by output.md) |
 
 ## Eval Matrix
 
-The evaluation matrix at `eval-matrix.md` defines the behavioral acceptance criteria that all reference files collectively must satisfy. It is not a protocol layer but a test suite that validates precedence correctness and rule coverage.
+`docs/address-pr-comments-review/eval-matrix.md` 包含 7 个回归场景。用于验证 skill 的行为正确性。不是 runtime 文件。
