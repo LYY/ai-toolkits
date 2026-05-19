@@ -24,7 +24,7 @@ npx skills add LYY/ai-toolkits -g -y
 - **Scope Guardrails** (review 模式): dossier 内置防 scope creep 约束，禁止计划执行时顺手重构
 - **异步流程支持**: `needs_clarification` 评论支持 reviewer 回复后重跑 skill，自动跳过已处理项
 - **失败恢复** (review 模式): `/start-work` 中途失败可重新生成 dossier，仅处理剩余未完成项
-- **Hot-path 优先架构**: Minimal Path 按优先级列出执行关键文件，agent 按序阅读即可快速上手，无需通读全部 reference
+- **Minimal Path 优先架构**: Minimal Path 按优先级列出执行关键文件，agent 按序阅读即可快速上手，无需通读全部 reference
 - **Reference 分层 + 所有权图**: SKILL.md 做编排入口，workflow / decision / template 三层 reference 各司其职；`overview.md` 为规范所有权地图，准确定位每个需求的归属文件
 
 ## 开发

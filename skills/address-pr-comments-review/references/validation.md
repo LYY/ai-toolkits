@@ -102,7 +102,7 @@ When a check fails:
 | 2 | `thread_outdated + thread_resolved` | Synthetic | Assuming `thread_outdated` = already fixed without verifying | Both flags together still require code verification; neither flag is evidence of fix-state |
 | 3 | `minimized comment` | SKILL.md Step 2 edge cases | Treating as actionable; replying to retracted comment | Must classify as `informational`; no code verification needed; no reply; no dossier entry beyond Section C |
 | 4 | `zero-actionable` | Deviation analysis | Skipping mandatory overview table; omitting dossier | Overview table is MANDATORY even when zero items are actionable; header, rows, and legend must all appear; minimal dossier must still be written |
-| 5 | `partially_addressed` | PR #1215, `discussion_r3257258893` | Accepting incomplete fix as resolved; missing direction error | Must include three-part evidence chain; must map to Section A; reply must acknowledge existing attempt |
+| 5 | `partial fix` | PR #1215, `discussion_r3257258893` | Accepting incomplete fix as resolved; missing direction error | Must include three-part evidence chain; must map to Section A; reply must acknowledge existing attempt |
 | 6 | `duplicate reply` | PR #1215 patterns | Creating duplicate tasks; replying only once for multiple authors | One task entry; all authors listed; each author gets individual reply via own `in_reply_to` ID; same fix not applied twice |
 | 7 | `cross-file` | PR #1215 deviation analysis | Scope creep; fixing uncommented files without guardrail | Fix commented file only; cross-file pattern documented as guardrail; no additional Section A tasks created; Moderate evidence requires guardrail row; Strong evidence requires dedicated section |
 

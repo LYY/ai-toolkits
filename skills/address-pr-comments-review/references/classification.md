@@ -157,7 +157,7 @@ NOT acceptable evidence:
 
 ---
 
-### partially_addressed (NEW)
+### partially_addressed
 
 **When to apply:** A code change was applied in response to the review comment, but the fix is incomplete, insufficient, or directionally wrong. The reviewer's core concern is not fully resolved despite a visible fix attempt.
 
