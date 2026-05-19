@@ -10,10 +10,9 @@ Every comment must be classified as either `@human` or `@bot` based on its autho
 
 A comment is `@bot` if ANY of these match:
 
-- Author login matches known bot patterns: `coderabbit`, `coderabbitai[bot]`, `github-actions[bot]`, `copilot`, `dependabot[bot]`, `renovate[bot]`, `semantic-release-bot`, `codecov[bot]`, `lgtm-com[bot]`, `sonarcloud[bot]`, `snyk-bot`
+- `is_ai` is `true` in the JSON output from `list_comments.py` (primary signal — covers CodeRabbit, Copilot, and other known AI reviewers)
 - Author login ends with `[bot]` (GitHub's standard bot suffix)
-- Author `type` is `Bot` in the JSON output from `list_comments.py`
-- The comment body contains verified AI review signatures (CodeRabbit's structured prompt blocks, Copilot's numbered recommendation lists with AI disclaimers)
+- Author `type` is `Bot` in the JSON output
 
 ### @human Indicators
 
@@ -77,7 +76,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The comment identifies a real issue that should be addressed in this PR. The concern is correct, applies to the current code at branch tip, and requires a code change.
 
-**Evidence required:** None beyond reading the current code at the referenced `path:line` and confirming the issue is present. If the issue was already fixed, use `already_fixed`. If partially addressed, use `partially_addressed`.
+**Evidence required:** Read the current code at the referenced `path:line` on branch tip and confirm the issue is present. If already fixed, use `already_fixed`. If partially addressed, use `partially_addressed`.
 
 **Action:** Code change + test + reply + commit. Maps to dossier Section A.
 
@@ -87,7 +86,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The comment does not apply to the current code. Common reasons: the reviewer misunderstood the code, the concern is based on a reading error, or the suggestion would break other behavior.
 
-**Evidence required:** A brief reason must be stated. If the reason is "the code already handles this differently," that is `already_fixed`, not `invalid`. The distinction: `invalid` means the concern itself does not apply; `already_fixed` means the concern was valid but has been resolved.
+**Evidence required:** One-sentence reason. If the code already handles the concern differently → `already_fixed`, not `invalid`.
 
 **Action:** Reply only (explain why). Maps to dossier Section B.
 
@@ -97,19 +96,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The issue raised by the comment has already been resolved in the current branch tip code. The fix exists at the time of classification.
 
-**Evidence required: STRONG evidence required.** You MUST read the current code at the comment's `path:line` and confirm the fix is in place. If you cannot find the fix in current code, this is NOT `already_fixed` -- reclassify as `valid`, `invalid`, or `partially_addressed`.
-
-Acceptable evidence:
-
-- Current code at `path:line` matches the reviewer's requested fix (cite specific lines)
-- A subsequent commit visible in `git log --oneline` for the referenced file that explicitly addresses the concern (cite the commit hash and what it changed)
-
-NOT acceptable evidence:
-
-- `thread_outdated: true` -- the diff context shifted but the code may still have the same issue
-- `thread_resolved: true` -- someone collapsed the thread, that does not mean the code was fixed
-- A bot replied "Good catch, let's fix this" -- no code change was made
-- A different file was fixed but the commented file was not
+**Evidence required: STRONG evidence required.** Read current code at `path:line` and confirm the fix is in place. Acceptable: current code matches fix, or `git log` shows a commit addressing the concern (cite SHA + what changed). NOT acceptable: `thread_outdated: true`, `thread_resolved: true`, bot acknowledgment, or a fix in a different file.
 
 **Action:** Reply only (confirm already fixed). Maps to dossier Section B.
 
@@ -135,7 +122,7 @@ NOT acceptable evidence:
 
 **When to apply:** The comment raises a valid concern that is outside the scope of the current PR. Examples: suggests a feature unrelated to the PR's intent, flags pre-existing code unrelated to the diff, requests a refactor that belongs in a separate PR.
 
-**Evidence required:** The concern must be genuinely valid (not `invalid`) but belong elsewhere. If the concern is both invalid AND out of scope, prefer `invalid`. The `out_of_scope` label implies the concern is real but should not be addressed in this PR.
+**Evidence required:** Concern must be valid (not `invalid`) but out of this PR's scope. If both invalid and out of scope → `invalid`.
 
 **Action:** Reply only (explain why out of scope, optionally suggest a follow-up). Maps to dossier Section B.
 
@@ -203,21 +190,7 @@ Follow this three-step process:
 
 **Distinction from minimized:** `thread_outdated` is NOT `minimized`. The author did not retract the comment. The comment still represents a valid review concern. Treat it with the same seriousness as any non-outdated comment, with the extra verification step on top.
 
----
-
-### thread_resolved
-
-**Definition:** The thread is marked as "resolved" in the GitHub UI. A human (usually the PR author or reviewer) clicked "Resolve conversation."
-
-**Classification rule:** `thread_resolved` is a weak signal. It means someone considered the conversation done. It does NOT mean the code issue was fixed. The resolver may have collapsed the thread to reduce visual noise, or may have resolved it after a discussion that did not result in a code change.
-
-**Combined with thread_outdated:** When a comment has BOTH `thread_outdated: true` AND `thread_resolved: true`, the resolution signal is still NOT proof of fix-state. You MUST read the current code to determine the actual state:
-
-- Issue fully fixed -> `already_fixed`
-- Issue persists -> `valid`
-- Issue partially addressed -> `partially_addressed`
-
-**thread_resolved alone (without thread_outdated):** Same rule applies. Check if a code change was actually made. If only discussion happened and no code changed, the thread may be resolved conversationally but the code concern may still exist.
+**thread_resolved:** Same verification rules as thread_outdated apply. `thread_resolved` means someone closed the conversation thread — it does NOT mean the code was fixed. Read current code to determine actual state.
 
 ---
 

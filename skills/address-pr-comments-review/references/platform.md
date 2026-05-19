@@ -92,17 +92,6 @@ These fields are absent for `review` and `top_level` kinds.
 |-------|------|----------|-------|
 | `state` | string | yes (review only) | Review state (e.g. `APPROVED`, `CHANGES_REQUESTED`, `COMMENT`). Only present when `kind=review`. |
 
-### Internal: `issue_comment` Event
-
-The script uses an internal `issue_comment` event kind exclusively within `build_reply_map()` for chronological event sorting and reply detection. This kind is **never part of the public JSON output array**. Protocol files must not treat `issue_comment` as a public comment kind.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `kind` | string | Always `"issue_comment"` |
-| `id` | integer | GitHub comment ID |
-| `time` | string | ISO 8601 timestamp |
-| `author` | string | Author login |
-
 ### Field Usage by Protocol
 
 | Protocol File | Key Fields Consumed |
@@ -153,8 +142,4 @@ To generate the execution plan, switch to Prometheus mode and paste:
 
 Replace `<N>` and `<TIMESTAMP>` with actual values.
 
-## Reply Endpoint Commands
 
-Reply API commands are owned by `dossier-output.md` (Reply Endpoints section). For reply endpoint commands, see `references/dossier-output.md`.
-
-**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch (`git rev-parse HEAD`). `review` and `top_level` replies do not need `commit_id`.

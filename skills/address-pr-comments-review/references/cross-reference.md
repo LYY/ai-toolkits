@@ -63,10 +63,10 @@ Find comments that give opposing or incompatible recommendations on the same cod
 
 ### Human vs Bot Conflicts
 
-When a human reviewer conflicts with a bot (CodeRabbit, Copilot, etc.) on the same concern:
-- Present both sides neutrally
-- The human is the intended decision-maker, but the bot perspective must be accurately represented
-- During Step 3, ask the user which approach to follow
+When a human reviewer conflicts with an AI bot on the same concern:
+- Present both sides neutrally. Do not weight by source type.
+- The human is the intended decision-maker, but the bot perspective must be accurately represented.
+- During Step 3, ask the user which approach to follow.
 
 ### Conclusion Conflicts
 
@@ -130,13 +130,7 @@ Always default to `already_replied` when `has_replies: true`, even when the repl
 
 ## Cross-File Escalation
 
-### Purpose
-
-When a review comment flags an issue in one file, and a targeted search confirms the same pattern exists in other files, escalate the concern from a single-file fix to a documented cross-file pattern. This prevents the agent from staying stuck on one file while a structural issue propagates through the codebase.
-
-### Motivation
-
-When a reviewer flags a structural bug in one file, the same pattern often exists in sibling files. Without escalation, the workflow treats it as a single-file concern, leaving the broader pattern unfixed. Cross-file escalation requires searching for and documenting the pattern to prevent this.
+When a reviewer flags a structural issue and a targeted search finds the same pattern in sibling files, escalate from single-file fix to documented cross-file pattern. Without escalation, the workflow treats it as a single-file concern, leaving the broader pattern unfixed.
 
 ### Detection Method
 
@@ -155,10 +149,10 @@ Escalation is gated by the number of confirmed matches beyond the original file:
 
 | Evidence level | Matches beyond commented file | Action |
 |--------------|-------------------------------|--------|
-| None | 0 matches | No escalation. Pattern is unique to the commented file. |
-| Weak | 1 match in one other file | Observe but do not escalate. Optionally note in the dossier if relevant context suggests broader impact. |
-| Moderate | 2-3 matches in different files | Escalate as a guardrail note. Add to Scope Guardrails: "Cross-file pattern detected in {file list} -- fix only the commented file in this task." |
-| Strong | 4+ matches or architectural pattern (same module, same subsystem) | Full escalation. Add to Scope Guardrails AND add a "Cross-File Pattern Detected" section in the dossier with file list and follow-up recommendation. |
+| None | 0 | No escalation |
+| Weak | 1 | Observe only. Optionally note in dossier. |
+| Moderate | 2-3 | Guardrail: "Cross-file pattern in {files} — fix only commented file" |
+| Strong | 4+ or same subsystem | Full escalation: Guardrail + "Cross-File Pattern Detected" section |
 
 ### Evidence Quality Rules
 
@@ -168,41 +162,25 @@ Escalation is gated by the number of confirmed matches beyond the original file:
 
 ### Required Output Treatment
 
-When cross-file escalation triggers at Moderate or Strong evidence:
+When escalation triggers at Moderate (2-3 matches) or Strong (4+ matches):
 
-1. **Primary fix**: The commented file remains a Section A task (code change + reply). This is the only code change task. Escalation does NOT create additional Section A items.
+| Trigger | Dossier additions |
+|---------|------------------|
+| **Moderate+** | **Scope Guardrail**: `\| Cross-file pattern detected in {files} \| Fix only the commented file. Do NOT scope-creep. \|` + Dedup Note row listing files and guardrail |
+| **Strong** | Above + **"Cross-File Pattern Detected" section** (format: `dossier-output.md` §Cross-File Pattern Detected) |
+| **Reply (optional)** | Note in reply to reviewer: "Fixed in this file. Same pattern in {N} other files — follow-up if appropriate." |
 
-2. **Scope Guardrail** (Moderate and Strong): Add a Scope Guardrail item in the dossier:
-   ```
-   | Cross-file pattern detected in {file list} | Fix only the commented file in this task. Do NOT scope-creep to other files. Consider a separate follow-up PR for remaining matches. |
-   ```
-
-3. **Dossier Dedup and Conflict Notes** (Moderate and Strong): Add a row:
-   ```
-   | Cross-file pattern | {N} | Pattern detected in {files}. Scope-creep guardrail applied. Fix only {commented file}. |
-   ```
-
-4. **Cross-File Pattern Detected section** (Strong only): Append before the Scope Guardrails section:
-   ```
-   ## Cross-File Pattern Detected
-
-   - **Grep command**: `grep -r "pattern" server/ --include="*.go"`
-   - **Files with same pattern**: {comma-separated file list}
-   - **Current fix scope**: {commented file} only (Section A of this dossier)
-   - **Recommendation**: Create a follow-up PR to address remaining {N} files with the same pattern.
-   ```
-
-5. **Reply**: In the reply to the reviewer, optionally note the cross-file pattern: "Fixed in this file. The same pattern exists in {N} other files. Will address in a follow-up if appropriate."
+The commented file remains the only Section A code-change task. Escalation does NOT create additional Section A items.
 
 ### Escalation Boundaries
 
-| Situation | Should escalate? | Rationale |
-|-----------|-----------------|-----------|
-| Same function call ordering in 3+ server files | Yes | Structural pattern, same module |
-| Same variable naming convention in 5+ files | No | Style consistency is not a structural bug pattern |
-| Single occurrence of a pattern in 1 other file | No | Weak evidence. Observe only. |
-| Comment explicitly asks "fix this everywhere" | Yes | Reviewer requested global fix. All files become tasks, but user must confirm scope during Step 3. |
-| Pattern exists in test files only | Reduce tier | Test setup/teardown differs structurally from production code |
+| Situation | Escalate? | Rationale |
+|-----------|-----------|-----------|
+| Same function call ordering in 3+ files, same module | Yes | Structural pattern |
+| Comment explicitly asks "fix this everywhere" | Yes | Reviewer requested global fix — user must confirm scope during Step 3 |
+| Same naming convention across many files | No | Style consistency ≠ structural bug |
+| Single occurrence in 1 other file | No | Weak evidence |
+| Pattern exists only in test files | Reduce one tier | Test setup/teardown differs structurally from production |
 
 ### Escalation Is Not Classification
 

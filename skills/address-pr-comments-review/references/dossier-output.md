@@ -77,6 +77,8 @@ Section A captures every comment confirmed as requiring a code change and a repl
 
 ### Section A Task Template
 
+All fields mandatory. No generic descriptions — exact paths, line numbers, specific commands.
+
 ```markdown
 ### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} -- {{SUMMARY}}
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
@@ -86,16 +88,8 @@ Section A captures every comment confirmed as requiring a code change and a repl
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
 - **Reply after fix**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
 - **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
-- **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}`
+- **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}` (imperative mood, matching repo conventions)
 ```
-
-### Required Fields (ALL Mandatory)
-
-Every Section A entry MUST contain: exact file paths and line numbers, code change description (specific, not general direction), test strategy (specific commands), reply target (kind + author), suggested commit message (imperative mood, matching repo conventions).
-
-### Evidence Requirements
-
-Evidence requirements are defined in `classify.md` (Evidence Requirements section).
 
 ---
 
@@ -188,6 +182,20 @@ Cross-reference protocol (cross-file Moderate+), interaction protocol (user cons
 
 ---
 
+## Cross-File Pattern Detected (Strong escalation only)
+
+Inserted before Scope Guardrails when cross-reference escalation confirms Strong evidence (4+ matches or same subsystem):
+
+```markdown
+## Cross-File Pattern Detected
+- **Grep**: `grep -rn "<pattern>" <dir>/ --include="*.<ext>"` → N matches
+- **Files**: <file1>, <file2>, ...
+- **Scope**: Fix <commented file> only (Section A)
+- **Follow-up**: Address remaining N files in separate PR
+```
+
+---
+
 ## Reply Policy
 
 Governs when and how to reply to PR comments.
@@ -200,7 +208,7 @@ Governs when and how to reply to PR comments.
 
 | # | Check | Condition to pass | Action if failed |
 |---|-------|-------------------|------------------|
-| 1 | **Already replied?** | Does this thread have `has_replies: true` with a substantively sufficient human reply (per `classify.md` has_replies rules)? | Do NOT reply. The existing reply already addresses the concern. If the existing reply is insufficient, flag for user override at Step 3. |
+| 1 | **Already replied?** | Does this thread have `has_replies: true` with a substantively sufficient human reply? Verify: reply author is human (not bot), reply is substantive (not "Good point" / "I'll check"), reply is not your own from a previous pass. | Do NOT reply. The existing reply already addresses the concern. If the existing reply is insufficient, flag for user override at Step 3. |
 | 2 | **Duplicate author?** | Is this comment one of multiple that were merged as duplicates? | Compose ONE reply. Send it to EACH author individually via their own `in_reply_to` ID. Do not reply to only one author. |
 | 3 | **Change summary needed?** | Does the conclusion require a change summary alongside the fix confirmation (see Change Summary Rule below)? | Add a change summary before `Fixed in <sha>`. Do not send a bare `Fixed in <sha>` alone. |
 | 4 | **Conclusion still valid?** | Has the code state changed since classification (e.g., a new commit was pushed, or the diff shifted)? | Re-verify the conclusion against current HEAD. If the issue no longer exists, reclassify before replying. |
@@ -215,39 +223,25 @@ All four checks must pass before any reply content is written. The gate is evalu
 
 ### Change Summary Rule
 
-#### Principle
+A bare `Fixed in <sha>` implies the fix speaks for itself. When the fix is misleading, partial, or non-obvious without context, a 1-2 sentence change summary MUST accompany the SHA.
 
-A pure `Fixed in <sha>` confirmation implies the fix speaks for itself. When the fix is misleading, partial, or directionally non-obvious without context, the commit SHA alone does not satisfy the reviewer's concern. A change summary must accompany the fix reference to explain what changed and why.
+`Fixed in <sha>` alone is allowed only when the fix is straightforward and the commit message fully describes the change (e.g., rename, typo fix). In ALL other cases, a change summary is mandatory:
 
-#### When `Fixed in <sha>` Alone Is Allowed
+| Situation | Why pure SHA is misleading |
+|-----------|---------------------------|
+| **Direction correction or reframed approach** | The fix takes a different path than suggested. `Fixed in <sha>` implies the concern was resolved as-requested. |
+| **Partial fix** | The core concern is not fully resolved (scope boundary, same pattern elsewhere). `Fixed in <sha>` implies completion. |
+| **Non-obvious change** | Subtle refactor, dependency change, or multi-file fix. The SHA alone doesn't convey scope or reasoning. |
 
-- The fix is straightforward and the change is fully described by the commit message
-- The reviewer's concern was a single, unambiguous issue and the fix addresses it directly
-- Example: "Rename `foo` to `bar`" -> reply "Fixed in abc123." (the commit message "Rename foo to bar" explains the fix)
-
-#### When a Change Summary Is Mandatory
-
-A change summary that describes what was done and why MUST accompany `Fixed in <sha>` in any of these situations:
-
-| Situation | Example | Why pure SHA is misleading |
-|-----------|---------|---------------------------|
-| **Direction correction** | Reviewer asked to call `cleanup()` AFTER `process()`. Current code calls it BEFORE. | The fix exists but makes the problem worse. `Fixed in <sha>` implies the concern was correctly resolved. |
-| **Partial fix** | Fix addressed one location but the same pattern exists at N other locations. | The core concern is not fully resolved. `Fixed in <sha>` implies completion. The reply must explain the scope boundary. |
-| **Reframed concern** | The fix takes a different approach than the reviewer suggested but achieves the same intent. | The reviewer may not recognize their concern in the alternate implementation. The reply must describe the approach taken. |
-| **Non-obvious change** | The fix involves a subtle refactor, a dependency change, or multiple files. | The commit SHA alone does not convey the scope or reasoning. |
-| **Cross-file pattern noted** | Only the commented file was fixed; other files with the same pattern remain. | `Fixed in <sha>` implies the pattern is resolved everywhere. The reply must clarify scope boundaries. |
-
-#### Change Summary Format
-
-Precede or follow `Fixed in <sha>` with a 1-2 sentence description of what changed and why:
+Format: precede or follow `Fixed in <sha>` with a 1-2 sentence description:
 
 ```
 Fixed in abc123. The fix reorders the initialization sequence — cleanup()
-now runs after process() completes, matching the reviewer's concern.
+now runs after process() completes.
 ```
 
-For partial fixes, add scope boundary: "Fixed in abc123 (src/auth/login.go only). Same issue in src/auth/register.go — follow-up PR to follow."
-For direction corrections, acknowledge: "Corrected the fix direction in abc123. Previous attempt placed Close before Stop; now correctly runs after."
+For partial fixes, add scope boundary: `"Fixed in abc123 (src/auth/login.go only). Same issue in N other files — follow-up PR to follow."`
+For direction corrections: `"Corrected the fix direction in abc123. Previous attempt placed X before Y; now correctly runs after."`
 
 ---
 
@@ -295,20 +289,6 @@ When a comment was merged as a duplicate (same concern, multiple authors):
 
 The reply content is identical across authors. The only difference is the `in_reply_to` parameter in the API call.
 
-#### Already-Replied Blocking
-
-When `classify.md` determines a reply is sufficient:
-
-- The reply is blocked. Do not compose, draft, or prepare a reply.
-- The existing reply stands. No override without explicit user action at Step 3.
-- This applies even if the existing reply is by a different person or takes a different tone.
-
-When `classify.md` determines a reply is NOT sufficient:
-
-- Default to blocked (conservative). The existing thread has activity.
-- Flag the insufficiency for the user at Step 3 with a pending indicator.
-- Do NOT compose a reply unilaterally. Only proceed if the user explicitly reclassifies the comment.
-
 ---
 
 ## Validation Gates
@@ -319,17 +299,16 @@ Checks and gate rules that ensure dossier integrity before handoff. See `docs/ad
 
 Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
-#### 8-Check Checklist
+#### 7-Check Checklist
 
 | Check | What to look for | Action if found |
 |-------|-----------------|-----------------|
 | **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
-| **Stale duplicates** | Two entries were merged in cross-reference, but discussion changed one conclusion (e.g., `valid` -> `invalid`) -- they may no longer be duplicates | Split back to separate entries |
+| **Duplicate state shift** | Discussion changed one merged comment's conclusion (e.g., `valid` → `invalid`) — entries may no longer be duplicates, or the remaining partner needs re-verification | Split or re-verify as appropriate |
 | **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
-| **Orphaned replies** | A comment changed from `valid` to `invalid` during discussion -- does its duplicate partner still need the code change? | Verify the remaining entry is correctly classified |
 | **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |
 | **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
-| **Reply target mismatch** | Merged duplicates -- all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
+| **Reply target mismatch** | Merged duplicates — all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
 | **Stale already_replied** | A comment marked `already_replied` but discussion revealed the reply was insufficient or from a bot | Reclassify |
 
 **Gate rule**: If any unresolved item remains after the scan, do NOT write the dossier. Return to Step 3.
