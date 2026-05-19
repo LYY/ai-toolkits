@@ -1,6 +1,6 @@
 # Eval Matrix: address-pr-comments-review
 
-> **Canonical scenario corpus** for the address-pr-comments-review skill. This file is the authoritative source for the seven regression scenarios and QA tokens referenced by `validation.md`.
+> **canonical scenario corpus** for the address-pr-comments-review skill. This file is the authoritative source for the seven regression scenarios and QA tokens referenced by `validation.md`.
 >
 > **RED Phase artifact.** Defines expected behavior the redesign must preserve and the failure modes it must newly cover.
 > Each scenario specifies 4 dimensions: expected classification, expected reply posture, expected overview-table treatment, and whether dossier escalation is required.
