@@ -1,14 +1,21 @@
 # Architecture Overview & Precedence Model
 
-This file defines the layered reference structure and the rule precedence model for the address-pr-comments-review skill.
+This file is the canonical ownership/file-map reference for the address-pr-comments-review skill.
 
 ## Responsibility
 
-This file is responsible for defining the architecture, the separation of concerns across reference files, and the precedence model that governs how rules resolve when multiple protocol layers apply to the same decision.
+This file defines the layered reference structure, the separation of concerns across reference files, and the precedence model that governs how rules resolve when multiple protocol layers apply to the same decision. It is the meta-layer that establishes how the other layers relate.
 
-## Precedence
+## Audience Distinction
 
-**Top of the hierarchy.** This file establishes the structure that all other reference files follow. It has no peers — it is the meta-layer that defines how the other layers relate.
+Two files serve as entry points into this skill, and they serve different audiences:
+
+| File | Audience | Purpose |
+|------|----------|---------|
+| `SKILL.md` | **Runtime agent** | Loaded by the agent during execution. Defines phases (collect, classify, interact, dossier, handoff), platform lock, prerequisites, and error recovery. The agent follows this step by step. |
+| `overview.md` (this file) | **Author / maintainer** | Architecture documentation, ownership boundaries, file map, and precedence rules. Not loaded during execution. Readers come here to understand why files are organized the way they are. |
+
+SKILL.md is the what-to-do file. overview.md is the why-it-works-this-way file.
 
 ---
 
@@ -22,7 +29,7 @@ entry skill → workflow/protocol → decision protocols → templates/checklist
 
 | Layer | Files | Precedence | Role |
 |-------|-------|------------|------|
-| **Entry skill** | `SKILL.md` | Highest | Entry point. Loads references. Defines phases (collect → classify → interact → dossier → handoff). Platform lock. Prerequisites. Error recovery. |
+| **Entry skill** | `SKILL.md` | Highest | Entry point. Loads references. Defines phases (collect, classify, interact, dossier, handoff). Platform lock. Prerequisites. Error recovery. |
 | **Workflow / protocol** | `classification.md`, `cross-reference.md`, `interaction.md` | 2nd | Define the HOW for each major workflow step. Classification protocol, cross-reference protocol, interaction protocol. These are referenced by name from SKILL.md steps. |
 | **Decision protocols** | `dossier.md`, `reply.md` | 3rd | Define WHAT to produce. Dossier contract specifies the document structure. Reply policy specifies the communication rules. |
 | **Templates / checklists** | `platform.md`, `validation.md` | 4th | Provide concrete templates, checklists, platform-specific commands, and verification gates. Lowest precedence because they are referenced by upper layers, not the reverse. |
@@ -44,12 +51,16 @@ When a decision could be made by rules in multiple layers:
 | Put classification rules in `dossier.md` | Classification rules stay in `classification.md`. Dossier references them. |
 | Repeat cross-reference logic in `interaction.md` | Interaction protocol defers to cross-reference protocol for dedup/conflict concerns. |
 | Define reply templates in `classification.md` | Reply templates belong in `reply.md`. Classification only assigns the conclusion that determines which template to use. |
-| Embed `gh` commands outside their owning file | Collection/runtime `gh` commands → `platform.md`. Reply endpoint `gh api` syntax → `dossier.md` (Reply Endpoints section). Other files reference these files by name. |
+| Embed `gh` commands outside their owning file | Collection/runtime `gh` commands go in `platform.md`. Reply endpoint `gh api` syntax goes in `dossier.md` (Reply Endpoints section). Other files reference these files by name. |
+
+---
 
 ## Quick Find
 
 | What do you need? | Go to |
 |---|---|
+| **Loading the skill or running the workflow?** | `SKILL.md` |
+| **Understanding the architecture or file ownership?** | `overview.md` (this file) |
 | **Classifying a comment?** | `classification.md` |
 | **Detecting duplicates/conflicts?** | `cross-reference.md` |
 | **Running the interactive table?** | `interaction.md` |
@@ -57,6 +68,8 @@ When a decision could be made by rules in multiple layers:
 | **Composing a reply?** | `reply.md` |
 | **Runtime commands (collection, paths, handoff)?** | `platform.md` |
 | **Validation gates and checks?** | `validation.md` |
+| **Behavioral acceptance criteria and eval scenarios?** | `eval-matrix.md` |
+| **JSON output contract from list_comments.py?** | `script-contract.md` |
 
 ---
 
@@ -64,14 +77,17 @@ When a decision could be made by rules in multiple layers:
 
 | File | Layer | Referenced by | Content summary |
 |------|-------|---------------|-----------------|
-| `overview.md` | Meta | All files | Architecture, precedence model, file map |
+| `overview.md` | Meta | All files | Architecture, precedence model, file map, canonical ownership reference. Author-facing only. |
+| `SKILL.md` | Entry skill | Loaded by agent at runtime | Entry point. Defines phases (collect, classify, interact, dossier, handoff). Platform lock. Prerequisites. Error recovery. Contains quick-reference table pointing to reference files. |
 | `classification.md` | Workflow/protocol | SKILL.md Step 2 | Source detection, intent assessment, conclusion assignment, edge cases, dossier section mapping |
 | `cross-reference.md` | Workflow/protocol | SKILL.md Step 2 (cross-reference pass) | Duplicate detection, conflict detection, relation detection, already-replied detection |
-| `interaction.md` | Workflow/protocol | SKILL.md Step 3-4 | Overview table format, silent consent, discussion flow, scaling rules, confirmation transitions |
+| `interaction.md` | Workflow/protocol | SKILL.md Steps 3-4 | Overview table format, silent consent, discussion flow, scaling rules, confirmation transitions |
 | `dossier.md` | Decision protocols | SKILL.md Step 4 | Dossier structure, section A/B/C format, reply endpoints, cross-reference checks, dependency notation, scope guardrails, verification post-write |
 | `reply.md` | Decision protocols | dossier.md, interaction.md | Reply templates per conclusion, endpoint kinds (inline/review/top_level), duplicate author reply strategy, conflict reply strategy |
-| `platform.md` | Templates/checklists | SKILL.md Step 1, 5 | `gh` CLI commands, `list_comments.py` usage, OpenCode/Sisyphus paths, dossier file operations, handoff message format |
-| `validation.md` | Templates/checklists | SKILL.md Step 4-5 | Final cross-reference scan checklist, dossier verification checks, gate rules, regression scenarios |
+| `platform.md` | Templates/checklists | SKILL.md Steps 1, 5 | `gh` CLI commands, `list_comments.py` usage, OpenCode/Sisyphus paths, dossier file operations, handoff message format |
+| `validation.md` | Templates/checklists | SKILL.md Steps 4-5 | Final cross-reference scan checklist, dossier verification checks, gate rules, regression scenarios |
+| `eval-matrix.md` | Test suite (not a protocol layer) | All protocol files | Behavioral acceptance criteria. Defines expected classification, reply posture, overview-table treatment, and dossier escalation for each eval scenario. Validates precedence correctness and rule coverage. |
+| `script-contract.md` | Contract (not a protocol layer) | classification.md, cross-reference.md, dossier.md, reply.md | Implicit interface contract between `scripts/list_comments.py` and the protocol files. Defines JSON output structure, consumed fields, and field semantics. Changes must be coordinated with all consuming protocol files. |
 
 ---
 
