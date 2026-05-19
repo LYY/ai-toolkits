@@ -1,7 +1,9 @@
 ---
 name: address-pr-comments
-description: Address GitHub pull request review comments using gh CLI. Use when asked to process PR feedback, especially mixed human + AI bot reviews (for example CodeRabbit prompts), triage validity, apply fixes, and prepare concise responses with evidence.
+description: (Archived) FROZEN — This skill is no longer maintained. Use address-pr-comments-review instead. Address GitHub pull request review comments using gh CLI. Use when asked to process PR feedback, especially mixed human + AI bot reviews (for example CodeRabbit prompts), triage validity, apply fixes, and prepare concise responses with evidence.
 ---
+
+⚠️ ARCHIVED — This skill is frozen. Use address-pr-comments-review instead.
 
 # Address PR Comments
 
