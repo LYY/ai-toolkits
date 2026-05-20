@@ -129,6 +129,27 @@ skill 完成后，从 agent 视角过一遍：
 - [ ] `references/` 文件总数是否 ≤ 5？超过则检查是否有过度拆分
 - [ ] 对每个跨文件引用，画出 agent 执行时间线，确认引用指向当前 step 或相邻 step 加载的文件？跳跃引用到无关文件 → 不安全
 
+## 交叉引用检查
+
+修改任何 reference 文件（`skills/*/references/*.md`）、docs 或根级 `.md` 后，必须运行：
+
+```bash
+bash scripts/check-cross-refs.sh
+```
+
+**Pre-commit hook** 已配置（`.githooks/pre-commit`），提交前自动检查。CI 也会在 push/PR 时通过 `.github/workflows/check-links.yml` 运行同脚本 + lychee 外部链接检查。
+
+**检查范围**：
+- `skills/*/references/*.md` — reference 间交叉引用（`` `file.md` `` 和 `[text](file.md)`）
+- `docs/**/*.md` — 到 reference 文件和根级文件的引用
+- `*.md`（根级）— 到其他根级文件的引用
+- `list_comments.py` 脚本引用
+
+**常见修复**：如果检查报错，检查：
+1. 文件名是否拼错或改名后引用未更新
+2. `docs/` 中的引用是否用了相对路径（`../skills/...`）指向 reference 文件
+3. 删除的文件是否还有残留引用
+
 ## 注意事项
 
 - 每次修改 skill 后务必 push，否则 `skills add` 拉不到最新版本
