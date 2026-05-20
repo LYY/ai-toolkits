@@ -1,0 +1,39 @@
+name: Check Dead Links
+
+on:
+  push:
+    paths:
+      - 'skills/**/*.md'
+      - 'docs/**/*.md'
+      - '*.md'
+      - 'skills/**/references/*.md'
+  pull_request:
+    paths:
+      - 'skills/**/*.md'
+      - 'docs/**/*.md'
+      - '*.md'
+
+jobs:
+  cross-refs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check internal markdown cross-references
+        run: bash scripts/check-cross-refs.sh
+
+  lychee:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check external + internal links with lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >
+            --base .
+            --no-progress
+            --exclude 'https://github.com/LYY/ai-toolkits'
+            --exclude 'node_modules'
+            --exclude '.git'
+            '**/*.md'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
