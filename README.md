@@ -15,7 +15,7 @@ npx skills add LYY/ai-toolkits -g -y
 | ~~address-pr-comments~~ | ⚠️ **已废弃** — 不再维护，历史快照移至 [`archive/`](./archive/) 保留。不会随 `skills add` 自动安装 |
 | [address-pr-comments-review](./skills/address-pr-comments-review/) | 交互式 PR review 处理 — 分类确认 → 生成 dossier → Prometheus 交互出 plan → `/start-work` 执行。内置去重、冲突检测、Scope Guardrails、失败回复等 |
 | [GitHub CLI](./skills/github-cli/) | GitHub CLI（`gh`）面向 agent 的运行时指引，聚焦 pull requests、issues、Actions、releases，以及先读后写的 GitHub 操作安全流程 |
-| [lightpanda](./skills/lightpanda/) | 轻量级 headless browser 指引，面向 agent 的 MCP 浏览、单页提取（fetch）与 Playwright/Puppeteer 的 CDP 自动化场景 |
+| [lightpanda](./skills/lightpanda/) | Lightpanda 轻量级 headless browser 指引，面向 agent 的 MCP 浏览、`fetch` 页面提取、Playwright/Puppeteer/chromedp 的 CDP 自动化，以及安装、Docker、flag 差异与 Chromium fallback 判断 |
 | [OpenSSL](./skills/openssl/) | OpenSSL 面向 agent 的运行时指引，聚焦密钥、CSR、证书检查、TLS 校验与常见格式转换，并强调证书/私钥安全检查 |
 
 ## 特性
