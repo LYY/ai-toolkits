@@ -61,7 +61,7 @@
 
 ### 4. zero-actionable
 
-**Description:** All PR comments are informational (LGTM, emoji, praise, FYI) or already replied. Zero actionable items. The agent must still produce the overview table and a minimal dossier.
+**Description:** All PR comments are informational (LGTM, emoji, praise, FYI) or already replied. Zero actionable items. The agent must still produce the overview table. No dossier is needed — the Post-Confirmation Routing gate detects Section A=0, Section B=0 and ends.
 
 **Origin:** Deviation analysis documented this failure: AI concluded "0 actionable" and skipped the overview table entirely. User had to request the table explicitly.
 
@@ -70,7 +70,7 @@
 | expected classification | All items are `informational` or `already_replied`. No `valid` / `invalid` / `needs_clarification` items. |
 | expected reply posture | No replies needed. |
 | expected overview-table | **Must still produce the full table.** All items listed in Section C. Table header `| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 去重/冲突 | 讨论 |` is mandatory regardless of result. |
-| expected dossier escalation | No — Section C only. But a minimal dossier must still be written with the note that nothing is actionable. |
+| expected dossier escalation | No — dossier generation is skipped entirely. The Post-Confirmation Routing gate (A=0, B=0) ends without dossier. |
 
 **Failure pattern (observed):** AI concluded nothing to do and skipped the mandatory overview table. "0 actionable" is NOT a valid reason to omit the table.
 
@@ -136,7 +136,7 @@
 | 1 | `thread_outdated unresolved` | PR #1215, `discussion_r3257258893` | Conflating `thread_outdated` with `minimized`; skipping code verification |
 | 2 | `thread_outdated + thread_resolved` | Synthetic | Assuming `thread_outdated` = already fixed without verifying |
 | 3 | `minimized comment` | SKILL.md Step 2 edge cases | Treating as actionable; replying to retracted comment |
-| 4 | `zero-actionable` | Deviation analysis | Skipping mandatory overview table; omitting dossier |
+| 4 | `zero-actionable` | Deviation analysis | Skipping mandatory overview table; generating unnecessary dossier for zero-actionable PRs |
 | 5 | `partial fix` | PR #1215, `discussion_r3257258893` | Accepting incomplete fix as resolved; missing direction error |
 | 6 | `duplicate reply` | PR #1215 patterns | Creating duplicate tasks; replying only once for multiple authors |
 | 7 | `cross-file` | Deviation analysis, 4 server files | Scope creep; fixing uncommented files without guardrail |

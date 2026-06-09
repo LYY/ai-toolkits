@@ -2,6 +2,11 @@
 
 Step 4 dossier generation, reply policy, and validation gates. Produces the review dossier and governs reply behavior.
 
+> **Prerequisite**: Dossier generation (Sections A/B) applies only when Section A > 0 (code changes needed). When Section A = 0, skip dossier generation entirely:
+> - **Reply-only** (B > 0): Read §Reply Endpoints + §Reply Policy. Skip Dossier Structure, Sections A/B/C.
+> - **Nothing actionable** (B = 0): End. No need to read this file.
+> The Reply Policy and Pre-Reply Gate apply regardless of whether a dossier is generated.
+
 ---
 
 ## Dossier Structure
@@ -345,7 +350,7 @@ If any 🔴 item remains unresolved after Step 4 interaction (conflicts unresolv
 
 #### 3.2 Confirmation Gate
 
-Step 3 user confirmation is required before Step 4 dossier generation. Confirmation equivalents: "ok", "yes", "looks good", "proceed", "confirmed", or any affirmative response. If the user does not explicitly confirm, the skill must ask: "Shall I proceed with dossier generation based on this final table?" Dossier generation must not proceed without explicit confirmation.
+Step 3 user confirmation is required before dossier generation. Dossier generation must not proceed without explicit confirmation.
 
 #### 3.3 How to Block
 

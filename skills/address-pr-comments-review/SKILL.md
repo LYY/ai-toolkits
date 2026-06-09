@@ -12,7 +12,7 @@ description: >-
 
 A three-phase interactive workflow for GitHub PR comment review.
 
-- **Phase 1** (this skill): collect, classify, and confirm comments interactively, then produce a review dossier.
+- **Phase 1** (this skill): collect, classify, and confirm comments interactively. If code changes are needed, produce a review dossier for Phase 2. Otherwise, compose replies directly or end.
 - **Phase 2**: user switches to Prometheus mode, gives it the dossier, and has an interactive conversation to generate an execution plan.
 - **Phase 3**: user runs `/start-work` to execute the plan in isolated workspaces.
 
@@ -36,6 +36,8 @@ Load only the file needed for the current step. No file assumes you've read prev
 
 **Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion.
 
+**Reply-only path** (Section A=0, B>0): after Step 3 confirmation, load `dossier-output.md` — read §Reply Endpoints + §Reply Policy. Skip Dossier Structure, Sections A/B/C, Validation Gates, and Handoff.
+
 ## Prerequisites
 
 - `gh` CLI installed and authenticated (`gh auth status`)
@@ -50,7 +52,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 | `list_comments.py` fails (network, API rate limit, empty JSON) | Retry once after 5s. If still fails, verify `gh pr view` works manually, report error, ask user. |
 | PR not found | Report gh error. Ask user to verify PR number/state. |
 | Zero comments | Report "PR has no comments — nothing to review." |
-| All comments informational | Produce minimal dossier (Sections A=0, B=0, C=all). User can skip `/start-work`. |
+| All comments informational | No dossier needed. All Section A=0, B=0 — nothing actionable. End. |
 
 ## Workflow (with Gates)
 
@@ -67,6 +69,11 @@ Load only the file needed for the current step. No file assumes you've read prev
   │  ├─ 🔴 items discussed & resolved  ← BLOCKING GATE
   │  ├─ Silent consent for non-🔴 items
   │  └─ User explicitly confirms ("ok" / "proceed" / etc.)
+  │
+  ├── Post-Confirmation Routing (references/interaction.md §Post-Confirmation Routing)
+  │     ├─ A > 0 (code changes) ────► [4a] Pre-Write Scan → [4b] Dossier → [4c] Replies → [5]
+  │     ├─ A = 0, B > 0 (replies) ─► compose replies (dossier-output.md §Reply Policy) → done
+  │     └─ A = 0, B = 0 (nothing)  ─► done
   │
 [4a] Pre-Write Scan (references/dossier-output.md §Validation Gates)
   │  └─ 8 checks pass  ← BLOCKING GATE

@@ -92,9 +92,9 @@ Any item can be objected to by number at any point. If the user objects, move th
 When ALL comments are `informational`, `already_replied`, or otherwise non-actionable:
 
 1. Produce overview table (mandatory — all items listed)
-2. Immediately state: "All N comments require no action. Dossier will have 0 code-change tasks, 0 reply-only tasks."
+2. Immediately state: "All N comments require no action. No code changes or replies needed."
 3. Skip Step 3.5 discussion (no 🔴 items to discuss)
-4. Proceed directly to Step 4 — produce minimal dossier (Executive Summary only, Sections A/B empty, Section C table)
+4. End — no dossier needed. Nothing actionable, nothing to implement.
 
 ### 5. Scaling for Large PRs (20+ Actionable Comments)
 
@@ -148,9 +148,24 @@ The user must explicitly confirm before dossier generation. Confirmation equival
 - "confirmed"
 - Any affirmative response
 
-If the user does not explicitly confirm, ask: "Shall I proceed with dossier generation based on this final table?"
+If the user does not explicitly confirm, ask — based on the final table's A/B counts:
+- **Code changes needed (A > 0)**: "Shall I proceed with dossier generation based on this final table?"
+- **Replies only (A = 0, B > 0)**: "Shall I compose replies based on this final table?"
+- **Nothing actionable (A = 0, B = 0)**: no confirmation needed — Post-Confirmation Routing will end.
 
 The validation gates in `dossier-output.md` enforce that Step 4 confirmation was obtained before dossier generation is allowed.
+
+### Post-Confirmation Routing (Decision Gate)
+
+After user explicitly confirms the final table, check what kind of work is needed **before** generating the dossier:
+
+| Scenario | Section A | Section B | Action |
+|----------|-----------|-----------|--------|
+| Code changes needed | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (dossier) → Step 4c (replies) → Step 5 (handoff) |
+| Replies only, no code changes | = 0 | > 0 | **Skip dossier.** Ask user: "No code changes are needed. N comments need replies. Compose replies now, or end here?" If "reply now" → compose replies per Reply Policy (`dossier-output.md` §Reply Policy). If "end" → done. |
+| Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
+
+**Rationale**: The dossier feeds into Prometheus for execution plan generation — it's only valuable when there are code changes to implement. For reply-only or no-action scenarios, dossier generation is unnecessary overhead with no downstream benefit. Reply composition follows the Reply Policy in `dossier-output.md`.
 
 ---
 
