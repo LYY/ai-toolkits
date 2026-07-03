@@ -1,7 +1,7 @@
 # Eval Matrix: address-pr-comments-review
 
 > **Behavioral acceptance criteria** for the address-pr-comments-review skill.
-> Each scenario defines 4 dimensions: expected classification, expected reply posture, expected overview-table treatment, and whether dossier escalation is required.
+> Each scenario defines behavior a maintainer can regression review. Review dimensions stay close to the runtime phase being protected: current checkout binding, classification, reply posture, overview-table treatment, dossier escalation, generated plan shape, or post reply read-back.
 > Used to verify skill behavior correctness during development and regression testing.
 
 ---
@@ -140,6 +140,104 @@
 | 5 | `partial fix` | PR #1215, `discussion_r3257258893` | Accepting incomplete fix as resolved; missing direction error |
 | 6 | `duplicate reply` | PR #1215 patterns | Creating duplicate tasks; replying only once for multiple authors |
 | 7 | `cross-file` | Deviation analysis, 4 server files | Scope creep; fixing uncommented files without guardrail |
+| 8 | `single-worktree no prompt` | Synthetic worktree regression | Prompting unnecessarily or leaving `TARGET_WORKTREE_ROOT` unset |
+| 9 | `current linked worktree default binding` | Synthetic worktree regression | Binding local reads to launch directory instead of target checkout |
+| 10 | `explicit PR branch mismatch blocks collection` | Synthetic worktree regression | Collecting comments for a PR whose head branch does not match the bound checkout |
+| 11 | `dossier path under target worktree` | Task 3 worktree handoff | Writing dossier outside target `.omo` |
+| 12 | `generated-plan reply tasks for Section A/B` | Task 4 handoff design | Dropping Section B reply task items from generated plan |
+| 13 | `reply-only posting and read-back` | Reply-only workflow regression | Generating needless plan or skipping post reply read-back |
+
+---
+
+### 8. single-worktree no prompt
+
+**Description:** The repository has one linked worktree that matches the active PR branch. The agent must resolve it as `TARGET_WORKTREE_ROOT` and continue without asking the user to choose between identical options.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected target worktree | The single current checkout is bound before PR verification. |
+| expected reply posture | No reply behavior yet. This scenario only covers Step 0 selection. |
+| expected overview-table | Not reached until after PR verification and comment collection. |
+| expected dossier escalation | Not reached. Later dossier paths must remain under the bound checkout. |
+
+**Failure pattern guarded:** Asking for unnecessary confirmation in the common one-worktree path, or proceeding with an unset `TARGET_WORKTREE_ROOT`.
+
+---
+
+### 9. current linked worktree default binding
+
+**Description:** The agent starts inside the linked worktree that owns the PR branch. It should bind the current checkout as `TARGET_WORKTREE_ROOT` and continue without asking for confirmation solely because other linked worktrees exist.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected target worktree | Current linked worktree is bound as `TARGET_WORKTREE_ROOT`. |
+| expected reply posture | No reply behavior yet. |
+| expected overview-table | Uses files read from the bound worktree once collection starts. |
+| expected dossier escalation | Any dossier is written below the bound worktree's `.omo` directory. |
+
+**Failure pattern guarded:** Resolving the repo root from the agent launch directory instead of the current linked worktree.
+
+---
+
+### 10. explicit PR branch mismatch blocks collection
+
+**Description:** The agent starts in `/prj1` on `main` but the operator explicitly asks for a PR whose `headRefName` is `feat/dev`, which is checked out in `/prj1-feat-dev`. The agent must detect the mismatch and stop before comment collection until the operator reruns from the matching worktree or explicitly confirms using the current checkout.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected target worktree | Current checkout remains bound, but collection is blocked until the branch/PR mismatch is resolved. |
+| expected reply posture | No reply behavior yet. |
+| expected overview-table | Not produced while branch/PR identity is unresolved. |
+| expected dossier escalation | Blocked while branch/PR identity is unresolved. |
+
+**Failure pattern guarded:** Pulling review comments for one branch while reading files or writing dossier artifacts from another checkout.
+
+---
+
+### 11. dossier path under target worktree
+
+**Description:** After checkout binding, dossier output must land under the bound checkout's `.omo` path, not the agent's launch directory or another checkout.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected target worktree | `TARGET_WORKTREE_ROOT` governs the dossier path. |
+| expected reply posture | Reply tasks are recorded in the dossier when Section A or Section B exists. |
+| expected overview-table | Confirmed items map into dossier sections normally. |
+| expected dossier escalation | Yes when Section A exists. Section B-only work uses the direct reply-only posting route, not a separate handoff branch. Dossier path is below target `.omo` when a dossier is generated. |
+
+**Failure pattern guarded:** Writing a valid-looking dossier outside the target worktree, leaving `/start-work` with the wrong artifact path.
+
+---
+
+### 12. generated-plan reply tasks for Section A/B
+
+**Description:** A dossier contains both Section A code-change items and Section B reply-only items. The generated plan must include reply task entries for both sections.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Section A items remain code change plus reply. Section B items remain reply task only. |
+| expected reply posture | Every actionable or reply-only comment has an explicit reply task in the generated plan. |
+| expected overview-table | Section A and Section B are visible before dossier handoff. |
+| expected dossier escalation | Yes. The generated plan must not drop Section B because it has no code changes. |
+
+**Failure pattern guarded:** Treating generated plan output as implementation-only work and losing reply tasks.
+
+---
+
+### 13. reply-only posting and read-back
+
+**Description:** The confirmed review result has Section B items and no Section A items. The runtime path should send replies directly and read back the posted replies instead of producing a code-work plan.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | All actionable follow-up items are Section B reply-only, such as `already_fixed`, `invalid`, or `needs_clarification`. |
+| expected reply posture | Directly send replies, then read back posted replies to verify. |
+| expected overview-table | Section B entries stay visible in the confirmation table. |
+| expected dossier escalation | No code plan. Dossier or evidence may record the reply-only result, but ownership stays with the reply-only route. |
+
+**Failure pattern guarded:** Generating an unnecessary plan for reply-only work, or claiming replies were posted without read-back evidence.
+
+**QA wording:** This scenario intentionally includes `reply-only`, `send replies`, `post replies`, and read-back for search-based regression checks.
 
 ## QA Check Tokens
 
@@ -152,7 +250,17 @@ The following tokens MUST appear in this file for automated QA:
 - `partial fix`
 - `duplicate reply`
 - `cross-file`
+- `single-worktree no prompt`
+- `current linked worktree default binding`
+- `explicit PR branch mismatch blocks collection`
+- `dossier path under target worktree`
+- `generated-plan reply tasks for Section A/B`
+- `reply-only posting and read-back`
 - `expected classification`
 - `expected reply posture`
 - `expected overview-table`
 - `expected dossier escalation`
+- `TARGET_WORKTREE_ROOT`
+- `generated plan`
+- `reply task`
+- `reply-only`
