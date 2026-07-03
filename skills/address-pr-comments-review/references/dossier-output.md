@@ -20,7 +20,7 @@ When Section A > 0, the dossier MUST tell Prometheus that its generated executio
 Plan order for each Section A item is mandatory:
 
 1. Code change, targeted tests, and commit.
-2. Reply task(s) using Reply Endpoints and Reply Policy.
+2. Reply task(s) using Reply Endpoints and Reply Policy. Each reply text MUST include the modification commit SHA produced in step 1.
 3. Read-back verification task that proves the posted reply exists by GET/LIST read operations.
 
 Section B entries become reply-only tasks in the generated plan, with read-back verification and no code, tests, or commit. Duplicate comments stay one logical task, but the plan MUST require a posted reply for every listed author/comment ID that passes the Pre-Reply Gate.
@@ -122,6 +122,7 @@ All fields mandatory. No generic descriptions — exact paths, line numbers, spe
 - **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification)
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
 - **Reply after fix**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
+- **Reply commit requirement**: Reply text MUST reference the modification commit SHA created for this task, e.g. `Fixed in <commit_sha>.` Add the required change summary from Reply Policy when the fix is partial, direction-correcting, or non-obvious.
 - **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
 - **Plan order**: code/test/commit first, then reply task(s), then read-back verification
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}` (imperative mood, matching repo conventions)
@@ -366,6 +367,7 @@ After writing the dossier file, run these checks.
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain |
 | Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
+| Section A reply commit requirement present | Every Section A task includes `Reply commit requirement` requiring the reply text to reference the modification commit SHA |
 | Dossier path anchored | Dossier lives under `<TARGET_WORKTREE_ROOT>/.omo/notepads/pr-<N>-dossier/`, not the agent's launch directory or another checkout |
 | Dossier ignored | `git -C "$TARGET_WORKTREE_ROOT" check-ignore ".omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md"` succeeds |
 
