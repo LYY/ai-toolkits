@@ -78,7 +78,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 [4a] Pre-Write Scan (references/dossier-output.md §Validation Gates)
   │  └─ 8 checks pass  ← BLOCKING GATE
   │
-[4b] Dossier → .sisyphus/notepads/pr-<N>-dossier/
+[4b] Dossier → .omo/notepads/pr-<N>-dossier/
   │
 [4c] Replies (references/dossier-output.md §Reply Policy)
   │

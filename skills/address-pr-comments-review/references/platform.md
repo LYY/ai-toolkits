@@ -109,7 +109,7 @@ These fields are absent for `review` and `top_level` kinds.
 After comments are collected and processed, the dossier is written to:
 
 ```
-.sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
+.omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
 ```
 
 - `<N>`: PR number
@@ -127,7 +127,7 @@ Example: `20260115-143022` for January 15, 2026 at 14:30:22.
 ### Directory Creation
 
 ```bash
-mkdir -p .sisyphus/notepads/pr-<N>-dossier/
+mkdir -p .omo/notepads/pr-<N>-dossier/
 ```
 
 ## Handoff
@@ -135,14 +135,13 @@ mkdir -p .sisyphus/notepads/pr-<N>-dossier/
 After the dossier is saved, output the following message to the user:
 
 ```
-Dossier saved to .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
+Dossier saved to .omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
 
 To generate the execution plan, switch to Prometheus mode and paste:
 
-  Read .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
+  Read .omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
   and generate an execution plan. Ask me if any task is ambiguous.
 ```
 
 Replace `<N>` and `<TIMESTAMP>` with actual values.
-
 

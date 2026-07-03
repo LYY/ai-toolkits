@@ -328,7 +328,7 @@ After writing the dossier file, run these checks.
 
 | Check | Command/Condition |
 |-------|-------------------|
-| File exists | `test -f .sisyphus/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md` |
+| File exists | `test -f .omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md` |
 | Valid markdown | File starts with `# Review Dossier:` |
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain |
