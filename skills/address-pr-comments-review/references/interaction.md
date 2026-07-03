@@ -148,9 +148,9 @@ The user must explicitly confirm before dossier generation. Confirmation equival
 - "confirmed"
 - Any affirmative response
 
-If the user does not explicitly confirm, ask — based on the final table's A/B counts:
+If the user does not explicitly confirm, ask, based on the final table's A/B counts:
 - **Code changes needed (A > 0)**: "Shall I proceed with dossier generation based on this final table?"
-- **Replies only (A = 0, B > 0)**: "Shall I compose replies based on this final table?"
+- **Replies only (A = 0, B > 0)**: "Shall I post replies based on this final table and verify them by read-back?"
 - **Nothing actionable (A = 0, B = 0)**: no confirmation needed — Post-Confirmation Routing will end.
 
 The validation gates in `dossier-output.md` enforce that Step 4 confirmation was obtained before dossier generation is allowed.
@@ -162,10 +162,10 @@ After user explicitly confirms the final table, check what kind of work is neede
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|
 | Code changes needed | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (dossier) → Step 4c (replies) → Step 5 (handoff) |
-| Replies only, no code changes | = 0 | > 0 | **Skip dossier.** Ask user: "No code changes are needed. N comments need replies. Compose replies now, or end here?" If "reply now" → compose replies per Reply Policy (`dossier-output.md` §Reply Policy). If "end" → done. |
+| Replies only, no code changes | = 0 | > 0 | **Skip dossier.** State: "No code changes are needed. N comments need replies. I will post replies now and verify them by read-back." Then send replies per Direct Reply-Only Posting and Reply Policy (`dossier-output.md`). |
 | Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
 
-**Rationale**: The dossier feeds into Prometheus for execution plan generation — it's only valuable when there are code changes to implement. For reply-only or no-action scenarios, dossier generation is unnecessary overhead with no downstream benefit. Reply composition follows the Reply Policy in `dossier-output.md`.
+**Rationale**: The dossier feeds into Prometheus for execution plan generation. It's only valuable when there are code changes to implement. For reply-only or no-action scenarios, dossier generation is unnecessary overhead with no downstream benefit. The reply-only route is operational: post replies through the documented endpoints, then use read/list/get read-back verification. Do not verify by repeating a POST.
 
 ---
 
@@ -182,4 +182,3 @@ The change summary between Step 3 and Step 4 shows the user what their decisions
 | Item removed/abandoned | Reason for removal |
 
 If no changes resulted from discussion, state explicitly: "No changes from Step 3 -- all conclusions confirmed."
-

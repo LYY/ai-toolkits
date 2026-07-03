@@ -3,7 +3,7 @@
 Step 4 dossier generation, reply policy, and validation gates. Produces the review dossier and governs reply behavior.
 
 > **Prerequisite**: Dossier generation (Sections A/B) applies only when Section A > 0 (code changes needed). When Section A = 0, skip dossier generation entirely:
-> - **Reply-only** (B > 0): Read §Reply Endpoints + §Reply Policy. Skip Dossier Structure, Sections A/B/C.
+> - **Reply-only** (B > 0): Read §Reply Endpoints + §Direct Reply-Only Posting + §Reply Policy. Skip Dossier Structure, Sections A/B/C.
 > - **Nothing actionable** (B = 0): End. No need to read this file.
 > The Reply Policy and Pre-Reply Gate apply regardless of whether a dossier is generated.
 
@@ -11,7 +11,19 @@ Step 4 dossier generation, reply policy, and validation gates. Produces the revi
 
 ## Dossier Structure
 
-The dossier is the final deliverable of Phase 1 — a requirements document that captures every confirmed decision from Steps 2-4 and feeds Prometheus (Phase 2) for execution plan generation.
+The dossier is the final deliverable of Phase 1. It captures every confirmed decision from Steps 2-4 and feeds Prometheus mode for execution plan generation.
+
+### Generated Execution Plan Reply Contract
+
+When Section A > 0, the dossier MUST tell Prometheus that its generated execution plan MUST include reply task(s) for every Section A and Section B item unless the Pre-Reply Gate blocks that specific item or the item belongs in Section C. Section C, `already_replied`, `minimized`, and other no-action entries are not reply tasks.
+
+Plan order for each Section A item is mandatory:
+
+1. Code change, targeted tests, and commit.
+2. Reply task(s) using Reply Endpoints and Reply Policy.
+3. Read-back verification task that proves the posted reply exists by GET/LIST read operations.
+
+Section B entries become reply-only tasks in the generated plan, with read-back verification and no code, tests, or commit. Duplicate comments stay one logical task, but the plan MUST require a posted reply for every listed author/comment ID that passes the Pre-Reply Gate.
 
 ### Executive Summary
 
@@ -38,7 +50,8 @@ A single table following the executive summary lists merged duplicates (which co
 ```markdown
 ## Context
 - PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}
-- Commit style: {{COMMIT_STYLE}} (run `git log --oneline -10`)
+- Target checkout root: `<TARGET_WORKTREE_ROOT>` (the bound checkout; all local dossier paths and git commands run from this root)
+- Commit style: {{COMMIT_STYLE}} (run `git -C "$TARGET_WORKTREE_ROOT" log --oneline -10`)
 - Analyzed: {{TIMESTAMP}}
 ```
 
@@ -58,7 +71,7 @@ A single table following the executive summary lists merged duplicates (which co
 ```bash
 # inline:
 gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
-  -F body="{{REPLY_TEXT}}" -F commit_id=$(git rev-parse HEAD) \
+  -F body="{{REPLY_TEXT}}" -F commit_id=$(git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD) \
   -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
   -F in_reply_to={{COMMENT_ID}}
 
@@ -71,8 +84,25 @@ gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
   -F body="{{REPLY_TEXT}}"
 ```
 
-**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch (`git rev-parse HEAD`). `review` and `top_level` replies do not need `commit_id`.
+**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch. Resolve it from the bound checkout with `git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD`. `review` and `top_level` replies do not need `commit_id`.
 ```
+
+---
+
+## Direct Reply-Only Posting
+
+Use this section only when Section A = 0 and Section B > 0. This route skips dossier generation, but it does not stop at draft or compose text.
+
+For each Section B item that passes the Pre-Reply Gate:
+
+1. Select the endpoint from Reply Endpoints.
+2. POST/send the reply with `gh api` using that endpoint.
+3. Verify the reply by read-back with GET/LIST operations, such as `gh api repos/{owner}/{repo}/issues/{pr}/comments --paginate` for `review` and `top_level` replies, or `gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate` for `inline` replies.
+4. Confirm the read-back output contains the expected reply body, author, and target thread or comment relationship.
+
+If a POST result is unclear, do the read-back first. Retry the POST only after read-back proves the reply is absent. Do not verify by duplicate POST.
+
+Duplicate comments require one reply POST per listed author/comment ID that passes the Pre-Reply Gate, followed by read-back verification for each posted reply.
 
 ---
 
@@ -93,6 +123,7 @@ All fields mandatory. No generic descriptions — exact paths, line numbers, spe
 - **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
 - **Reply after fix**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
 - **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
+- **Plan order**: code/test/commit first, then reply task(s), then read-back verification
 - **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}` (imperative mood, matching repo conventions)
 ```
 
@@ -100,7 +131,7 @@ All fields mandatory. No generic descriptions — exact paths, line numbers, spe
 
 ## Section B: Comments Requiring Reply Only
 
-Section B captures every comment confirmed as needing a reply but no code change. No tests, no commits.
+Section B captures every comment confirmed as needing a reply but no code change. These entries become reply-only tasks in the Prometheus execution plan. No tests, no commits.
 
 ### Section B Task Template
 
@@ -109,6 +140,7 @@ Section B captures every comment confirmed as needing a reply but no code change
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Conclusion**: `{{CONCLUSION}}` -- {{RATIONALE}}
 - **Reply**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
+- **Read-back verification**: GET/LIST the matching comment thread or issue comments and confirm the posted reply body and author
 ```
 
 For conflict resolution (rejected direction), add `- **Context**: User chose @A over @B` and set `- **Conclusion**: \`invalid\``.
@@ -116,6 +148,7 @@ For conflict resolution (rejected direction), add `- **Context**: User chose @A 
 ### Required Fields (ALL Mandatory)
 
 Conclusion rationale (why no code change), reply target (kind + author), no-code-change constraint (no references to code modifications or test commands).
+For duplicates, every listed author/comment ID must appear in the reply task target list unless the Pre-Reply Gate blocks that individual target.
 
 ### Conflict Handling
 
@@ -137,7 +170,7 @@ When user chooses @A's approach over @B's: chosen direction goes to Section A (i
 
 ## Duplicate Handling in Dossier
 
-ONE task entry, ALL authors under "Also noted by", EACH author gets individual reply via own `in_reply_to` ID, same content, merge documented in Dedup & Conflict Notes. For 3+: list all IDs explicitly.
+ONE task entry, ALL authors under "Also noted by", EACH author gets individual reply via own `in_reply_to` ID, same content, merge documented in Dedup & Conflict Notes. For 3+: list all authors and comment IDs explicitly. The generated plan MUST include reply tasks that cover every listed author/comment ID unless the Pre-Reply Gate blocks that individual target.
 
 ### Duplicate + Cross-File Combination
 
@@ -290,7 +323,7 @@ When a comment was merged as a duplicate (same concern, multiple authors):
 - Compose ONE reply with the same content for all authors
 - Send to EACH author individually using their own `in_reply_to` ID
 - Do NOT reply to only one author, even if the others are bots
-- Do NOT create separate reply tasks for each author in the dossier -- one task, multiple `in_reply_to` IDs
+- Do NOT create separate dossier tasks for each author. The one logical task carries every author/comment ID, every POST/send action, and every read-back verification.
 
 The reply content is identical across authors. The only difference is the `in_reply_to` parameter in the API call.
 
@@ -328,11 +361,15 @@ After writing the dossier file, run these checks.
 
 | Check | Command/Condition |
 |-------|-------------------|
-| File exists | `test -f .omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md` |
+| File exists | `test -f "$TARGET_WORKTREE_ROOT/.omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md"` |
 | Valid markdown | File starts with `# Review Dossier:` |
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain |
 | Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
+| Dossier path anchored | Dossier lives under `<TARGET_WORKTREE_ROOT>/.omo/notepads/pr-<N>-dossier/`, not the agent's launch directory or another checkout |
+| Dossier ignored | `git -C "$TARGET_WORKTREE_ROOT" check-ignore ".omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md"` succeeds |
+
+**Gate rule**: If the ignore check fails, handoff is blocked. Do not edit `.gitignore`, `.git/info/exclude`, or any ignore file in this step. Report the failure and return control for selected-worktree ignore setup.
 
 #### 2.2 No-Placeholder Leakage Check (Mandatory)
 
