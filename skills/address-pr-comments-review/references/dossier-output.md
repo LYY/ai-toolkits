@@ -13,6 +13,8 @@ Step 4 dossier generation, reply policy, and validation gates. Produces the revi
 
 The dossier is the final deliverable of Phase 1. It captures every confirmed decision from Steps 2-4 and feeds Prometheus mode for execution plan generation.
 
+Artifacts are disposable Markdown files. Unless the user provides `artifact_dir=<path>`, write dossiers and Direct Fix Briefs under `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`. Do not write to `.omo`, `.agent`, or any repo-local directory by default. Do not edit root `.gitignore`, `.git/info/exclude`, or global gitignore.
+
 ### Generated Execution Plan Reply Contract
 
 When Section A > 0, the dossier MUST tell Prometheus that its generated execution plan MUST include reply task(s) for every Section A and Section B item unless the Pre-Reply Gate blocks that specific item or the item belongs in Section C. Section C, `already_replied`, `minimized`, and other no-action entries are not reply tasks.
@@ -50,7 +52,8 @@ A single table following the executive summary lists merged duplicates (which co
 ```markdown
 ## Context
 - PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}
-- Target checkout root: `<TARGET_WORKTREE_ROOT>` (the bound checkout; all local dossier paths and git commands run from this root)
+- Target checkout root: `<TARGET_WORKTREE_ROOT>` (the bound checkout; local reads and git commands run from this root)
+- Artifact path: `<ARTIFACT_PATH>` (default local state path or explicit `artifact_dir` override)
 - Commit style: {{COMMIT_STYLE}} (run `git -C "$TARGET_WORKTREE_ROOT" log --oneline -10`)
 - Analyzed: {{TIMESTAMP}}
 ```
@@ -103,6 +106,94 @@ For each Section B item that passes the Pre-Reply Gate:
 If a POST result is unclear, do the read-back first. Retry the POST only after read-back proves the reply is absent. Do not verify by duplicate POST.
 
 Duplicate comments require one reply POST per listed author/comment ID that passes the Pre-Reply Gate, followed by read-back verification for each posted reply.
+
+---
+
+## Direct-Fix Fast Path
+
+Use this section only when Section A contains simple low-risk code work and the user explicitly chose direct fix after the final overview table. This route replaces the full Prometheus dossier with a shorter Direct Fix Brief. It does not remove reply, commit, or read-back obligations.
+
+### Eligibility Checklist
+
+Every checked condition must be true before writing a Direct Fix Brief:
+
+| Check | Required Condition |
+|-------|--------------------|
+| Section A size | Small enough to execute directly; default limit is one Section A task unless the user explicitly allows more |
+| Scope | Each code task touches one clearly named file |
+| Risk | Mechanical low-risk change such as wording, comments, docs, config tweak, rename, or proto field rename with field number preserved |
+| Cross-reference | No unresolved duplicate ambiguity, conflict, dependency, or Strong cross-file escalation |
+| Specificity | `What to change` and `How to test` are exact enough for direct execution |
+| Reply data | Comment ID, author, reply kind, endpoint, and inline target fields are complete |
+| User choice | User explicitly chose direct fix; small PR fast-path consent alone is insufficient |
+
+If any check fails, do not write a Direct Fix Brief. Use the normal Dossier Structure and Prometheus handoff.
+
+### Dossier Accuracy Grill Gate
+
+Run this gate before writing either a full dossier or a Direct Fix Brief. Ask only about uncertainty that remains after code inspection, comment reading, cross-reference checks, and user discussion. If there is no uncertainty, state that the gate has no questions and proceed.
+
+Use grill-me style:
+
+- Ask one question at a time.
+- Include the recommended answer.
+- Do not ask what code/comment context already answers.
+- Stop as soon as the execution boundary is unambiguous.
+- Do not invoke `grill-with-docs` by default. Use it only when the PR comment requires domain glossary or ADR-style decision capture.
+
+Question triggers:
+
+| Trigger | Question Shape |
+|---------|----------------|
+| Direct-fix boundary unclear | "Should this bypass Prometheus, or should it use the normal dossier? Recommended: ..." |
+| Multiple valid implementations | "Which implementation should the worker apply? Recommended: ..." |
+| Scope guardrail unclear | "Should this fix stay in the commented file only? Recommended: ..." |
+| Test strategy unclear | "Which targeted validation is enough for this change? Recommended: ..." |
+| Reply wording may mislead | "Should the reply include a change summary beyond `Fixed in <sha>`? Recommended: ..." |
+| Cross-file work ambiguous | "Should same-pattern files be fixed now or deferred? Recommended: ..." |
+
+Gate completion criterion: every trigger is either answered from existing evidence, answered by the user, or causes fallback to the normal dossier/Prometheus path.
+
+### Direct Fix Brief Template
+
+```markdown
+# Direct Fix Brief: PR #{{PR_NUMBER}}
+
+## Context
+- PR: {{PR_URL}}
+- Repo: `{{REPO}}`
+- Branch: `{{BRANCH}}`
+- Target checkout root: `<TARGET_WORKTREE_ROOT>`
+
+## Comment
+- Comment ID: `{{COMMENT_ID}}`
+- Author: @{{AUTHOR}}
+- Kind: `{{KIND}}`
+- Location: `{{FILE_PATH}}:{{LINE}}`
+- Conclusion: `valid`
+
+## Change
+{{DEV_CHANGES}}
+
+## Guardrails
+- {{GUARDRAIL_1}}
+
+## Verification
+{{TEST_STRATEGY}}
+
+## Reply
+- Reply kind: `{{REPLY_KIND}}`
+- Endpoint: `{{REPLY_ENDPOINT}}`
+- Inline target: `path={{FILE_PATH}}`, `line={{LINE}}`, `side=RIGHT`, `in_reply_to={{COMMENT_ID}}`
+- Pre-Reply Gate: must pass before composing reply
+- Reply commit requirement: reply text MUST reference the modification commit SHA
+- Reply body: {{REPLY_TEMPLATE}}
+
+## Read-Back Verification
+GET/LIST the matching comment thread or PR comments and confirm the posted reply body, author, and target relationship. Do not verify by repeating POST.
+```
+
+For non-inline comments, replace `Inline target` with the `review` or `top_level` target from Reply Endpoints. Do not remove `Comment ID`, `Author`, `Reply kind`, `Endpoint`, `Pre-Reply Gate`, `Reply commit requirement`, or `Read-Back Verification`.
 
 ---
 
@@ -362,22 +453,41 @@ After writing the dossier file, run these checks.
 
 | Check | Command/Condition |
 |-------|-------------------|
-| File exists | `test -f "$TARGET_WORKTREE_ROOT/.omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md"` |
+| File exists | `test -f "$ARTIFACT_PATH"` |
 | Valid markdown | File starts with `# Review Dossier:` |
 | Counts match | Executive Summary counts = actual items in each section |
 | No placeholder left | No `{{...}}` template variables remain |
 | Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
 | Section A reply commit requirement present | Every Section A task includes `Reply commit requirement` requiring the reply text to reference the modification commit SHA |
-| Dossier path anchored | Dossier lives under `<TARGET_WORKTREE_ROOT>/.omo/notepads/pr-<N>-dossier/`, not the agent's launch directory or another checkout |
-| Dossier ignored | `git -C "$TARGET_WORKTREE_ROOT" check-ignore ".omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md"` succeeds |
+| Artifact path correct | Dossier lives under the selected artifact directory: default `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/` or explicit `artifact_dir=<path>` |
+| Handoff prompts present | Output includes generic executor prompt and OMO / Prometheus prompt from `platform.md` |
 
-**Gate rule**: If the ignore check fails, handoff is blocked. Do not edit `.gitignore`, `.git/info/exclude`, or any ignore file in this step. Report the failure and return control for selected-worktree ignore setup.
+**Gate rule**: If an explicit repo-local `artifact_dir` is not ignored, warn that it may appear in `git status` and continue only if the user accepts. Do not edit `.gitignore`, `.git/info/exclude`, or any ignore file in this step.
 
 #### 2.2 No-Placeholder Leakage Check (Mandatory)
 
 Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`.
 
 **Gate rule**: If any placeholder remains unfilled, do NOT hand off to Prometheus. Regenerate the dossier.
+
+#### 2.3 Direct Fix Brief Completeness
+
+When using the Direct-Fix Fast Path, verify the brief contains every required execution and reply field:
+
+| Required Field | Why |
+|----------------|-----|
+| PR URL, repo, branch, and target checkout root | Ensures direct execution uses the bound checkout |
+| Comment ID, author, kind, file path, and line | Preserves the review target |
+| Exact code change and guardrails | Prevents scope creep |
+| Targeted verification | Prevents unverified direct edits |
+| Reply kind and endpoint | Enables correct POST target |
+| Inline `path`, `line`, `side`, and `in_reply_to` when kind is `inline` | Enables correct threaded inline reply |
+| Pre-Reply Gate | Prevents duplicate or stale replies |
+| Commit SHA reply requirement | Ensures reviewer can trace the fix |
+| Read-back verification | Proves the reply exists without duplicate POST |
+| Direct execution prompt | Ensures the user can copy-paste the brief into an executor without inventing instructions |
+
+**Gate rule**: If any required field is missing, do NOT hand off the Direct Fix Brief. Either regenerate it or use the normal dossier/Prometheus path.
 
 ---
 

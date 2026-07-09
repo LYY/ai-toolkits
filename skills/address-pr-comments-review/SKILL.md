@@ -2,8 +2,9 @@
 name: address-pr-comments-review
 description: >-
   Use when processing GitHub PR review comments that need human oversight before
-  applying changes. For large PRs, complex reviews with mixed human + AI bot feedback,
-  PRs with blocking concerns, or any situation where fully automatic execution is too risky.
+  applying changes, or when cleaning up artifacts produced by this PR comment workflow.
+  For large PRs, complex reviews with mixed human + AI bot feedback, PRs with blocking
+  concerns, cleanup, cleanup-all, or any situation where fully automatic execution is too risky.
 ---
 
 # Address PR Comments Review (Interactive)
@@ -12,11 +13,11 @@ description: >-
 
 A three-phase interactive workflow for GitHub PR comment review. First bind the current checkout, then detect the PR and collect comments from that checkout.
 
-- **Phase 1** (this skill): bind the current checkout, detect the PR, collect, classify, and confirm comments interactively. If code changes are needed, produce a review dossier for Phase 2. If only replies are needed, post them directly and verify by read-back. If nothing is actionable, end.
-- **Phase 2**: user switches to Prometheus mode, gives it the dossier, and has an interactive conversation to generate an execution plan.
-- **Phase 3**: user runs `/start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>` so execution starts in the same checkout.
+- **Phase 1** (this skill): bind the current checkout, detect the PR, collect, classify, and confirm comments interactively. If code changes are needed, either produce a review dossier for an executor or, for explicitly confirmed simple low-risk work, produce a Direct Fix Brief. If only replies are needed, post them directly and verify by read-back. If nothing is actionable, end.
+- **Phase 2**: user gives the generated artifact to an executor. OMO/Prometheus is optional and supported by copy-paste handoff prompts.
+- **Phase 3**: execution runs in the same checkout. For OMO, user runs `/start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>`.
 
-**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only. Dossier placement, Prometheus mode, and `/start-work` handoff are Sisyphus-specific.
+**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only for this installed workflow. Artifact storage is generic by default; Prometheus mode and `/start-work` are optional handoff targets.
 **Self-contained**: uses vendored `scripts/list_comments.py` (no Python package dependencies; requires `gh` CLI).
 
 ## On-Demand Loading
@@ -30,12 +31,18 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 2a | Classify each comment individually | `references/classify.md` | 330 |
 | 2b | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
 | 3 | Present overview table, discuss 🔴 items, get confirmation | `references/interaction.md` | 200 |
-| 4a | Pre-write cross-reference scan (8 checks) | `references/dossier-output.md` §Validation Gates | 100 |
-| 4b | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
-| 4c | Enforce reply task contract (gate check, templates, duplicate strategy) | `references/dossier-output.md` §Reply Policy | 200 |
+| 4a | Pre-write cross-reference scan (7 checks) | `references/dossier-output.md` §Validation Gates | 100 |
+| 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
+| 4c | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
+| 4d | Optional Direct Fix Brief for simple low-risk Section A | `references/dossier-output.md` §Direct-Fix Fast Path | 180 |
+| 4e | Enforce reply task contract (gate check, templates, duplicate strategy) | `references/dossier-output.md` §Reply Policy | 200 |
 | 5 | Handoff message to user | `references/platform.md` §Handoff | 20 |
+| cleanup | Clean current PR artifacts | `references/platform.md` §Artifact Cleanup | 80 |
+| cleanup-all | Clean all default artifacts | `references/platform.md` §Artifact Cleanup | 80 |
 
-**Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion.
+**Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion. This compresses interaction only; it does not by itself authorize direct code execution.
+
+**Direct-Fix Fast Path** (simple low-risk Section A): after Step 3 confirmation and Step 4a scan, the user may explicitly choose direct fix when every code-change item is unambiguous, low-risk, single-file, dependency-free, conflict-free, and has complete reply target data. Run the Dossier Accuracy Grill Gate first. If it passes, write a Direct Fix Brief instead of the full Prometheus dossier. If any ambiguity appears, use the normal dossier/Prometheus path.
 
 **Reply-only path** (Section A = 0, Section B > 0): after Step 0 has bound the current checkout and Step 3 confirms replies only, load `dossier-output.md`. Read §Reply Endpoints, §Direct Reply-Only Posting, and §Reply Policy. Skip Dossier Structure, Sections A/B/C, Validation Gates, and Handoff. This path MUST POST/send replies through the documented endpoints, then verify each reply by read-back with GET/LIST operations. Drafting or composing reply text is not completion.
 
@@ -75,22 +82,31 @@ Load only the file needed for the current step. No file assumes you've read prev
   │  └─ User explicitly confirms ("ok" / "proceed" / etc.)
   │
   ├── Post-Confirmation Routing (references/interaction.md §Post-Confirmation Routing)
-  │     ├─ A > 0 (code changes) ────► [4a] Pre-Write Scan → [4b] Dossier → [4c] Reply task contract → [5]
+  │     ├─ A > 0 (simple, direct-fix chosen) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → direct execution handoff
+  │     ├─ A > 0 (default/complex code changes) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4c] Dossier → Reply task contract → [5]
   │     ├─ A = 0, B > 0 (replies) ─► POST/send replies → read-back verify replies → done
   │     └─ A = 0, B = 0 (nothing)  ─► done
   │
 [4a] Pre-Write Scan (references/dossier-output.md §Validation Gates)
-  │  └─ 8 checks pass  ← BLOCKING GATE
+  │  └─ 7 checks pass  ← BLOCKING GATE
   │
-[4b] Dossier → .omo/notepads/pr-<N>-dossier/
+[4b] Dossier Accuracy Grill Gate
+  │  └─ ask only unresolved implementation/scope/test/reply questions; grill-with-docs is not default
   │
-[4c] Replies (references/dossier-output.md §Reply Policy)
+[4c] Dossier → ~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/
+  │
+[4d] Direct Fix Brief → ~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/direct-fix-<TIMESTAMP>.md
+  │  └─ contains exact edit, guardrails, verification, reply endpoint, commit SHA requirement, read-back verification
+  │
+[4e] Replies (references/dossier-output.md §Reply Policy)
   │  └─ Prometheus execution plan MUST include reply task(s) after code/test/commit work and before read-back verification
   │
-[5] Handoff with worktree_path=TARGET_WORKTREE_ROOT → Prometheus → /start-work
+[5] Handoff → generic executor prompt; optional OMO /start-work prompt with worktree_path=TARGET_WORKTREE_ROOT
 ```
 
-**Do NOT run Prometheus or `/start-work` yourself.** User drives Phase 2 & 3.
+**Do NOT run Prometheus or `/start-work` yourself.** User drives optional OMO Phase 2 & 3.
+
+**Cleanup commands route first**: If the user invokes `/address-pr-comments-review cleanup` or `/address-pr-comments-review cleanup-all`, load `references/platform.md` §Artifact Cleanup immediately. Do not bind PR comments, classify, generate dossiers, post replies, or run the normal review workflow.
 
 For the exact Phase 2 and Phase 3 handoff, use `references/platform.md` §Handoff. Do not duplicate the handoff wording here.
 

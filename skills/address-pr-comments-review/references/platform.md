@@ -1,6 +1,6 @@
 # Platform Integration
 
-Runtime commands, paths, and the `list_comments.py` script contract. Platform lock: OpenCode + OhMyOpenCode (Sisyphus) only.
+Runtime commands, paths, cleanup, and the `list_comments.py` script contract. Platform lock: OpenCode + OhMyOpenCode (Sisyphus) only. Artifacts are generic Markdown by default; OMO is optional handoff text.
 
 ## Prerequisites
 
@@ -194,17 +194,32 @@ These fields are absent for `review` and `top_level` kinds.
 | `dossier-output.md` | `id`, `author`, `kind`, `path`, `line`, `url` |
 | `interaction.md` | `id`, `author`, `kind`, `path`, `line`, `url` |
 
-## Dossier Path & Timestamp
+## Artifact Path & Timestamp
 
-After comments are collected and processed, the dossier is written under the bound checkout:
+After comments are collected and processed, generated artifacts are written to user-local state by default:
 
 ```
-<TARGET_WORKTREE_ROOT>/.omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
+~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/review-dossier-<TIMESTAMP>.md
+~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/direct-fix-<TIMESTAMP>.md
 ```
 
+- `<owner>__<repo>`: GitHub repository with `/` replaced by `__`
 - `<N>`: PR number
 - `<TIMESTAMP>`: formatted as `YYYYMMDD-HHMMSS` using `date +%Y%m%d-%H%M%S`
-- Directory is created automatically from `TARGET_WORKTREE_ROOT` if it does not exist
+- Directory is created automatically if it does not exist
+
+`TARGET_WORKTREE_ROOT` still binds local code reads, git commands, and PR identity checks. It does not define the default artifact directory.
+
+### artifact_dir Override
+
+If the user provides `artifact_dir=<path>`, write artifacts there instead of the default state directory and use that path consistently in handoff messages.
+
+Rules:
+
+- Do not edit root `.gitignore`, `.git/info/exclude`, or global gitignore.
+- Do not default to `.omo`, `.agent`, or any repo-local directory.
+- If `artifact_dir` is inside the repository and is not ignored, warn that artifacts may appear in `git status`; continue only if the user accepts.
+- If the user explicitly chooses `.omo/notepads/pr-<N>-dossier/`, treat it as an optional OMO-compatible artifact location, not as the default.
 
 ### Timestamp Format
 
@@ -217,22 +232,130 @@ Example: `20260115-143022` for January 15, 2026 at 14:30:22.
 ### Directory Creation
 
 ```bash
-mkdir -p "$TARGET_WORKTREE_ROOT/.omo/notepads/pr-<N>-dossier/"
+mkdir -p "$HOME/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/"
 ```
 
 ## Handoff
 
-After the dossier is saved, output the following message to the user. Replace `<N>`, `<TIMESTAMP>`, `<PLAN_PATH>`, and `<TARGET_WORKTREE_ROOT>` with actual values. Keep the dossier path anchored to the bound checkout.
+After an artifact is saved, output the artifact path plus copy-paste-ready prompts. Replace placeholders with actual values. Use the chosen artifact path, whether default or `artifact_dir` override.
 
+### Dossier Handoff
+
+````text
+Review Dossier saved to:
+<ARTIFACT_PATH>
+
+Generic executor prompt:
+
+```markdown
+Read this PR comment review artifact:
+
+<ARTIFACT_PATH>
+
+Execute it as a PR review work package. Follow the Execution Contract exactly: apply Section A code changes, run listed verification, commit if requested by the operator, reply to every required PR comment, and verify posted replies by read-back. Do not repeat POST requests for verification.
 ```
-Dossier saved to <TARGET_WORKTREE_ROOT>/.omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
 
-To generate the execution plan, switch to Prometheus mode and paste:
+OMO / Prometheus prompt:
 
-  Read <TARGET_WORKTREE_ROOT>/.omo/notepads/pr-<N>-dossier/dossier-<TIMESTAMP>.md
-  and generate an execution plan. Ask me if any task is ambiguous.
+```markdown
+Read this PR comment review artifact:
+
+<ARTIFACT_PATH>
+
+Generate an execution plan for OMO/start-work. Preserve every reply task from the artifact:
+- code changes before replies
+- targeted verification before commit
+- commit SHA included in Section A replies
+- PR comment replies posted through the listed endpoints
+- read-back verification after posting replies
+Ask me before planning if any task is ambiguous.
+```
 
 After Prometheus writes the plan, run:
 
-  /start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>
+```bash
+/start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>
 ```
+
+Cleanup target after verified execution:
+`~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`
+````
+
+## Direct Fix Brief Handoff
+
+After a Direct Fix Brief is saved, output the path plus a direct execution prompt.
+
+````text
+Direct Fix Brief saved to:
+<ARTIFACT_PATH>
+
+Direct execution prompt:
+
+```markdown
+Read and execute this Direct Fix Brief:
+
+<ARTIFACT_PATH>
+
+Complete the exact code change, run the listed verification, commit if requested by the operator, post the required PR comment reply, and verify the reply by read-back. Do not expand scope beyond the brief.
+```
+
+Cleanup target after verified execution:
+`~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`
+````
+
+## Artifact Cleanup
+
+Cleanup commands manage disposable files created under the default state root. They route before the normal review workflow.
+
+### Current PR Cleanup
+
+Trigger:
+
+```text
+/address-pr-comments-review cleanup
+/address-pr-comments-review cleanup --repo owner/repo --pr <N>
+/address-pr-comments-review cleanup --artifact-dir <path>
+```
+
+Behavior:
+
+1. If `--artifact-dir <path>` is provided, target that explicit path and skip PR inference.
+2. If `--repo` and `--pr` are omitted, run the minimal checkout binding and PR verification from Step 0a and 0d before inference. Use `TARGET_WORKTREE_ROOT` and `gh pr view` from that root. If inference fails, ask for `--repo owner/repo --pr <N>`.
+3. Default target: `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`.
+4. List exact files/directories that will be deleted.
+5. Ask for confirmation before deleting.
+6. Delete the PR artifact directory after confirmation.
+7. If the parent `<owner>__<repo>/` directory is empty, remove it too.
+
+Safety rules:
+
+- Do not delete repo-local `artifact_dir` outputs unless the user explicitly passes `--artifact-dir <path>`.
+- Do not delete `.omo`, `.agent`, or any repo path during default cleanup.
+- Do not post replies, collect comments, classify, or generate artifacts during cleanup.
+- If no artifacts exist, report `no artifacts found`.
+
+### Cleanup All
+
+Trigger:
+
+```text
+/address-pr-comments-review cleanup-all
+/address-pr-comments-review cleanup-all --dry-run
+/address-pr-comments-review cleanup-all --older-than 7d
+```
+
+Behavior:
+
+1. Scan `~/.local/state/ai-toolkits/pr-comments/` for `<owner>__<repo>/pr-<N>/` directories.
+2. Group preview by repository and PR.
+3. Show total repo count, PR count, file count, and size.
+4. If `--older-than <age>` is present, include only PR artifact directories older than that age. Supported units: `d`, `h`, `m`.
+5. If `--dry-run` is present, stop after preview and do not delete.
+6. Otherwise ask for confirmation before deleting.
+7. Delete only default-state artifact directories after confirmation, then remove empty repo directories.
+
+Safety rules:
+
+- `cleanup-all` never touches repo-local override paths, even if they were produced by this skill.
+- `cleanup-all` never edits ignore files.
+- If the state root is empty or absent, report `no artifacts found`.
