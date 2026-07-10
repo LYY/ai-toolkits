@@ -316,16 +316,16 @@
 
 ### 18. generic executor handoff prompt
 
-**Description:** After saving a dossier or Direct Fix Brief, the skill must print a copy-paste-ready generic executor prompt in addition to the artifact path.
+**Description:** After saving a dossier or Direct Fix Brief, the current user-visible final response must contain the complete applicable handoff block. Persisted artifact completeness and response completion are separate checks.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | Confirmed conclusions are preserved in the artifact. |
-| expected reply posture | Prompt requires code change, verification, optional commit, PR replies, and read-back verification. |
+| expected reply posture | Generic and direct executor prompts require code change, verification, optional commit, PR replies, and read-back verification. OMO / Prometheus preserves the mandatory Section A commit-SHA requirement. |
 | expected overview-table | Final routing is visible before handoff. |
-| expected dossier escalation | Handoff includes a fenced prompt that tells an executor to read the artifact and follow the execution contract. |
+| expected dossier escalation | Dossier response includes actual artifact path, generic executor prompt, OMO / Prometheus prompt, `/start-work` command, and cleanup target. Direct Fix Brief response includes actual path, direct execution prompt, and cleanup target. |
 
-**Failure pattern guarded:** Returning only `Dossier saved to ...`, leaving the user to invent execution instructions.
+**Failure pattern guarded:** Artifact file is complete but the current user-visible final response returns only `Dossier saved to ...`, leaving the user to invent execution instructions.
 
 ---
 

@@ -464,11 +464,11 @@ Before writing the dossier, re-scan the final confirmed table from Step 4 agains
 
 ---
 
-### 2. Post-Write Dossier Verification
+### 2. Post-Write Artifact and Response Verification
 
-After writing the dossier file, run these checks.
+After writing a Review Dossier or Direct Fix Brief, run the applicable checks.
 
-#### 2.1 File Existence and Integrity
+#### 2.1 Persisted Review Dossier File Existence and Integrity
 
 | Check | Command/Condition |
 |-------|-------------------|
@@ -479,17 +479,27 @@ After writing the dossier file, run these checks.
 | Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
 | Section A reply commit requirement present | Every Section A task includes `Reply commit requirement` requiring the reply text to reference the modification commit SHA |
 | Artifact path correct | Dossier lives under the selected artifact directory: default `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/` or explicit `artifact_dir=<path>` |
-| Handoff prompts present | Output includes generic executor prompt and OMO / Prometheus prompt from `platform.md` |
 
 **Gate rule**: If an explicit repo-local `artifact_dir` is not ignored, warn that it may appear in `git status` and continue only if the user accepts. Do not edit `.gitignore`, `.git/info/exclude`, or any ignore file in this step.
 
-#### 2.2 No-Placeholder Leakage Check (Mandatory)
+#### 2.2 Current Response Handoff Completion
+
+Verify the current user-visible final response contains the complete handoff shape for the artifact type.
+
+| Artifact Type | Required Current Response Shape |
+|---------------|---------------------------------|
+| Review Dossier | Actual artifact path, generic executor prompt, OMO / Prometheus prompt, `/start-work` command, and cleanup target from `platform.md` |
+| Direct Fix Brief | Actual brief path, direct execution prompt, and cleanup target from `platform.md` |
+
+**Gate rule**: A path-only response fails this check even when the persisted artifact file is complete. Complete the applicable handoff block in the current user-visible final response before finishing.
+
+#### 2.3 No-Placeholder Leakage Check (Mandatory)
 
 Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{REVIEWER_CONCERN}}`, `{{CURRENT_CODE_EVIDENCE}}`, `{{LOCAL_PATTERN_EVIDENCE}}`, `{{SUGGESTION_FIT}}`, `{{SUGGESTION_FIT_REASON}}`, `{{FIX_DIRECTION}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`.
 
 **Gate rule**: If any placeholder remains unfilled, do NOT hand off to Prometheus. Regenerate the dossier.
 
-#### 2.3 Direct Fix Brief Completeness
+#### 2.4 Direct Fix Brief Completeness
 
 When using the Direct-Fix Fast Path, verify the brief contains every required execution and reply field:
 
@@ -505,7 +515,8 @@ When using the Direct-Fix Fast Path, verify the brief contains every required ex
 | Pre-Reply Gate | Prevents duplicate or stale replies |
 | Commit SHA reply requirement | Ensures reviewer can trace the fix |
 | Read-back verification | Proves the reply exists without duplicate POST |
-| Direct execution prompt | Ensures the user can copy-paste `platform.md` §Direct Fix Brief Handoff into an executor without inventing instructions |
+
+The direct execution prompt belongs to current response handoff completion in Section 2.2, not to the persisted Direct Fix Brief.
 
 **Gate rule**: If any required field is missing, do NOT hand off the Direct Fix Brief. Either regenerate it or use the normal dossier/Prometheus path.
 

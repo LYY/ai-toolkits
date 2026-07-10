@@ -237,7 +237,7 @@ mkdir -p "$HOME/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/"
 
 ## Handoff
 
-After an artifact is saved, output the artifact path plus copy-paste-ready prompts. Replace placeholders with actual values. Use the chosen artifact path, whether default or `artifact_dir` override.
+After an artifact is saved, place the complete applicable handoff block in the current user-visible final response with the actual artifact path and actual values. Use the chosen artifact path, whether default or `artifact_dir` override.
 
 ### Dossier Handoff
 
@@ -283,7 +283,7 @@ Cleanup target after verified execution:
 
 ## Direct Fix Brief Handoff
 
-After a Direct Fix Brief is saved, output the path plus a direct execution prompt.
+After a Direct Fix Brief is saved, place the complete applicable handoff block in the current user-visible final response: the actual brief path, direct execution prompt, and cleanup target.
 
 ````text
 Direct Fix Brief saved to:
