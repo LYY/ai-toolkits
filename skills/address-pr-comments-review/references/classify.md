@@ -1,6 +1,6 @@
 # Comment Classification Protocol
 
-Step 2a individual comment classification. Determine source, intent, and conclusion for each comment. Cross-reference (duplicate/conflict/relation detection) happens in Step 2b — see `cross-reference.md`.
+Step 2a builds an evidence ledger for actionable comments. Step 2b assigns conclusions from that evidence. Determine source, intent, concern verdict, reviewer suggestion fit, and conclusion for each comment. Cross-reference (duplicate/conflict/relation detection) happens after classification — see `cross-reference.md`.
 
 ## Source Detection
 
@@ -70,13 +70,57 @@ When intent cannot be cleanly determined:
 
 ---
 
+## Evidence Ledger Gate
+
+Before assigning any conclusion to an `actionable` comment, create an evidence ledger entry. The ledger separates the reviewer's concern from the reviewer's proposed fix.
+
+### Required Fields
+
+| Field | Required content |
+|-------|------------------|
+| **Reviewer concern** | The underlying bug, risk, behavior gap, missing test, or maintainability issue being raised. Do not copy the suggested patch as the concern. |
+| **Current code evidence** | Current branch tip code location(s), with `file:line`, showing whether the concern exists now. Read current HEAD, not stale diff context. |
+| **Local pattern evidence** | Nearby code, sibling implementation, caller/callee, tests, API contract, or repository convention relevant to choosing the conclusion and fix direction. |
+| **Concern verdict** | One of `real`, `not_real`, `already_resolved`, `partially_resolved`, or `unclear`. |
+| **Reviewer suggestion fit** | One of `accept`, `modify`, or `reject`, with one-line reason. |
+| **Fix direction** | Minimal correct code direction when a code change is needed. This comes from evidence, not from the raw review suggestion. |
+| **Verification target** | Specific test, build, static check, or manual verification needed after implementation. |
+
+### Gate Rule
+
+If any required field is missing for an actionable comment, classify it as `needs_clarification` with discussion flag `🔴 insufficient_code_evidence`. Do not place it in Section A and do not generate a code-change task.
+
+### Concern Verdict Mapping
+
+| Concern verdict | Allowed conclusion |
+|-----------------|--------------------|
+| `real` | `valid`, unless outside PR scope |
+| `not_real` | `invalid` |
+| `already_resolved` | `already_fixed` |
+| `partially_resolved` | `partially_addressed` |
+| `unclear` | `needs_clarification` |
+
+### Reviewer Suggestion Fit
+
+The suggestion fit is independent from the concern verdict. A reviewer can identify a real concern and still propose the wrong implementation.
+
+| Fit | Meaning | Section A behavior |
+|-----|---------|--------------------|
+| `accept` | The suggested fix matches current code evidence and local patterns. | Use the suggestion as the fix direction. |
+| `modify` | The concern is real, but the implementation should differ. | Use the evidence-derived fix direction and explain the difference. |
+| `reject` | The suggestion is stale, harmful, conflicts with local patterns, or does not address the concern. | Do not use the suggestion. If the concern is real, provide an alternate fix direction; otherwise use Section B. |
+
+Any `modify` or `reject` fit on an actionable comment must be visible in the Step 3 table evidence column. Flag it for discussion when the alternate fix direction is non-mechanical, behavior-changing, or scope-sensitive.
+
+---
+
 ## Conclusion Taxonomy
 
 ### valid
 
 **When to apply:** The comment identifies a real issue that should be addressed in this PR. The concern is correct, applies to the current code at branch tip, and requires a code change.
 
-**Evidence required:** Read the current code at the referenced `path:line` on branch tip and confirm the issue is present. If already fixed, use `already_fixed`. If partially addressed, use `partially_addressed`.
+**Evidence required:** Complete Evidence Ledger Gate with `Concern verdict: real`. `valid` means the concern is real and needs a code change. It does NOT mean the reviewer's proposed fix should be applied as written. If already fixed, use `already_fixed`. If partially addressed, use `partially_addressed`.
 
 **Action:** Code change + test + reply + commit. Maps to dossier Section A.
 
@@ -86,7 +130,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The comment does not apply to the current code. Common reasons: the reviewer misunderstood the code, the concern is based on a reading error, or the suggestion would break other behavior.
 
-**Evidence required:** One-sentence reason. If the code already handles the concern differently → `already_fixed`, not `invalid`.
+**Evidence required:** Complete Evidence Ledger Gate with `Concern verdict: not_real`, plus one-sentence reason. If the code already handles the concern differently → `already_fixed`, not `invalid`.
 
 **Action:** Reply only (explain why). Maps to dossier Section B.
 
@@ -96,7 +140,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The issue raised by the comment has already been resolved in the current branch tip code. The fix exists at the time of classification.
 
-**Evidence required: STRONG evidence required.** Read current code at `path:line` and confirm the fix is in place. Acceptable: current code matches fix, or `git log` shows a commit addressing the concern (cite SHA + what changed). NOT acceptable: `thread_outdated: true`, `thread_resolved: true`, bot acknowledgment, or a fix in a different file.
+**Evidence required: STRONG evidence required.** Complete Evidence Ledger Gate with `Concern verdict: already_resolved`. Acceptable: current code matches fix, or `git log` shows a commit addressing the concern (cite SHA + what changed). NOT acceptable: `thread_outdated: true`, `thread_resolved: true`, bot acknowledgment, or a fix in a different file.
 
 **Action:** Reply only (confirm already fixed). Maps to dossier Section B.
 
@@ -122,7 +166,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The comment raises a valid concern that is outside the scope of the current PR. Examples: suggests a feature unrelated to the PR's intent, flags pre-existing code unrelated to the diff, requests a refactor that belongs in a separate PR.
 
-**Evidence required:** Concern must be valid (not `invalid`) but out of this PR's scope. If both invalid and out of scope → `invalid`.
+**Evidence required:** Complete Evidence Ledger Gate. Concern must be valid (not `invalid`) but out of this PR's scope. If both invalid and out of scope → `invalid`.
 
 **Action:** Reply only (explain why out of scope, optionally suggest a follow-up). Maps to dossier Section B.
 
@@ -132,7 +176,7 @@ When intent cannot be cleanly determined:
 
 **When to apply:** The comment raises a question or concern that cannot be classified without additional input from the reviewer or PR author. Examples: a question about intent, a suggestion that depends on unstated requirements, a concern about behavior you cannot reproduce.
 
-**Evidence required:** The ambiguity must originate from the comment itself, not from your own confusion. If the comment is clear but you are confused, that is a different conclusion. You must be able to state the specific question that needs answering.
+**Evidence required:** The ambiguity must originate from the comment itself, or from an incomplete Evidence Ledger Gate that cannot be completed from code/comment context. If the comment is clear but you are confused, read more code before using this conclusion. You must be able to state the specific question that needs answering.
 
 **Action:** Reply only (with resolved direction after clarification). Maps to dossier Section B. Marked with a 🔴 discussion flag.
 
@@ -144,11 +188,12 @@ When intent cannot be cleanly determined:
 
 This conclusion bridges `valid` (no fix attempted) and `already_fixed` (concern fully resolved). It acknowledges effort while requiring further work.
 
-**Evidence required (ALL three):**
+**Evidence required (ALL four):**
 
-1. Citation of the existing fix attempt: "Commit `<sha>` attempted to fix by changing `<X>` at `<file>:<line>`"
-2. Citation of the remaining issue: "Current code at `<file>:<line>` still shows `<problem>`"
-3. Explanation of insufficiency: "The fix addresses `<X>` but does not address `<Y>`."
+1. Complete Evidence Ledger Gate with `Concern verdict: partially_resolved`.
+2. Citation of the existing fix attempt: "Commit `<sha>` attempted to fix by changing `<X>` at `<file>:<line>`"
+3. Citation of the remaining issue: "Current code at `<file>:<line>` still shows `<problem>`"
+4. Explanation of insufficiency: "The fix addresses `<X>` but does not address `<Y>`."
 
 Common patterns: incomplete scope (same pattern elsewhere), wrong direction (fix makes it worse), partial logic (misses edge cases), insufficient margin (reduces but doesn't eliminate). If no fix was attempted → `valid`. If fix fully resolves → `already_fixed`. If fix is cosmetic + concern resolved → `already_fixed`.
 
