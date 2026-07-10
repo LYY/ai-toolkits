@@ -113,6 +113,8 @@ Duplicate comments require one reply POST per listed author/comment ID that pass
 
 Use this section only when Section A contains simple low-risk code work and the user explicitly chose direct fix after the final overview table. This route replaces the full Prometheus dossier with a shorter Direct Fix Brief. It does not remove reply, commit, or read-back obligations.
 
+After saving the Direct Fix Brief and passing §Direct Fix Brief Completeness, load `platform.md` §Direct Fix Brief Handoff and output that handoff with the actual artifact path. Do not end with only the artifact path.
+
 ### Eligibility Checklist
 
 Every checked condition must be true before writing a Direct Fix Brief:
@@ -503,7 +505,7 @@ When using the Direct-Fix Fast Path, verify the brief contains every required ex
 | Pre-Reply Gate | Prevents duplicate or stale replies |
 | Commit SHA reply requirement | Ensures reviewer can trace the fix |
 | Read-back verification | Proves the reply exists without duplicate POST |
-| Direct execution prompt | Ensures the user can copy-paste the brief into an executor without inventing instructions |
+| Direct execution prompt | Ensures the user can copy-paste `platform.md` §Direct Fix Brief Handoff into an executor without inventing instructions |
 
 **Gate rule**: If any required field is missing, do NOT hand off the Direct Fix Brief. Either regenerate it or use the normal dossier/Prometheus path.
 

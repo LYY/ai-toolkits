@@ -35,7 +35,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 4a | Pre-write cross-reference scan (9 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
 | 4c | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
-| 4d | Optional Direct Fix Brief for simple low-risk Section A | `references/dossier-output.md` §Direct-Fix Fast Path | 180 |
+| 4d | Optional Direct Fix Brief for simple low-risk Section A, then direct-fix handoff | `references/dossier-output.md` §Direct-Fix Fast Path + `references/platform.md` §Direct Fix Brief Handoff | 200 |
 | 4e | Enforce reply task contract (gate check, templates, duplicate strategy) | `references/dossier-output.md` §Reply Policy | 200 |
 | 5 | Handoff message to user | `references/platform.md` §Handoff | 20 |
 | cleanup | Clean current PR artifacts | `references/platform.md` §Artifact Cleanup | 80 |
@@ -87,7 +87,7 @@ Load only the file needed for the current step. No file assumes you've read prev
   │  └─ User explicitly confirms ("ok" / "proceed" / etc.)
   │
   ├── Post-Confirmation Routing (references/interaction.md §Post-Confirmation Routing)
-  │     ├─ A > 0 (simple, direct-fix chosen) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → direct execution handoff
+  │     ├─ A > 0 (simple, direct-fix chosen) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → platform.md §Direct Fix Brief Handoff
   │     ├─ A > 0 (default/complex code changes) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4c] Dossier → Reply task contract → [5]
   │     ├─ A = 0, B > 0 (replies) ─► POST/send replies → read-back verify replies → done
   │     └─ A = 0, B = 0 (nothing)  ─► done
@@ -113,7 +113,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 
 **Cleanup commands route first**: If the user invokes `/address-pr-comments-review cleanup` or `/address-pr-comments-review cleanup-all`, load `references/platform.md` §Artifact Cleanup immediately. Do not bind PR comments, classify, generate dossiers, post replies, or run the normal review workflow.
 
-For the exact Phase 2 and Phase 3 handoff, use `references/platform.md` §Handoff. Do not duplicate the handoff wording here.
+For exact handoff wording, use `references/platform.md` §Handoff: dossier artifacts use §Dossier Handoff, and Direct Fix Brief artifacts use §Direct Fix Brief Handoff. Do not duplicate the handoff wording here.
 
 **After `/start-work` succeeds**: `git log --oneline`, `git push`, verify PR replies.
 **If `/start-work` fails mid-execution**: re-run this skill. `has_replies` detection skips handled items.

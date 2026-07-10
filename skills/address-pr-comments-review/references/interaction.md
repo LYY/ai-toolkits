@@ -176,7 +176,7 @@ After user explicitly confirms the final table, check what kind of work is neede
 
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|
-| Simple low-risk code change, direct fix explicitly chosen | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief. Do not generate the full Prometheus dossier. |
+| Simple low-risk code change, direct fix explicitly chosen | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `platform.md` §Direct Fix Brief Handoff after brief verification. Do not generate the full Prometheus dossier. |
 | Code changes needed by default, or direct-fix criteria fail | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (Dossier Accuracy Grill Gate) → Step 4c (dossier) → Step 4e (reply task contract) → Step 5 (handoff) |
 | Replies only, no code changes | = 0 | > 0 | **Skip dossier.** State: "No code changes are needed. N comments need replies. I will post replies now and verify them by read-back." Then send replies per Direct Reply-Only Posting and Reply Policy (`dossier-output.md`). |
 | Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
