@@ -13,7 +13,7 @@ description: >-
 
 A three-phase interactive workflow for GitHub PR comment review. First bind the current checkout, then detect the PR and collect comments from that checkout.
 
-- **Phase 1** (this skill): bind the current checkout, detect the PR, collect, classify, and confirm comments interactively. If code changes are needed, either produce a review dossier for an executor or, for explicitly confirmed simple low-risk work, produce a Direct Fix Brief. If only replies are needed, post them directly and verify by read-back. If nothing is actionable, end.
+- **Phase 1** (this skill): bind the current checkout, detect the PR, collect comments, ground actionable items in current-code evidence, classify from that evidence, and confirm interactively. If code changes are needed, either produce a review dossier for an executor or, for explicitly confirmed simple low-risk work, produce a Direct Fix Brief. If only replies are needed, post them directly and verify by read-back. If nothing is actionable, end.
 - **Phase 2**: user gives the generated artifact to an executor. OMO/Prometheus is optional and supported by copy-paste handoff prompts.
 - **Phase 3**: execution runs in the same checkout. For OMO, user runs `/start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>`.
 
@@ -28,8 +28,9 @@ Load only the file needed for the current step. No file assumes you've read prev
 |------|------------------|------|--------|
 | 0 | Bind current checkout before PR detection | `references/platform.md` | 150 |
 | 1 | Detect PR and collect comments from bound checkout | `references/platform.md` | 150 |
-| 2a | Classify each comment individually | `references/classify.md` | 330 |
-| 2b | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
+| 2a | Build evidence ledger for actionable comments | `references/classify.md` | 420 |
+| 2b | Classify each comment from evidence, not suggestion text | `references/classify.md` | 420 |
+| 2c | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
 | 3 | Present overview table, discuss 🔴 items, get confirmation | `references/interaction.md` | 200 |
 | 4a | Pre-write cross-reference scan (7 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
@@ -70,9 +71,13 @@ Load only the file needed for the current step. No file assumes you've read prev
   │
 [1] Detect PR + Collect (references/platform.md)
   │
-[2a] Classify (references/classify.md)
+[2a] Evidence Ledger (references/classify.md)
+  │  └─ actionable comments grounded in current HEAD code evidence before conclusion
   │
-[2b] Cross-Ref (references/cross-reference.md)
+[2b] Classify From Evidence (references/classify.md)
+  │  └─ concern verdict and reviewer suggestion fit decided separately
+  │
+[2c] Cross-Ref (references/cross-reference.md)
   │  ├─ duplicates merged, conflicts flagged, relations noted
   │  └─ already-replied detected
   │
@@ -116,6 +121,9 @@ For the exact Phase 2 and Phase 3 handoff, use `references/platform.md` §Handof
 ## Key Principles
 
 - **AI is analyst, user is decider.** Skill classifies; user decides on 🔴 items.
+- **Concern first, fix second.** Review comments are evidence leads, not implementation instructions.
+- **No evidence, no conclusion.** Actionable comments need current-code evidence before `valid`, `invalid`, `already_fixed`, or `partially_addressed`.
+- **Suggestion is not solution.** A reviewer may identify a real issue while proposing the wrong fix.
 - **Duplicates are detected, not created.** Same `file:line` + same concern = one task.
 - **Conflicts are surfaced, not buried.** Opposing advice is flagged and documented.
 

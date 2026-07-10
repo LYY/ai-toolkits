@@ -25,13 +25,13 @@ Every invocation MUST produce the overview table. **Even when there are zero act
 ## PR #N Comment Analysis -- X total (Y raw), Z actionable (after dedup)
 
 ### Overview
-| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 去重/冲突 | 讨论 |
-|---|------|------|------|------|------|-----------|------|
-| 1 | @alice, @copilot | inline | foo.ts:42 | var → const | valid | ≡ merged (2 reviews) | |
-| 2 | @bot   | inline | bar.ts:15 | rename suggestion | invalid | | |
-| 3 | @alice vs @bob | inline | baz.ts:8 | const vs let choice | ⚠️ conflict | ↯ conflicting advice | 🔴 resolve |
-| 4 | @human | inline | qux.ts:3 | logic question | needs_clarification | | 🔴 needs input |
-| 5 | @reviewer | review | — | LGTM but note on perf | already_replied | ↩ already replied | |
+| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 证据 | 去重/冲突 | 讨论 |
+|---|------|------|------|------|------|------|-----------|------|
+| 1 | @alice, @copilot | inline | foo.ts:42 | var -> const | valid | HEAD foo.ts:42 + local pattern accepts | ≡ merged (2 reviews) | |
+| 2 | @bot   | inline | bar.ts:15 | rename suggestion | invalid | HEAD bar.ts:15 shows existing name is API contract | | |
+| 3 | @alice vs @bob | inline | baz.ts:8 | const vs let choice | ⚠️ conflict | HEAD baz.ts:8; fit differs by approach | ↯ conflicting advice | 🔴 resolve |
+| 4 | @human | inline | qux.ts:3 | logic question | needs_clarification | missing evidence | | 🔴 insufficient_code_evidence |
+| 5 | @reviewer | review | -- | LGTM but note on perf | already_replied | reply verified | ↩ already replied | |
 ```
 
 ### Legend
@@ -40,6 +40,7 @@ Every invocation MUST produce the overview table. **Even when there are zero act
 - `↯ conflict` -- opposing recommendations, user must choose
 - `↩ already replied` -- comment already has a human reply; skipped by default
 - `🔴 resolve` -- needs user decision before proceeding
+- `missing evidence` -- Evidence Ledger Gate incomplete; cannot become Section A until resolved
 
 ### Zero-Actionable MUST Still Produce the Table
 
@@ -47,7 +48,7 @@ When every comment is `informational`, `already_replied`, or otherwise non-actio
 
 ### Self-Check (Do Not Skip)
 
-**SELF-CHECK**: Before proceeding, verify your output contains a table with the header `| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 去重/冲突 | 讨论 |`. If the table is missing, you have NOT completed this step. Stop and regenerate the table.
+**SELF-CHECK**: Before proceeding, verify your output contains a table with the header `| # | 来源 | 类型 | 文件 | 摘要 | 结论 | 证据 | 去重/冲突 | 讨论 |`. If the table is missing, you have NOT completed this step. Stop and regenerate the table.
 
 ---
 
@@ -80,6 +81,7 @@ For `needs_clarification` items, state what information is missing and what deci
 |-----------|-------------|
 | `🔴 resolve` (conflict) | User must choose one option before proceeding |
 | `🔴 needs_clarification` | User must provide direction before proceeding |
+| `🔴 insufficient_code_evidence` | Agent must complete the Evidence Ledger Gate or ask the one unresolved question that code cannot answer |
 | `🔴 high-risk` | User must acknowledge or override before proceeding |
 | No 🔴 | No blocking discussion needed; proceed directly |
 
@@ -87,7 +89,7 @@ All 🔴 items must be resolved (conclusion changed or confirmed) before the fin
 
 ### 3. Silent Consent for Non-🔴 Items
 
-Items without 🔴 are accepted as-is per AI conclusion. The following all count as consent:
+Items without 🔴 are accepted as-is per AI conclusion only when the evidence column shows a complete Evidence Ledger Gate, no unresolved conflict, and a clear fix direction. The following all count as consent:
 
 - User says "continue", "ok", "go ahead"
 - User does not object to an item
@@ -97,6 +99,8 @@ Items without 🔴 are accepted as-is per AI conclusion. The following all count
 The AI may prompt: "The remaining M items are accepted by silent consent unless you object. Shall we proceed?"
 
 Any item can be objected to by number at any point. If the user objects, move that item into discussion and update the conclusion as needed.
+
+Silent consent is not allowed for actionable items with `missing evidence`, unclear fix direction, or reviewer suggestion fit `modify`/`reject` unless the difference is mechanical and fully explained in the evidence column. Those items must be discussed or re-grounded before Step 4.
 
 ### 4. Zero-Actionable Fast Path
 
@@ -173,7 +177,7 @@ After user explicitly confirms the final table, check what kind of work is neede
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|
 | Simple low-risk code change, direct fix explicitly chosen | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief. Do not generate the full Prometheus dossier. |
-| Code changes needed by default, or direct-fix criteria fail | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Step 4b (dossier) → Step 4c (replies) → Step 5 (handoff) |
+| Code changes needed by default, or direct-fix criteria fail | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (Dossier Accuracy Grill Gate) → Step 4c (dossier) → Step 4e (reply task contract) → Step 5 (handoff) |
 | Replies only, no code changes | = 0 | > 0 | **Skip dossier.** State: "No code changes are needed. N comments need replies. I will post replies now and verify them by read-back." Then send replies per Direct Reply-Only Posting and Reply Policy (`dossier-output.md`). |
 | Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
 

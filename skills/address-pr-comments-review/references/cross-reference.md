@@ -1,6 +1,6 @@
 # Cross-Reference Protocol
 
-Step 2b duplicate, conflict, relation, and already-replied detection across the full classified comment set. Also covers cross-file pattern escalation. Performed AFTER individual classification in `classify.md`.
+Step 2c duplicate, conflict, relation, and already-replied detection across the full classified comment set. Also covers cross-file pattern escalation. Performed AFTER evidence-led classification in `classify.md`.
 
 ## Duplicate Detection
 
@@ -134,7 +134,7 @@ When a reviewer flags a structural issue and a targeted search finds the same pa
 
 ### Detection Method
 
-Cross-file escalation is a **manual targeted search** performed by the agent during the cross-reference pass of Step 2. It is NOT automated clustering or static analysis.
+Cross-file escalation is a **manual targeted search** performed by the agent during the Step 2c cross-reference pass. It is NOT automated clustering or static analysis.
 
 When a classified comment flags a structural concern (ordering, initialization, shutdown, concurrency, pattern consistency) in a single file:
 
