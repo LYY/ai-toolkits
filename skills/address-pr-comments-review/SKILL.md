@@ -32,7 +32,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 2b | Classify each comment from evidence, not suggestion text | `references/classify.md` | 420 |
 | 2c | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
 | 3 | Present overview table, discuss 🔴 items, get confirmation | `references/interaction.md` | 200 |
-| 4a | Pre-write cross-reference scan (7 checks) | `references/dossier-output.md` §Validation Gates | 100 |
+| 4a | Pre-write cross-reference scan (9 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
 | 4c | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
 | 4d | Optional Direct Fix Brief for simple low-risk Section A | `references/dossier-output.md` §Direct-Fix Fast Path | 180 |
@@ -93,7 +93,7 @@ Load only the file needed for the current step. No file assumes you've read prev
   │     └─ A = 0, B = 0 (nothing)  ─► done
   │
 [4a] Pre-Write Scan (references/dossier-output.md §Validation Gates)
-  │  └─ 7 checks pass  ← BLOCKING GATE
+  │  └─ 9 checks pass  ← BLOCKING GATE
   │
 [4b] Dossier Accuracy Grill Gate
   │  └─ ask only unresolved implementation/scope/test/reply questions; grill-with-docs is not default

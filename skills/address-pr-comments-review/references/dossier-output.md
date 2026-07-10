@@ -123,6 +123,9 @@ Every checked condition must be true before writing a Direct Fix Brief:
 | Scope | Each code task touches one clearly named file |
 | Risk | Mechanical low-risk change such as wording, comments, docs, config tweak, rename, or proto field rename with field number preserved |
 | Cross-reference | No unresolved duplicate ambiguity, conflict, dependency, or Strong cross-file escalation |
+| Evidence ledger | Complete Evidence Ledger Gate from `classify.md`; reviewer concern, current code evidence, local pattern evidence, suggestion fit, fix direction, and verification target are all present |
+| Fix source | Fix direction is derived from code evidence, not copied from raw reviewer suggestion |
+| Suggestion fit | `accept`, or mechanically safe `modify` with the difference fully explained |
 | Specificity | `What to change` and `How to test` are exact enough for direct execution |
 | Reply data | Comment ID, author, reply kind, endpoint, and inline target fields are complete |
 | User choice | User explicitly chose direct fix; small PR fast-path consent alone is insufficient |
@@ -172,6 +175,13 @@ Gate completion criterion: every trigger is either answered from existing eviden
 - Location: `{{FILE_PATH}}:{{LINE}}`
 - Conclusion: `valid`
 
+## Evidence Ledger
+- Reviewer concern: {{REVIEWER_CONCERN}}
+- Current code evidence: {{CURRENT_CODE_EVIDENCE}}
+- Local pattern evidence: {{LOCAL_PATTERN_EVIDENCE}}
+- Reviewer suggestion fit: `{{SUGGESTION_FIT}}` -- {{SUGGESTION_FIT_REASON}}
+- Fix direction: {{FIX_DIRECTION}}
+
 ## Change
 {{DEV_CHANGES}}
 
@@ -210,8 +220,13 @@ All fields mandatory. No generic descriptions — exact paths, line numbers, spe
 - **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
 - **Also noted by**: @{{DUP_AUTHOR1}}, @{{DUP_AUTHOR2}} (omit if no duplicates)
 - **Conclusion**: `valid`
-- **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification)
-- **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output)
+- **Reviewer concern**: {{REVIEWER_CONCERN}} (underlying bug/risk/behavior, not copied suggestion text)
+- **Code evidence**: {{CURRENT_CODE_EVIDENCE}} (current HEAD `file:line` evidence proving the concern exists)
+- **Local pattern evidence**: {{LOCAL_PATTERN_EVIDENCE}} (nearby code, sibling implementation, caller/callee, tests, API contract, or repository convention)
+- **Reviewer suggestion fit**: `{{SUGGESTION_FIT}}` -- {{SUGGESTION_FIT_REASON}} (`accept`, `modify`, or `reject` from `classify.md`)
+- **Fix direction**: {{FIX_DIRECTION}} (minimal correct direction derived from evidence)
+- **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification implementing Fix direction)
+- **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output; must match Verification target from the evidence ledger)
 - **Reply after fix**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
 - **Reply commit requirement**: Reply text MUST reference the modification commit SHA created for this task, e.g. `Fixed in <commit_sha>.` Add the required change summary from Reply Policy when the fix is partial, direction-correcting, or non-obvious.
 - **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
@@ -429,7 +444,7 @@ Checks and gate rules that ensure dossier integrity before handoff.
 
 Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
 
-#### 7-Check Checklist
+#### 9-Check Checklist
 
 | Check | What to look for | Action if found |
 |-------|-----------------|-----------------|
@@ -438,6 +453,8 @@ Before writing the dossier, re-scan the final confirmed table from Step 4 agains
 | **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
 | **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |
 | **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
+| **Missing evidence ledger** | Section A item lacks reviewer concern, current code evidence, local pattern evidence, suggestion fit, fix direction, or verification target | Return to Step 2a and complete the Evidence Ledger Gate |
+| **Suggestion copied as fix** | `What to change` merely repeats reviewer suggestion without code-derived fix direction | Replace with evidence-derived fix direction or move to discussion |
 | **Reply target mismatch** | Merged duplicates — all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
 | **Stale already_replied** | A comment marked `already_replied` but discussion revealed the reply was insufficient or from a bot | Reclassify |
 
@@ -466,7 +483,7 @@ After writing the dossier file, run these checks.
 
 #### 2.2 No-Placeholder Leakage Check (Mandatory)
 
-Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`.
+Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{REVIEWER_CONCERN}}`, `{{CURRENT_CODE_EVIDENCE}}`, `{{LOCAL_PATTERN_EVIDENCE}}`, `{{SUGGESTION_FIT}}`, `{{SUGGESTION_FIT_REASON}}`, `{{FIX_DIRECTION}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`.
 
 **Gate rule**: If any placeholder remains unfilled, do NOT hand off to Prometheus. Regenerate the dossier.
 
@@ -478,6 +495,7 @@ When using the Direct-Fix Fast Path, verify the brief contains every required ex
 |----------------|-----|
 | PR URL, repo, branch, and target checkout root | Ensures direct execution uses the bound checkout |
 | Comment ID, author, kind, file path, and line | Preserves the review target |
+| Evidence Ledger fields | Preserves reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction |
 | Exact code change and guardrails | Prevents scope creep |
 | Targeted verification | Prevents unverified direct edits |
 | Reply kind and endpoint | Enables correct POST target |
