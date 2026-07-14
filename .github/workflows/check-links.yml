@@ -7,11 +7,25 @@ on:
       - 'docs/**/*.md'
       - '*.md'
       - 'skills/**/references/*.md'
+      - 'skills/address-pr-comments-review/**'
+      - 'docs/address-pr-comments-review/**'
+      - 'scripts/check-address-pr-comments-review-contract.sh'
+      - 'tests/address-pr-comments-review-contract/**'
+      - 'tests/test_artifact_ops.py'
+      - 'tests/test_attempt_manager.py'
+      - 'tests/test_eval_support.py'
   pull_request:
     paths:
       - 'skills/**/*.md'
       - 'docs/**/*.md'
       - '*.md'
+      - 'skills/address-pr-comments-review/**'
+      - 'docs/address-pr-comments-review/**'
+      - 'scripts/check-address-pr-comments-review-contract.sh'
+      - 'tests/address-pr-comments-review-contract/**'
+      - 'tests/test_artifact_ops.py'
+      - 'tests/test_attempt_manager.py'
+      - 'tests/test_eval_support.py'
 
 jobs:
   cross-refs:
@@ -37,3 +51,14 @@ jobs:
             '**/*.md'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  executor-neutral-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run contract checker
+        run: bash scripts/check-address-pr-comments-review-contract.sh
+      - name: Run contract fixture suite
+        run: bash tests/address-pr-comments-review-contract/run.sh
+      - name: Run contract unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v discover -s tests -p "test_*.py"

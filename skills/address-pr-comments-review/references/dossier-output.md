@@ -1,69 +1,543 @@
-# Dossier & Reply Output Protocol
+# Artifact Execution Contract
 
-Step 4 dossier generation, reply policy, and validation gates. Produces the review dossier and governs reply behavior.
+Defines the executor-neutral execution handoff contract for PR comment review artifacts. An executor agent consuming a Review Dossier or Direct Fix Brief follows this contract exactly. This reference is the single source of truth for artifact lifecycle, task/verification/reply semantics, ordered execution phases, state transitions, and cleanup.
 
-> **Prerequisite**: Dossier generation (Sections A/B) applies only when Section A > 0 (code changes needed). When Section A = 0, skip dossier generation entirely:
-> - **Reply-only** (B > 0): Read §Reply Endpoints + §Direct Reply-Only Posting + §Reply Policy. Skip Dossier Structure, Sections A/B/C.
-> - **Nothing actionable** (B = 0): End. No need to read this file.
-> The Reply Policy and Pre-Reply Gate apply regardless of whether a dossier is generated.
+> **Prerequisite**: This file defines the execution contract for artifacts that require code changes or replies. When no artifact is generated (Reply-Only Brief or No-Action outcome), the execution handoff in `execution.md` applies instead.
+>
+> This file DOES NOT define branch discovery, comment collection, classification, cross-referencing, user confirmation, or artifact generation. Those belong to the Review Analysis module (see `classify.md`, `cross-reference.md`, `interaction.md`). This file defines what an executor does AFTER an artifact exists.
 
 ---
 
-## Dossier Structure
+## Artifact Lifecycle
 
-The dossier is the final deliverable of Phase 1. It captures every confirmed decision from Steps 2-4 and feeds Prometheus mode for execution plan generation.
+Every Review Dossier and Direct Fix Brief passes through a lifecycle state machine. The current state is recorded in the artifact's Status Block.
 
-Artifacts are disposable Markdown files. Unless the user provides `artifact_dir=<path>`, write dossiers and Direct Fix Briefs under `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`. Do not write to `.omo`, `.agent`, or any repo-local directory by default. Do not edit root `.gitignore`, `.git/info/exclude`, or global gitignore.
+### States
 
-### Generated Execution Plan Reply Contract
+| State | Meaning |
+|-------|---------|
+| `pending` | Artifact has been generated and saved. No execution has started. |
+| `in-progress` | Execution has started. At least one task is past its initial scope check. |
+| `blocked` | Execution cannot proceed. A hard stop condition has been encountered (checkout mismatch, stale evidence, unresolvable conflict, verification failure before commit). |
+| `verified-complete` | Every required task has passed its verification gate, every required commit has been pushed, every required reply has been posted and read-back verified, and every required remote-reachability check has passed. Artifact is eligible for cleanup. |
 
-When Section A > 0, the dossier MUST tell Prometheus that its generated execution plan MUST include reply task(s) for every Section A and Section B item unless the Pre-Reply Gate blocks that specific item or the item belongs in Section C. Section C, `already_replied`, `minimized`, and other no-action entries are not reply tasks.
+### Legal State Transitions
 
-Plan order for each Section A item is mandatory:
-
-1. Code change, targeted tests, and commit.
-2. Reply task(s) using Reply Endpoints and Reply Policy. Each reply text MUST include the modification commit SHA produced in step 1.
-3. Read-back verification task that proves the posted reply exists by GET/LIST read operations.
-
-Section B entries become reply-only tasks in the generated plan, with read-back verification and no code, tests, or commit. Duplicate comments stay one logical task, but the plan MUST require a posted reply for every listed author/comment ID that passes the Pre-Reply Gate.
-
-### Executive Summary
-
-```markdown
-## Executive Summary
-| Category | Count | Action |
-|----------|-------|--------|
-| Needs code change + reply | N | Modify code, run tests, reply inline, commit |
-| Needs reply only | M | Reply inline with explanation, no code changes |
-| Already replied (skip) | R | Already has a human reply -- no action needed |
-| Informational (skip) | K | No action |
-| **Total plan tasks** | **N+M** | **code tasks + reply tasks** |
-| **Raw comments (before dedup)** | T | Original count from list_comments.py |
-| **Merged duplicates** | D | Comments merged into others above |
-| **Conflicts resolved** | C | User chose one direction among conflicting advice |
+```
+pending ──► in-progress
+pending ──► blocked
+in-progress ──► blocked
+in-progress ──► verified-complete
+blocked ──► in-progress
 ```
 
-### Dedup & Conflict Notes
+No other transitions are valid. Specifically:
+- `verified-complete` is terminal — no transition out.
+- `pending → verified-complete` is illegal — execution evidence must exist.
+- `blocked → verified-complete` is illegal — blocked work must resume to in-progress first.
+- `verified-complete → blocked` is illegal — completion is final.
 
-A single table following the executive summary lists merged duplicates (which comment IDs merged into which task) and resolved conflicts (which comments, whose approach was chosen).
+### State Transition Rules
 
-### Context Line
+**pending → in-progress**: Executor has validated the Context against the current checkout, run the scope gate, and begun executing the first task.
 
-```markdown
-## Context
-- PR: {{PR_URL}}, Branch: {{BRANCH}}, Repo: {{REPO}}
-- Target checkout root: `<TARGET_WORKTREE_ROOT>` (the bound checkout; local reads and git commands run from this root)
-- Artifact path: `<ARTIFACT_PATH>` (default local state path or explicit `artifact_dir` override)
-- Commit style: {{COMMIT_STYLE}} (run `git -C "$TARGET_WORKTREE_ROOT" log --oneline -10`)
-- Analyzed: {{TIMESTAMP}}
+**pending → blocked**: Executor has validated the Context and found an unresolvable mismatch (checkout root does not exist, branch differs from `generation_head`, `gh pr view` returns a different PR, or mandatory evidence is stale without user override).
+
+**in-progress → blocked**: A hard stop condition encountered during execution — verification failure without viable correction path, unrecoverable checkout divergence, or operator refusal of a required commit. The blocked reason is recorded in the Status Block.
+
+**blocked → in-progress**: The blocking condition has been resolved (user re-bound checkout, re-generated artifact, or provided an explicit override). Executor re-validates Context and resumes.
+
+**in-progress → verified-complete**: All tasks pass verification, all commits are pushed and remote-reachable, all replies are posted and read-back verified. This is the only path to cleanup eligibility.
+
+---
+
+## Context Schema
+
+Every artifact carries a Context section that binds it to a specific checkout, PR, and generation point. The executor MUST validate this Context before making any changes.
+
+```json
+{
+  "repo": "owner/repo",
+  "owner": "string",
+  "repo_name": "string",
+  "pr_number": 1,
+  "pr_url": "url",
+  "target_worktree_root_sha256": "64hex",
+  "checkout_branch": "string",
+  "generation_head": "40hex",
+  "head_repo": "owner/repo",
+  "head_ref": "branch",
+  "head_sha": "40hex",
+  "head_clone_url": "url"
+}
 ```
+
+### Field Definitions
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `repo` | yes | Full repository name (`owner/repo`). Matches `gh pr view` output. |
+| `owner` | yes | Repository owner login. |
+| `repo_name` | yes | Repository name (without owner). |
+| `pr_number` | yes | PR number. |
+| `pr_url` | yes | Full GitHub PR URL (`https://github.com/owner/repo/pull/N`). |
+| `target_worktree_root_sha256` | yes | SHA-256 of the canonicalized absolute path of the bound checkout root. The executor computes `echo -n "$(cd "$TARGET_WORKTREE_ROOT" && pwd -P)" | shasum -a 256 | cut -d' ' -f1` and compares. |
+| `checkout_branch` | yes | Branch name at generation time. The executor verifies `git -C "$TARGET_WORKTREE_ROOT" branch --show-current` matches. |
+| `generation_head` | yes | Full 40-character commit SHA at the bound checkout when the artifact was generated. The executor verifies `git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD` matches before making changes. |
+| `head_repo` | yes | Repository of the PR head. For cross-repo PRs this differs from `repo`. |
+| `head_ref` | yes | Branch name of the PR head. |
+| `head_sha` | yes | Commit SHA of the PR head at generation time. |
+| `head_clone_url` | yes | Clone URL for the head repository. The executor may need this when the head repo differs from the base repo. |
+
+### Context Validation
+
+Before executing any task, the executor MUST:
+
+1. Verify `target_worktree_root_sha256` against the current checkout root.
+2. Verify `checkout_branch` matches the current branch.
+3. Verify `generation_head` matches `git rev-parse HEAD`.
+4. Verify `gh pr view --json number,url,headRefName` returns the expected PR.
+
+If any check fails:
+- If the mismatch is in the checkout root or branch: **blocked** — ask operator to re-bind or re-generate.
+- If the mismatch is only in `generation_head` (new commits pushed since generation): re-run evidence checks for each task. Tasks whose code evidence is now stale must be re-evaluated. If all tasks remain valid against current HEAD, update `generation_head` and proceed. If any task is stale, **blocked** — ask operator to re-generate the artifact.
+- If `gh pr view` fails or returns a different PR: **blocked** — ask operator to verify PR identity.
+
+---
+
+## Status Block
+
+Every artifact includes a Status Block that records execution progress. It uses delimited markers for machine parsing:
+
+```
+<!-- artifact-execution-status:start -->
+| Field | Value |
+|-------|-------|
+| Artifact ID | `<uuid>` |
+| Operation ID | `<uuid>` |
+| State | `pending` |
+
+(remaining fields are populated during execution — see below)
+<!-- artifact-execution-status:end -->
+```
+
+### Status Block Fields (in order)
+
+| # | Field | Description |
+|---|-------|-------------|
+| 1 | Artifact ID | UUID generated at artifact creation. Immutable. |
+| 2 | Operation ID | UUID generated when execution begins. Updated on each new execution attempt. |
+| 3 | State | Current lifecycle state: `pending`, `in-progress`, `blocked`, or `verified-complete`. |
+| 4 | Updated At | RFC 3339 timestamp of the last status block update. |
+| 5 | Generation HEAD | 40-char commit SHA from artifact generation. |
+| 6 | Started HEAD | 40-char commit SHA at execution start. |
+| 7 | Final Tip | 40-char commit SHA after all commits applied. Empty until first commit. |
+| 8 | Evidence Sequence | Integer counter, incremented on each evidence record write. |
+| 9 | Task Statuses | Comma-separated `task_id:state` pairs. State is one of: `pending`, `in-progress`, `verified`, `skipped`, `blocked`. |
+| 10 | Commit Intents | Comma-separated `task_id:message_subject` pairs for tasks requiring commits. |
+| 11 | Modification Commits | Comma-separated `task_id:40hex_sha` pairs. Populated after each commit. |
+| 12 | Verification Evidence | Comma-separated `verification_id:outcome` pairs. Outcome is `pass` or `fail:<reason>`. |
+| 13 | Post Attempts | Comma-separated `reply_target_id:attempt_count` pairs. Attempt count is the number of POST calls for that target. |
+| 14 | Thread Snapshots | Comma-separated `reply_target_id:snapshot_hash` pairs. Snapshot hash is SHA-256 of the thread state before posting. |
+| 15 | Reply Target Dispositions | Comma-separated `reply_target_id:disposition` pairs. Disposition is `eligible`, `blocked:<reason>`, or `posted:<comment_id>`. |
+| 16 | Reply IDs | Comma-separated `reply_target_id:github_comment_id` pairs. Populated after read-back confirms the posted reply. |
+| 17 | Read-Back Evidence | Comma-separated `reply_target_id:verified` or `reply_target_id:failed:<reason>` pairs. |
+| 18 | Remote Reachability | Comma-separated `commit_sha:reachable` or `commit_sha:unreachable` pairs. |
+| 19 | Push Receipts | Comma-separated `commit_sha:push_result` pairs. |
+| 20 | Blocked Reason | Human-readable reason for the `blocked` state. Empty when not blocked. |
+| 21 | Transition Preimages | JSON object mapping transition edges to pre-transition state snapshots. |
+| 22 | Transition History | Comma-separated `from_state→to_state@RFC3339` entries. |
+
+### Status Block Usage
+
+The Status Block is written by the artifact generator in `pending` state and updated by the executor. Every state transition MUST be recorded in Transition History before the Status Block is rewritten. The executor reads the Status Block at the start of execution to determine current state and resume from the correct point.
+
+---
+
+## Task Schema
+
+Each actionable item in the artifact is a task. Tasks appear in Section A (code change + reply) and Section B (reply only).
+
+### Task Object
+
+```json
+{
+  "task_id": "string",
+  "group_id": null,
+  "execution_order": 1,
+  "depends_on_task_ids": ["task_id"],
+  "expected_paths": ["path"],
+  "requires_commit": true,
+  "verification_ids": ["vid"],
+  "reply_target_ids": ["tid"]
+}
+```
+
+### Field Definitions
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `task_id` | yes | Unique task identifier within the artifact. Format: `task-N` where N is a 1-based integer. |
+| `group_id` | yes | Grouping key for related tasks. `null` if ungrouped. Format: `group-N`. |
+| `execution_order` | yes | Integer ordering. Tasks with lower numbers execute first. Tasks with the same number may execute in parallel if their `depends_on_task_ids` permit it. |
+| `depends_on_task_ids` | yes | List of `task_id` values that must reach `verified` state before this task can start. Empty list if no dependencies. |
+| `expected_paths` | yes | List of file paths (relative to repo root) that this task is expected to modify. Used for scope enforcement. |
+| `requires_commit` | yes | `true` if this task produces a commit (Section A tasks). `false` if reply-only (Section B tasks). |
+| `verification_ids` | yes | List of verification identifiers that must all pass before this task is `verified`. |
+| `reply_target_ids` | yes | List of reply target identifiers that must all be posted and read-back verified. |
+
+### Task Dependency Resolution
+
+The executor MUST respect `depends_on_task_ids`. A task whose dependencies are not yet `verified` remains in `pending` state. Tasks with no unresolved dependencies may execute in parallel if the executor supports concurrent execution.
+
+### Task State Transitions
+
+```
+pending ──► in-progress ──► verified
+pending ──► skipped
+in-progress ──► blocked
+```
+
+- `pending → skipped`: Context validation determined this task is no longer applicable (stale evidence, already fixed upstream). Reason recorded in the Status Block.
+- `in-progress → blocked`: Hard stop during execution. The blocking task's `task_id` is recorded.
+- `in-progress → verified`: All verification checks passed. If `requires_commit` is `true`, the commit is done and remote-reachable. All reply targets are posted and read-back verified.
+
+---
+
+## Verification Schema
+
+Each task references one or more verifications. A verification defines an executable check with an expected outcome.
+
+```json
+{
+  "verification_id": "vid",
+  "kind": "string",
+  "command": "string",
+  "expected": "string",
+  "timeout_seconds": 60
+}
+```
+
+### Field Definitions
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `verification_id` | yes | Unique identifier. Format: `verify-N`. |
+| `kind` | yes | Verification kind: `test`, `lint`, `build`, `typecheck`, `grep`, `custom`. |
+| `command` | yes | Exact command to run from `TARGET_WORKTREE_ROOT`. Shell-safe. |
+| `expected` | yes | Expected output or exit code description. Human-readable but specific enough to judge pass/fail. |
+| `timeout_seconds` | yes | Maximum execution time in seconds. |
+
+### Verification Execution
+
+The executor runs each verification from `TARGET_WORKTREE_ROOT`. A verification passes when:
+
+1. The command exits with code 0 (unless `expected` specifies a different success condition).
+2. The output matches the `expected` description.
+
+If verification fails:
+1. The executor records the failure reason in Verification Evidence.
+2. If a correction path exists within the task scope, the executor may apply it and re-run the verification (maximum 3 attempts per task).
+3. If no viable correction path exists, the task transitions to `blocked` and the artifact transitions to `blocked`.
+
+No task transitions to `verified` while any verification is failing. No reply posting or commit pushing occurs before all verifications pass.
+
+---
+
+## Reply Target Schema
+
+Each task references one or more reply targets. A reply target describes a PR comment that requires a response.
+
+```json
+{
+  "reply_target_id": "tid",
+  "comment_id": 1,
+  "author": "string",
+  "kind": "inline",
+  "endpoint": "repos/{owner}/{repo}/pulls/{pr}/comments",
+  "target_path": "src/file.go",
+  "target_line": 42,
+  "target_side": "RIGHT",
+  "in_reply_to": 1,
+  "reply_body_template": "string",
+  "reply_kind": "fixed",
+  "requires_commit_sha": true,
+  "duplicate_of": null,
+  "disposition": "pending",
+  "disposition_reason": null
+}
+```
+
+### Field Definitions
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `reply_target_id` | yes | Unique identifier. Format: `reply-N`. |
+| `comment_id` | yes | GitHub comment ID to reply to. |
+| `author` | yes | Author login to @-mention. |
+| `kind` | yes | Comment kind: `inline`, `review`, or `top_level`. |
+| `endpoint` | yes | GitHub API endpoint for posting. Format: `repos/{owner}/{repo}/pulls/{pr}/comments` (inline) or `repos/{owner}/{repo}/issues/{pr}/comments` (review, top_level). |
+| `target_path` | no | File path for inline replies. Required when `kind` is `inline`. |
+| `target_line` | no | Line number for inline replies. Required when `kind` is `inline`. |
+| `target_side` | no | Diff side for inline replies. Default: `RIGHT`. |
+| `in_reply_to` | yes | GitHub comment ID that this reply responds to. For inline replies this is the thread's root comment ID. |
+| `reply_body_template` | yes | Reply body text with placeholders. `{commit_sha}` is replaced with the actual commit SHA before posting. |
+| `reply_kind` | yes | Reply intent: `fixed` (code change applied), `already_fixed`, `invalid`, `out_of_scope`, `needs_clarification`, `partially_addressed`, `conflict_not_chosen`. |
+| `requires_commit_sha` | yes | `true` if the reply body requires a commit SHA. Always `true` for `reply_kind=fixed` and `reply_kind=partially_addressed`. |
+| `duplicate_of` | no | If this is a duplicate reply target, the `reply_target_id` of the primary target. `null` for primary targets. |
+| `disposition` | yes | Current disposition: `pending`, `eligible`, `blocked`, `posted`, `verified`. |
+| `disposition_reason` | no | Human-readable reason when disposition is `blocked`. |
+
+### Reply Target Disposition
+
+Each reply target transitions through a disposition lifecycle:
+
+| Disposition | Meaning |
+|-------------|---------|
+| `pending` | Not yet evaluated. Default at artifact generation. |
+| `eligible` | The Pre-Reply Gate passed. Ready for posting. |
+| `blocked` | The Pre-Reply Gate blocked this target. Reason recorded in `disposition_reason`. |
+| `posted` | Reply has been POSTed. Waiting for read-back verification. |
+| `verified` | Read-back confirmed the posted reply exists. |
+
+### Disposition Transition Rules
+
+```
+pending ──► eligible ──► posted ──► verified
+pending ──► blocked
+```
+
+- `pending → eligible`: Pre-Reply Gate passed (no existing human reply; conclusion still valid).
+- `eligible → blocked`: Pre-Reply Gate re-evaluation failed (code state changed, reply would be stale).
+- `eligible → posted`: Reply was POSTed successfully. The POST response code was 201.
+- `posted → verified`: Read-back GET/LIST confirmed reply body, author, and thread relationship.
+- `pending → blocked`: Pre-Reply Gate failed on first evaluation.
+
+Blocked reply targets remain in the artifact. The executor reports them in the execution summary. They do not prevent other tasks from reaching `verified-complete` if all non-blocked tasks are complete.
+
+---
+
+## Evidence Envelope
+
+All execution evidence (verification results, commit records, reply confirmations, read-back proofs) is recorded in evidence envelopes. Each envelope is atomic and immutable.
+
+```json
+{
+  "record_id": "UUID",
+  "kind": "string",
+  "key": "string",
+  "version": 1,
+  "sequence": 1,
+  "operation_id": "UUID",
+  "recorded_at": "RFC3339",
+  "payload": {}
+}
+```
+
+### Field Definitions
+
+| Field | Description |
+|-------|-------------|
+| `record_id` | UUID v4, generated per record. |
+| `kind` | Evidence kind: `verification`, `commit`, `push`, `post_attempt`, `read_back`, `remote_check`, `state_transition`. |
+| `key` | Stable identifier for aggregation (e.g., `task-1:verify-2`, `task-1:reply-3`). |
+| `version` | Schema version for the payload. Incremented when payload shape changes. |
+| `sequence` | Monotonic counter within the operation. Starts at 1. |
+| `operation_id` | UUID of the current execution operation (matches Status Block Operation ID). |
+| `recorded_at` | RFC 3339 timestamp when the evidence was recorded. |
+| `payload` | Kind-specific payload object (see below). |
+
+### Evidence Kinds and Payloads
+
+**verification**:
+```json
+{
+  "kind": "verification",
+  "key": "task-1:verify-2",
+  "payload": {
+    "verification_id": "verify-2",
+    "task_id": "task-1",
+    "command": "go test ./...",
+    "exit_code": 0,
+    "output_summary": "PASS: 12 tests",
+    "outcome": "pass"
+  }
+}
+```
+
+**commit**:
+```json
+{
+  "kind": "commit",
+  "key": "task-1:commit",
+  "payload": {
+    "task_id": "task-1",
+    "commit_sha": "40hex",
+    "message": "fix: correct initialization order",
+    "files_changed": ["src/init.go"]
+  }
+}
+```
+
+**push**:
+```json
+{
+  "kind": "push",
+  "key": "task-1:push",
+  "payload": {
+    "task_id": "task-1",
+    "commit_sha": "40hex",
+    "remote": "origin",
+    "result": "pushed"
+  }
+}
+```
+
+**post_attempt**:
+```json
+{
+  "kind": "post_attempt",
+  "key": "task-1:reply-3:attempt-1",
+  "payload": {
+    "reply_target_id": "reply-3",
+    "task_id": "task-1",
+    "endpoint": "repos/o/r/pulls/1/comments",
+    "attempt_number": 1,
+    "response_code": 201,
+    "response_body_preview": "..."
+  }
+}
+```
+
+**read_back**:
+```json
+{
+  "kind": "read_back",
+  "key": "task-1:reply-3:readback",
+  "payload": {
+    "reply_target_id": "reply-3",
+    "task_id": "task-1",
+    "method": "GET",
+    "endpoint": "repos/o/r/pulls/1/comments",
+    "found_comment_id": 12345,
+    "body_matches": true,
+    "author_matches": true,
+    "thread_matches": true,
+    "outcome": "verified"
+  }
+}
+```
+
+**remote_check**:
+```json
+{
+  "kind": "remote_check",
+  "key": "task-1:remote",
+  "payload": {
+    "task_id": "task-1",
+    "commit_sha": "40hex",
+    "check_method": "gh api",
+    "reachable": true
+  }
+}
+```
+
+**state_transition**:
+```json
+{
+  "kind": "state_transition",
+  "key": "artifact:in-progress→verified-complete",
+  "payload": {
+    "from_state": "in-progress",
+    "to_state": "verified-complete",
+    "transitioned_at": "RFC3339",
+    "preimage": { "task-1": "verified", "task-2": "verified" }
+  }
+}
+```
+
+Evidence records are written to the artifact file in the Evidence Inventory section (see below). The Status Block's Evidence Sequence counter is incremented on each write.
+
+---
+
+## Section A Execution Contract
+
+Section A tasks involve code changes. The execution order within each Section A task is mandatory and sequential:
+
+```
+edit → verify → commit → remote-reachability → reply → read-back
+```
+
+No phase may be skipped. No phase may be reordered. The executor MUST complete each phase before starting the next.
+
+### Phase 1: Edit
+
+Apply the code changes specified in the task's `expected_paths`. The executor reads "What to change" and "Fix direction" from the artifact's task entry. Changes are scoped to the listed files. Scope Guardrails from the artifact are enforced — no refactors, no dependency updates, no cross-file changes beyond those listed.
+
+After editing, the executor runs `git diff --stat` to confirm the changes match `expected_paths`. If changes appear outside `expected_paths`, the executor stops and records a scope violation.
+
+### Phase 2: Verify
+
+Run every verification listed in the task's `verification_ids`. Verification commands are executed from `TARGET_WORKTREE_ROOT`. All verifications must pass. If any verification fails and the failure is correctable within scope, the executor may return to Phase 1 (edit) for a maximum of 3 total cycles. If verification still fails after 3 cycles, the task transitions to `blocked`.
+
+Verification results are recorded as evidence envelopes of kind `verification`.
+
+### Phase 3: Commit
+
+If `requires_commit` is `true`, create a commit with the suggested commit message. The executor uses the message from the artifact's task entry. Commit message format must follow repository conventions (detected from `git log --oneline -10` in the Context).
+
+After committing, the executor runs `git log -1 --format=%H` to record the commit SHA. This SHA becomes the `{commit_sha}` value for the Reply phase.
+
+Commit evidence is recorded as an evidence envelope of kind `commit`.
+
+If `requires_commit` is `false` (Section B tasks), skip this phase and the remote-reachability phase.
+
+### Phase 4: Remote Reachability
+
+The commit must be pushed and verifiable on the remote. The executor:
+
+1. Pushes the commit: `git push origin <checkout_branch>`.
+2. Verifies remote reachability using `gh api repos/{owner}/{repo}/commits/<sha>`.
+3. Repeats the check up to 3 times with 5-second delays if the commit is not immediately visible.
+
+If the commit cannot be verified as remotely reachable after retries, the task transitions to `blocked`. Remote reachability evidence is recorded as evidence envelopes of kind `remote_check` and `push`.
+
+### Phase 5: Reply
+
+For each reply target in `reply_target_ids`:
+
+1. Evaluate the Pre-Reply Gate (see Reply Policy below).
+2. If blocked, record disposition as `blocked:<reason>` and skip.
+3. If eligible, replace `{commit_sha}` in the `reply_body_template` with the actual commit SHA.
+4. POST the reply using the correct endpoint and flags from Reply Endpoints.
+5. Record the POST attempt as an evidence envelope of kind `post_attempt`.
+6. Record disposition as `posted`.
+
+**CRITICAL**: Do NOT verify reply success by re-POSTing. If the POST result is unclear, proceed to read-back verification first. Only re-POST if read-back proves the reply is absent.
+
+Duplicate reply targets (where `duplicate_of` is non-null) share the same reply body template but use different `in_reply_to` IDs. The executor posts to each duplicate author individually. Each duplicate is a separate reply target with its own reply_target_id.
+
+### Phase 6: Read-Back
+
+For each reply target that was posted:
+
+1. Execute the read-back endpoint:
+   - For `inline` replies: `gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate` and search for the posted comment ID.
+   - For `review` and `top_level` replies: `gh api repos/{owner}/{repo}/issues/{pr}/comments --paginate` and search for the posted comment ID.
+2. Confirm the reply body matches the posted content.
+3. Confirm the reply author is the authenticated user.
+4. Confirm the thread relationship is correct (for inline: correct `in_reply_to`; for review/top_level: correct issue thread).
+
+Record read-back evidence as an evidence envelope of kind `read_back`. If read-back confirms the reply exists, set disposition to `verified` and record the GitHub comment ID in Reply IDs.
+
+If read-back cannot find the reply after 3 attempts with 10-second delays, record disposition as `blocked:read-back-failed` and do not retry the POST.
 
 ---
 
 ## Reply Endpoints
 
 ```markdown
-## Reply Endpoints (shared by Sections A and B)
+## Reply Endpoints
 
 | Reply Kind | Endpoint | Key Flag |
 |------------|----------|----------|
@@ -71,475 +545,407 @@ A single table following the executive summary lists merged duplicates (which co
 | `review` | `repos/{owner}/{repo}/issues/{pr}/comments` | mention @author in body |
 | `top_level` | `repos/{owner}/{repo}/issues/{pr}/comments` | -- |
 
+### Commands
+
 ```bash
 # inline:
-gh api repos/{{REPO}}/pulls/{{PR_NUMBER}}/comments --method POST \
-  -F body="{{REPLY_TEXT}}" -F commit_id=$(git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD) \
-  -F path="{{FILE_PATH}}" -F line={{LINE}} -F side=RIGHT \
-  -F in_reply_to={{COMMENT_ID}}
+gh api repos/{owner}/{repo}/pulls/{pr}/comments --method POST \
+  -F body="REPLY_TEXT" -F commit_id=$(git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD) \
+  -F path="FILE_PATH" -F line=LINE -F side=RIGHT \
+  -F in_reply_to=COMMENT_ID
 
 # review:
-gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
-  -F body="@{{AUTHOR}} {{REPLY_TEXT}}"
+gh api repos/{owner}/{repo}/issues/{pr}/comments --method POST \
+  -F body="@AUTHOR REPLY_TEXT"
 
 # top_level:
-gh api repos/{{REPO}}/issues/{{PR_NUMBER}}/comments --method POST \
-  -F body="{{REPLY_TEXT}}"
+gh api repos/{owner}/{repo}/issues/{pr}/comments --method POST \
+  -F body="REPLY_TEXT"
 ```
-
-**Commit SHA note**: Inline replies require a valid commit SHA on the PR branch. Resolve it from the bound checkout with `git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD`. `review` and `top_level` replies do not need `commit_id`.
 ```
 
 ---
 
-## Direct Reply-Only Posting
+## Dossier Structure
 
-Use this section only when Section A = 0 and Section B > 0. This route skips dossier generation, but it does not stop at draft or compose text.
+A Review Dossier is generated when Section A contains code change work that exceeds the Direct Fix eligibility threshold. The dossier contains all Sections (A, B, C) and the full execution contract.
 
-For each Section B item that passes the Pre-Reply Gate:
+### Required Sections (in order)
 
-1. Select the endpoint from Reply Endpoints.
-2. POST/send the reply with `gh api` using that endpoint.
-3. Verify the reply by read-back with GET/LIST operations, such as `gh api repos/{owner}/{repo}/issues/{pr}/comments --paginate` for `review` and `top_level` replies, or `gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate` for `inline` replies.
-4. Confirm the read-back output contains the expected reply body, author, and target thread or comment relationship.
+1. **Executive Summary** — counts and action categories.
+2. **Dedup & Conflict Notes** — merged duplicates and resolved conflicts.
+3. **Context** — Context Schema values as a readable table.
+4. **Status Block** — the `artifact-execution-status` delimited section.
+5. **Reply Endpoints** — endpoint table and command templates.
+6. **Section A: Code Change + Reply** — ordered task entries with full evidence.
+7. **Section B: Reply Only** — reply-only task entries.
+8. **Section C: No Action** — informational and already-replied comments.
+9. **Dependencies** — task dependency declarations.
+10. **Scope Guardrails** — execution boundary rules.
+11. **Cross-File Pattern** — present only when cross-reference detected Strong escalation.
+12. **Reply Policy** — Pre-Reply Gate, Change Summary Rule, reply templates.
+13. **Evidence Inventory** — the `artifact-execution-inventory` delimited section.
 
-If a POST result is unclear, do the read-back first. Retry the POST only after read-back proves the reply is absent. Do not verify by duplicate POST.
+### Section A Task Entry Template
 
-Duplicate comments require one reply POST per listed author/comment ID that passes the Pre-Reply Gate, followed by read-back verification for each posted reply.
+```markdown
+### Task N: Comment #COMMENT_ID -- SUMMARY
+- **Source**: @AUTHOR | KIND | FILE_PATH:LINE
+- **Also noted by**: @DUP1, @DUP2 (omit if no duplicates)
+- **Conclusion**: `valid`
+- **Reviewer concern**: CONCERN (underlying bug/risk/behavior)
+- **Code evidence**: EVIDENCE (current HEAD file:line proof)
+- **Local pattern evidence**: PATTERN (nearby code, callers, tests, conventions)
+- **Reviewer suggestion fit**: `FIT` -- REASON
+- **Fix direction**: DIRECTION (minimal correct direction from evidence)
+- **What to change**: CHANGES (exact paths, lines, specific modification)
+- **How to test**: TEST_STRATEGY (specific commands, expected output)
+- **Reply kind**: REPLY_KIND -> @AUTHOR
+- **Reply commit requirement**: Reply MUST reference modification commit SHA
+- **Reply to duplicate authors**: Same reply, each via own in_reply_to ID
+- **Execution order**: edit → verify → commit → remote-reachability → reply → read-back
+- **Commit message**: `SUGGESTED_COMMIT_MESSAGE`
+```
+
+### Section B Task Entry Template
+
+```markdown
+### Task N: Comment #COMMENT_ID -- SUMMARY
+- **Source**: @AUTHOR | KIND | FILE_PATH:LINE
+- **Conclusion**: `CONCLUSION` -- RATIONALE
+- **Reply**: REPLY_KIND -> @AUTHOR
+- **Execution order**: reply → read-back (no edit, verify, commit, or remote-reachability)
+```
+
+### Evidence Inventory
+
+The Evidence Inventory section is a dedicated area for evidence envelope records. It uses delimited markers:
+
+```
+<!-- artifact-execution-inventory:start -->
+```json
+{"record_id":"UUID","kind":"state_transition",...}
+```
+<!-- artifact-execution-inventory:end -->
+```
+
+Each line between the markers is a JSON evidence envelope. The executor appends records during execution. The artifact generator writes the initial markers with an empty inventory.
 
 ---
 
-## Direct-Fix Fast Path
+## Direct Fix Brief
 
-Use this section only when Section A contains simple low-risk code work and the user explicitly chose direct fix after the final overview table. This route replaces the full Prometheus dossier with a shorter Direct Fix Brief. It does not remove reply, commit, or read-back obligations.
+A Direct Fix Brief is generated when a single Section A task meets all Direct Fix eligibility checks. The brief contains the same execution contract as a dossier but scoped to one task.
 
-After saving the Direct Fix Brief and passing §Direct Fix Brief Completeness, load `platform.md` §Direct Fix Brief Handoff and output that handoff with the actual artifact path. Do not end with only the artifact path.
+### Direct Fix Eligibility
 
-### Eligibility Checklist
+All conditions must be true:
+- Section A has exactly one task (unless user explicitly allows more).
+- Each task touches one clearly named file.
+- Change is mechanical low-risk (wording, comments, docs, config, rename, proto field rename with field number preserved).
+- No unresolved duplicate ambiguity, conflict, dependency, or Strong cross-file escalation.
+- Complete evidence ledger: reviewer concern, current code evidence, local pattern evidence, suggestion fit, fix direction, verification target.
+- Fix direction is derived from code evidence, not copied from raw reviewer suggestion.
+- Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
+- "What to change" and "How to test" are exact enough for direct execution.
+- Reply data is complete: comment ID, author, reply kind, endpoint, inline target fields.
+- User explicitly chose direct fix.
 
-Every checked condition must be true before writing a Direct Fix Brief:
-
-| Check | Required Condition |
-|-------|--------------------|
-| Section A size | Small enough to execute directly; default limit is one Section A task unless the user explicitly allows more |
-| Scope | Each code task touches one clearly named file |
-| Risk | Mechanical low-risk change such as wording, comments, docs, config tweak, rename, or proto field rename with field number preserved |
-| Cross-reference | No unresolved duplicate ambiguity, conflict, dependency, or Strong cross-file escalation |
-| Evidence ledger | Complete Evidence Ledger Gate from `classify.md`; reviewer concern, current code evidence, local pattern evidence, suggestion fit, fix direction, and verification target are all present |
-| Fix source | Fix direction is derived from code evidence, not copied from raw reviewer suggestion |
-| Suggestion fit | `accept`, or mechanically safe `modify` with the difference fully explained |
-| Specificity | `What to change` and `How to test` are exact enough for direct execution |
-| Reply data | Comment ID, author, reply kind, endpoint, and inline target fields are complete |
-| User choice | User explicitly chose direct fix; small PR fast-path consent alone is insufficient |
-
-If any check fails, do not write a Direct Fix Brief. Use the normal Dossier Structure and Prometheus handoff.
-
-### Dossier Accuracy Grill Gate
-
-Run this gate before writing either a full dossier or a Direct Fix Brief. Ask only about uncertainty that remains after code inspection, comment reading, cross-reference checks, and user discussion. If there is no uncertainty, state that the gate has no questions and proceed.
-
-Use grill-me style:
-
-- Ask one question at a time.
-- Include the recommended answer.
-- Do not ask what code/comment context already answers.
-- Stop as soon as the execution boundary is unambiguous.
-- Do not invoke `grill-with-docs` by default. Use it only when the PR comment requires domain glossary or ADR-style decision capture.
-
-Question triggers:
-
-| Trigger | Question Shape |
-|---------|----------------|
-| Direct-fix boundary unclear | "Should this bypass Prometheus, or should it use the normal dossier? Recommended: ..." |
-| Multiple valid implementations | "Which implementation should the worker apply? Recommended: ..." |
-| Scope guardrail unclear | "Should this fix stay in the commented file only? Recommended: ..." |
-| Test strategy unclear | "Which targeted validation is enough for this change? Recommended: ..." |
-| Reply wording may mislead | "Should the reply include a change summary beyond `Fixed in <sha>`? Recommended: ..." |
-| Cross-file work ambiguous | "Should same-pattern files be fixed now or deferred? Recommended: ..." |
-
-Gate completion criterion: every trigger is either answered from existing evidence, answered by the user, or causes fallback to the normal dossier/Prometheus path.
+If any check fails, the workflow must generate a full Review Dossier instead.
 
 ### Direct Fix Brief Template
 
 ```markdown
-# Direct Fix Brief: PR #{{PR_NUMBER}}
+# Direct Fix Brief: PR #PR_NUMBER
 
 ## Context
-- PR: {{PR_URL}}
-- Repo: `{{REPO}}`
-- Branch: `{{BRANCH}}`
-- Target checkout root: `<TARGET_WORKTREE_ROOT>`
+- PR: PR_URL
+- Repo: `owner/repo`
+- Branch: `checkout_branch`
+- Target checkout root: `TARGET_WORKTREE_ROOT`
+
+<!-- artifact-execution-status:start -->
+| Field | Value |
+|-------|-------|
+| Artifact ID | `<uuid>` |
+| Operation ID | |
+| State | `pending` |
+| ... | |
+<!-- artifact-execution-status:end -->
 
 ## Comment
-- Comment ID: `{{COMMENT_ID}}`
-- Author: @{{AUTHOR}}
-- Kind: `{{KIND}}`
-- Location: `{{FILE_PATH}}:{{LINE}}`
+- Comment ID: COMMENT_ID
+- Author: @AUTHOR
+- Kind: KIND
+- Location: FILE_PATH:LINE
 - Conclusion: `valid`
 
 ## Evidence Ledger
-- Reviewer concern: {{REVIEWER_CONCERN}}
-- Current code evidence: {{CURRENT_CODE_EVIDENCE}}
-- Local pattern evidence: {{LOCAL_PATTERN_EVIDENCE}}
-- Reviewer suggestion fit: `{{SUGGESTION_FIT}}` -- {{SUGGESTION_FIT_REASON}}
-- Fix direction: {{FIX_DIRECTION}}
+- Reviewer concern: CONCERN
+- Current code evidence: EVIDENCE
+- Local pattern evidence: PATTERN
+- Reviewer suggestion fit: `FIT` -- REASON
+- Fix direction: DIRECTION
 
 ## Change
-{{DEV_CHANGES}}
+DEV_CHANGES
 
 ## Guardrails
-- {{GUARDRAIL_1}}
+- GUARDRAIL
 
 ## Verification
-{{TEST_STRATEGY}}
+TEST_STRATEGY
 
 ## Reply
-- Reply kind: `{{REPLY_KIND}}`
-- Endpoint: `{{REPLY_ENDPOINT}}`
-- Inline target: `path={{FILE_PATH}}`, `line={{LINE}}`, `side=RIGHT`, `in_reply_to={{COMMENT_ID}}`
+- Reply kind: `REPLY_KIND`
+- Endpoint: `REPLY_ENDPOINT`
+- Inline target: path=FILE_PATH, line=LINE, side=RIGHT, in_reply_to=COMMENT_ID
 - Pre-Reply Gate: must pass before composing reply
 - Reply commit requirement: reply text MUST reference the modification commit SHA
-- Reply body: {{REPLY_TEMPLATE}}
+- Reply body: REPLY_TEMPLATE
 
-## Read-Back Verification
-GET/LIST the matching comment thread or PR comments and confirm the posted reply body, author, and target relationship. Do not verify by repeating POST.
+## Reply Endpoints
+(reply endpoint table and commands — same as dossier)
+
+## Evidence Inventory
+<!-- artifact-execution-inventory:start -->
+<!-- artifact-execution-inventory:end -->
 ```
 
-For non-inline comments, replace `Inline target` with the `review` or `top_level` target from Reply Endpoints. Do not remove `Comment ID`, `Author`, `Reply kind`, `Endpoint`, `Pre-Reply Gate`, `Reply commit requirement`, or `Read-Back Verification`.
-
----
-
-## Section A: Comments Requiring Code Change + Reply
-
-Section A captures every comment confirmed as requiring a code change and a reply. Each comment becomes one task entry.
-
-### Section A Task Template
-
-All fields mandatory. No generic descriptions — exact paths, line numbers, specific commands.
-
-```markdown
-### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} -- {{SUMMARY}}
-- **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
-- **Also noted by**: @{{DUP_AUTHOR1}}, @{{DUP_AUTHOR2}} (omit if no duplicates)
-- **Conclusion**: `valid`
-- **Reviewer concern**: {{REVIEWER_CONCERN}} (underlying bug/risk/behavior, not copied suggestion text)
-- **Code evidence**: {{CURRENT_CODE_EVIDENCE}} (current HEAD `file:line` evidence proving the concern exists)
-- **Local pattern evidence**: {{LOCAL_PATTERN_EVIDENCE}} (nearby code, sibling implementation, caller/callee, tests, API contract, or repository convention)
-- **Reviewer suggestion fit**: `{{SUGGESTION_FIT}}` -- {{SUGGESTION_FIT_REASON}} (`accept`, `modify`, or `reject` from `classify.md`)
-- **Fix direction**: {{FIX_DIRECTION}} (minimal correct direction derived from evidence)
-- **What to change**: {{DEV_CHANGES}} (exact file paths, line numbers, specific code modification implementing Fix direction)
-- **How to test**: {{TEST_STRATEGY}} (specific test commands, expected output; must match Verification target from the evidence ledger)
-- **Reply after fix**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
-- **Reply commit requirement**: Reply text MUST reference the modification commit SHA created for this task, e.g. `Fixed in <commit_sha>.` Add the required change summary from Reply Policy when the fix is partial, direction-correcting, or non-obvious.
-- **Reply to duplicate authors**: Same reply, directed to @{{DUP_AUTHOR}} via their own `in_reply_to` ID
-- **Plan order**: code/test/commit first, then reply task(s), then read-back verification
-- **Commit message**: `{{SUGGESTED_COMMIT_MESSAGE}}` (imperative mood, matching repo conventions)
-```
-
----
-
-## Section B: Comments Requiring Reply Only
-
-Section B captures every comment confirmed as needing a reply but no code change. These entries become reply-only tasks in the Prometheus execution plan. No tests, no commits.
-
-### Section B Task Template
-
-```markdown
-### Task {{TASK_NUM}}: Comment #{{COMMENT_ID}} -- {{SUMMARY}}
-- **Source**: @{{AUTHOR}} | {{KIND}} | {{FILE_PATH}}:{{LINE}}
-- **Conclusion**: `{{CONCLUSION}}` -- {{RATIONALE}}
-- **Reply**: {{REPLY_KIND}} -> @{{AUTHOR}} (use endpoint from Reply Endpoints)
-- **Read-back verification**: GET/LIST the matching comment thread or issue comments and confirm the posted reply body and author
-```
-
-For conflict resolution (rejected direction), add `- **Context**: User chose @A over @B` and set `- **Conclusion**: \`invalid\``.
-
-### Required Fields (ALL Mandatory)
-
-Conclusion rationale (why no code change), reply target (kind + author), no-code-change constraint (no references to code modifications or test commands).
-For duplicates, every listed author/comment ID must appear in the reply task target list unless the Pre-Reply Gate blocks that individual target.
-
-### Conflict Handling
-
-When user chooses @A's approach over @B's: chosen direction goes to Section A (if code change needed) or Section B (if reply-only); rejected direction goes to Section B with `invalid` conclusion, explaining why the approach was not taken. Both options and the user choice are captured in the entry.
-
----
-
-## Section C: Informational & Already-Replied Comments -- No Action
-
-```markdown
-| # | Source | Kind | Summary | Reason |
-|---|--------|------|---------|--------|
-| {{COMMENT_ID}} | @{{AUTHOR}} | {{KIND}} | {{SUMMARY}} | {{informational / already_replied}} |
-```
-
-`informational` (praise, LGTM, emoji, FYI, nit, retraction), `already_replied` (sufficient human reply), and `minimized` by author go here. No code change, no reply, no follow-up. NOT counted as plan tasks.
-
----
-
-## Duplicate Handling in Dossier
-
-ONE task entry, ALL authors under "Also noted by", EACH author gets individual reply via own `in_reply_to` ID, same content, merge documented in Dedup & Conflict Notes. For 3+: list all authors and comment IDs explicitly. The generated plan MUST include reply tasks that cover every listed author/comment ID unless the Pre-Reply Gate blocks that individual target.
-
-### Duplicate + Cross-File Combination
-
-Primary entry follows cross-file escalation rules; duplicate authors follow duplicate handling. Cross-file pattern is a separate concern, not a duplicate.
-
-## Conflict Handling in Dossier
-
-Chosen direction goes to Section A (code change) or Section B (reply-only). Rejected direction goes to Section B with `invalid` conclusion. Document in Dedup & Conflict Notes. "What to change" references both approaches and explains the choice.
-
-## Cross-Section Rule
-
-Every item's dossier section MUST match its conclusion per the Section Mapping table in `classify.md`. If a conclusion changes during Step 3 interaction, re-assign the section. The pre-write cross-reference scan (see Validation Gates) catches any section misplacement automatically.
-
----
-
-## Dependencies
-
-When comments are causally or logically related (detected per `cross-reference.md`), capture after Cross-Reference Checks. Types: `fixes_needed_before`, `may_become_unnecessary`, `should_be_grouped`.
-
-```markdown
-## Dependencies
-- Task X and Y both modify `shared_type.go` -- coordinate changes
-- Task A is callee of Task B -- fix callee first
-- Fixing X may make Y unnecessary -- verify after X
-```
-
----
-
-## Scope Guardrails
-
-Prevents scope creep. Embedded after Dependencies.
-
-```markdown
-## Scope Guardrails
-| Rule | Rationale |
-|------|-----------|
-| {{GUARDRAIL_1}} | {{RATIONALE_1}} |
-```
-
-### Default Guardrails
-
-No vendor/dependency refresh, no global refactors, reply-only tasks no code, cross-file: fix only commented file.
-
-### Guardrail Sources
-
-Cross-reference protocol (cross-file Moderate+), interaction protocol (user constraints), `platform.md` defaults.
-
----
-
-## Cross-File Pattern Detected (Strong escalation only)
-
-Inserted before Scope Guardrails when cross-reference escalation confirms Strong evidence (4+ matches or same subsystem):
-
-```markdown
-## Cross-File Pattern Detected
-- **Grep**: `grep -rn "<pattern>" <dir>/ --include="*.<ext>"` → N matches
-- **Files**: <file1>, <file2>, ...
-- **Scope**: Fix <commented file> only (Section A)
-- **Follow-up**: Address remaining N files in separate PR
-```
+For non-inline comments, replace the inline target with the `review` or `top_level` target from Reply Endpoints. Do not remove Comment ID, Author, Reply kind, Endpoint, Pre-Reply Gate, Reply commit requirement, or Read-Back.
 
 ---
 
 ## Reply Policy
 
-Governs when and how to reply to PR comments.
-
 ### Pre-Reply Gate
 
-**Before composing any reply, run this checklist.** The gate exists to prevent the two highest-cost reply failures: replying to a thread that already has a sufficient response, and sending an overconfident `Fixed in <sha>` for a fix that is misleading without context.
+Before posting any reply, the executor evaluates these checks for each reply target:
 
-#### Gate Checklist
+| # | Check | Condition | Action if failed |
+|---|-------|-----------|------------------|
+| 1 | Already replied? | Thread has `has_replies: true` with a substantive human reply (not bot, not "I'll check", not your own prior reply). | Set disposition to `blocked:already-replied`. Do not post. |
+| 2 | Duplicate author? | This target's `duplicate_of` is non-null. | Same reply body, different `in_reply_to`. Post to each author. |
+| 3 | Change summary needed? | `reply_kind` requires a change summary (see Change Summary Rule). | Ensure reply body includes summary before SHA. |
+| 4 | Conclusion still valid? | Code state unchanged since generation. | Re-verify conclusion against current HEAD. If stale, set disposition to `blocked:stale-evidence`. |
 
-| # | Check | Condition to pass | Action if failed |
-|---|-------|-------------------|------------------|
-| 1 | **Already replied?** | Does this thread have `has_replies: true` with a substantively sufficient human reply? Verify: reply author is human (not bot), reply is substantive (not "Good point" / "I'll check"), reply is not your own from a previous pass. | Do NOT reply. The existing reply already addresses the concern. If the existing reply is insufficient, flag for user override at Step 3. |
-| 2 | **Duplicate author?** | Is this comment one of multiple that were merged as duplicates? | Compose ONE reply. Send it to EACH author individually via their own `in_reply_to` ID. Do not reply to only one author. |
-| 3 | **Change summary needed?** | Does the conclusion require a change summary alongside the fix confirmation (see Change Summary Rule below)? | Add a change summary before `Fixed in <sha>`. Do not send a bare `Fixed in <sha>` alone. |
-| 4 | **Conclusion still valid?** | Has the code state changed since classification (e.g., a new commit was pushed, or the diff shifted)? | Re-verify the conclusion against current HEAD. If the issue no longer exists, reclassify before replying. |
-
-#### Gate Enforcement
-
-If check #1 fails, the reply is blocked entirely. Do not compose, draft, or prepare a reply. Do not look for ways around the block. The existing reply stands unless the user explicitly reclassifies during Step 3.
-
-All four checks must pass before any reply content is written. The gate is evaluated per-author: for duplicate comments, run the gate for each author individually (check #2 ensures the content is the same, but check #1 may differ per author if some threads have replies and others do not).
-
----
+All four checks must pass before posting. The gate is per-reply-target (for duplicates, run individually — check #2 ensures same content, but check #1 may differ per author).
 
 ### Change Summary Rule
 
-A bare `Fixed in <sha>` implies the fix speaks for itself. When the fix is misleading, partial, or non-obvious without context, a 1-2 sentence change summary MUST accompany the SHA.
-
-`Fixed in <sha>` alone is allowed only when the fix is straightforward and the commit message fully describes the change (e.g., rename, typo fix). In ALL other cases, a change summary is mandatory:
+A bare `Fixed in {commit_sha}` implies the fix speaks for itself. When the fix is misleading, partial, or non-obvious without context, the reply body MUST include a 1-2 sentence change summary.
 
 | Situation | Why pure SHA is misleading |
 |-----------|---------------------------|
-| **Direction correction or reframed approach** | The fix takes a different path than suggested. `Fixed in <sha>` implies the concern was resolved as-requested. |
-| **Partial fix** | The core concern is not fully resolved (scope boundary, same pattern elsewhere). `Fixed in <sha>` implies completion. |
-| **Non-obvious change** | Subtle refactor, dependency change, or multi-file fix. The SHA alone doesn't convey scope or reasoning. |
+| Direction correction or reframed approach | Fix takes different path than suggested. |
+| Partial fix | Core concern not fully resolved (scope boundary, same pattern elsewhere). |
+| Non-obvious change | Subtle refactor, dependency change, multi-file fix. SHA alone doesn't convey scope. |
 
-Format: precede or follow `Fixed in <sha>` with a 1-2 sentence description:
-
-```
-Fixed in abc123. The fix reorders the initialization sequence — cleanup()
-now runs after process() completes.
-```
-
-For partial fixes, add scope boundary: `"Fixed in abc123 (src/auth/login.go only). Same issue in N other files — follow-up PR to follow."`
-For direction corrections: `"Corrected the fix direction in abc123. Previous attempt placed X before Y; now correctly runs after."`
-
----
+Format: precede or follow the SHA with a 1-2 sentence description. The reply body template in the artifact already reflects this requirement.
 
 ### Reply Templates Per Conclusion
 
-Each conclusion maps to exactly one reply template. The template is the default; the interaction protocol (Step 3) or the Change Summary Rule may override or extend it.
+| Conclusion | Template | Change summary required? |
+|-----------|----------|-------------------------|
+| valid (fixed) | `Fixed in {commit_sha}.` + change summary IF needed. | See Change Summary Rule. |
+| invalid | `This suggestion doesn't apply because <reason>.` | No. |
+| already_fixed | `Already resolved in the current code -- no changes needed.` | No. |
+| out_of_scope | `This is outside the scope of this PR. <follow-up>.` | No. |
+| needs_clarification | `Confirmed: <resolved direction>.` | No. |
+| partially_addressed | Acknowledges existing attempt + explains insufficiency + describes correct fix + new SHA. | Yes — always. |
+| conflict (not chosen) | `Thanks for the suggestion. We went with @other's approach for <reason>.` | No. |
 
-| Conclusion | Template | Change summary required? | Notes |
-|-----------|----------|-------------------------|-------|
-| valid (fixed) | `Fixed in <commit_sha>.` + change summary IF partial/direction-correction/non-obvious | See Change Summary Rule | Bare SHA only when fix is self-explanatory. Always check the rule. |
-| invalid | `This suggestion doesn't apply because <reason>.` | No | Reason is mandatory -- one sentence minimum. |
-| already_fixed | `Already resolved in the current code -- no changes needed.` | No | Evidence of the existing fix must be citeable per `classify.md`. |
-| out_of_scope | `This is outside the scope of this PR. <follow-up>.` | No | Follow-up suggestion is optional but recommended. |
-| needs_clarification | `Confirmed: <resolved direction>.` | No | Direction is resolved during Step 3 interaction. |
-| partially_addressed | `Acknowledged. The existing fix at <sha> addresses <X> but does not address <Y>. <Corrected/reworked> in <sha> to <describe correct fix>.` | Yes -- always | See Partial Fix Reply section below. |
-| conflict (not chosen) | `Thanks for the suggestion. We went with @other's approach for <reason>.` | No | Reason must neutrally explain the choice without disparaging the rejected approach. |
+### Duplicate Reply Strategy
 
-#### Partial Fix Reply (partially_addressed)
+One reply body template, posted to each author individually via their own `in_reply_to` ID. Each post is a separate reply target with its own disposition, POST attempt, and read-back evidence. Do not post to only one author.
 
-When the classification protocol assigned `partially_addressed`, the reply MUST include three components in order:
+---
 
-1. **Acknowledge the existing attempt**: Cite the commit SHA and what it attempted to fix.
-2. **Explain the insufficiency**: State why the existing fix does not resolve the core concern. Reference the specific code lines. Use neutral factual language.
-3. **Describe the correct fix**: State what was done in the new fix (or what will be done). Reference the new commit SHA.
+## Command-Level Helper CLIs
 
-Format:
+The executor uses these command sequences as helper patterns. They are not standalone binaries — they are shell command compositions that the executor evaluates against the artifact's Context.
 
+### execution-check
+
+Validate artifact context against current checkout before execution.
+
+```bash
+# Verify checkout root matches
+EXPECTED=$(echo -n "$TARGET_WORKTREE_ROOT_CANONICAL" | shasum -a 256 | cut -d' ' -f1)
+ACTUAL=$(echo -n "$(cd "$TARGET_WORKTREE_ROOT" && pwd -P)" | shasum -a 256 | cut -d' ' -f1)
+test "$EXPECTED" = "$ACTUAL" || echo "MISMATCH: checkout root"
+
+# Verify branch
+git -C "$TARGET_WORKTREE_ROOT" branch --show-current
+
+# Verify HEAD
+git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD
+
+# Verify PR
+gh pr view --json number,url,headRefName
 ```
-The fix at abc123 addressed the cleanup ordering by moving it before
-process(), but the reviewer's concern was that cleanup should happen
-AFTER process completes. This rework in def456 moves the
-call to the correct position in the execution sequence.
+
+### commit-check
+
+Verify a commit was created and record its SHA.
+
+```bash
+git -C "$TARGET_WORKTREE_ROOT" log -1 --format='%H %s'
+git -C "$TARGET_WORKTREE_ROOT" diff --stat HEAD~1
 ```
 
-Do NOT omit the acknowledgment. A `partially_addressed` reply that jumps straight to "Fixed in <sha>" without acknowledging the previous attempt reads as dismissive.
+### commit-reconcile
 
-#### Duplicate Author Reply Strategy
+Compare expected files from `expected_paths` with actual changed files.
 
-When a comment was merged as a duplicate (same concern, multiple authors):
+```bash
+# Expected paths come from task schema
+EXPECTED="src/init.go src/helper.go"
+ACTUAL=$(git -C "$TARGET_WORKTREE_ROOT" diff --name-only HEAD~1 | tr '\n' ' ')
+# Compare: if ACTUAL contains files not in EXPECTED, scope violation
+```
 
-- Compose ONE reply with the same content for all authors
-- Send to EACH author individually using their own `in_reply_to` ID
-- Do NOT reply to only one author, even if the others are bots
-- Do NOT create separate dossier tasks for each author. The one logical task carries every author/comment ID, every POST/send action, and every read-back verification.
+### remote-check
 
-The reply content is identical across authors. The only difference is the `in_reply_to` parameter in the API call.
+Verify a commit is reachable on the remote.
+
+```bash
+COMMIT_SHA=$(git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD)
+gh api "repos/{owner}/{repo}/commits/$COMMIT_SHA" --jq '.sha'
+```
+
+### reply-plan
+
+List reply targets that need posting, ordered by task and filtered by eligibility.
+
+```bash
+# Parse artifact to extract eligible reply targets:
+# reply_target_id, endpoint, in_reply_to, reply_body_template (with {commit_sha} resolved)
+```
+
+### reply-reconcile
+
+Verify posted replies exist by read-back.
+
+```bash
+# Inline read-back:
+gh api "repos/{owner}/{repo}/pulls/{pr}/comments" --paginate --jq '.[] | select(.id == COMMENT_ID)'
+
+# Review/top-level read-back:
+gh api "repos/{owner}/{repo}/issues/{pr}/comments" --paginate --jq '.[] | select(.id == COMMENT_ID)'
+```
+
+### push-prepare
+
+Prepare and execute the push for completed commits.
+
+```bash
+git -C "$TARGET_WORKTREE_ROOT" push origin "$(git -C "$TARGET_WORKTREE_ROOT" branch --show-current)"
+```
+
+### push-reconcile
+
+Verify pushed commits are remotely reachable.
+
+```bash
+COMMIT_SHA=$(git -C "$TARGET_WORKTREE_ROOT" rev-parse HEAD)
+gh api "repos/{owner}/{repo}/commits/$COMMIT_SHA" --jq '.sha'
+```
+
+### lease-recover
+
+Recover execution state after interruption. Read artifact, re-validate Context against current checkout, check Status Block for completed tasks, read-back existing replies, and resume from the first incomplete task.
+
+```bash
+# 1. Read artifact and extract Status Block
+# 2. execution-check to validate context
+# 3. For each task with status "verified": run read-back to confirm replies still exist
+# 4. For each task with status "in-progress": check if commit exists, if reply was posted
+# 5. Resume from first task with status "pending"
+```
+
+---
+
+## Artifact Cleanup
+
+Cleanup is only eligible when the artifact state is `verified-complete`. The executor MUST refuse cleanup if the state is `pending`, `in-progress`, or `blocked`.
+
+### Cleanup Commands
+
+```text
+/address-pr-comments-review cleanup
+/address-pr-comments-review cleanup --force
+/address-pr-comments-review cleanup --dry-run
+/address-pr-comments-review cleanup --artifact-dir <path>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Override state gate — allows cleanup of `pending`, `in-progress`, or `blocked` artifacts. Requires two confirmations. |
+| `--dry-run` | Preview files/directories to be deleted without removing them. |
+| `--artifact-dir <path>` | Target an explicit artifact path instead of the default location. |
+
+### `--force` Semantics
+
+Without `--force`, only artifacts in `verified-complete` state are candidates for cleanup. The executor refuses cleanup of `pending`, `in-progress`, or `blocked` artifacts with the current state and blocked reason.
+
+The `--force` flag overrides the state guard:
+
+- Force-required artifacts (state = `pending`, `in-progress`, `blocked`) are included in the candidate list alongside verified-complete artifacts.
+- Force mode requires two explicit confirmations from the operator:
+  1. **First confirmation**: operator acknowledges the artifact state (`pending`, `in-progress`, or `blocked`) and the risk of cleaning up incomplete work.
+  2. **Second confirmation**: operator confirms the exact artifact path(s) to delete.
+- After both confirmations, cleanup proceeds: the artifact directory is removed. If the parent per-repo directory becomes empty, it is also removed.
+
+### Current Artifact Cleanup
+
+```bash
+rm -rf "$ARTIFACT_DIR"
+```
+
+Where `$ARTIFACT_DIR` is the directory containing the artifact file. If the parent repository directory becomes empty, remove it as well.
+
+### Safety Rules
+
+- Do not delete artifact directories while the artifact state is not `verified-complete` (without `--force`).
+- With `--force`, require two confirmations before deleting non-verified-complete artifacts.
+- Do not delete repo-local paths (e.g., dot-directories under the repo root) during cleanup.
+- Do not edit `.gitignore`, `.git/info/exclude`, or global gitignore.
+- Pre-view files and require operator confirmation before deletion.
+- `--dry-run` previews candidate files/directories without deleting.
 
 ---
 
 ## Validation Gates
 
-Checks and gate rules that ensure dossier integrity before handoff.
+### Pre-Execution Gate
 
-### 1. Pre-Dossier Scan: Final Cross-Reference (Pre-Write)
+Before executing any task, the executor MUST pass this gate:
 
-Before writing the dossier, re-scan the final confirmed table from Step 4 against the original cross-reference results. Discussion may have changed conclusions, revealed new connections, or created new duplicates.
+1. Artifact file exists and is readable.
+2. Context validation passes (checkout root, branch, HEAD, PR).
+3. Status Block is parseable and state is `pending` or `blocked`.
+4. No `{{PLACEHOLDER}}` strings remain in the artifact body.
 
-#### 9-Check Checklist
+If any check fails, stop and report the failure. Do not make code changes.
 
-| Check | What to look for | Action if found |
-|-------|-----------------|-----------------|
-| **New duplicates** | Two entries with same file:line but different # numbers after discussion renumbering | Merge into one entry, update counts |
-| **Duplicate state shift** | Discussion changed one merged comment's conclusion (e.g., `valid` → `invalid`) — entries may no longer be duplicates, or the remaining partner needs re-verification | Split or re-verify as appropriate |
-| **Unresolved conflicts** | Any entry still marked with a discussion flag without a user decision recorded | **STOP. Do not proceed.** Return to Step 3 for resolution |
-| **New relations** | Discussion revealed fixing Comment #X will also fix Comment #Y (related, not duplicate) | Add dependency note |
-| **Cross-section leakage** | A comment in Section A (code change) actually only needs a reply based on final discussion | Move to Section B |
-| **Missing evidence ledger** | Section A item lacks reviewer concern, current code evidence, local pattern evidence, suggestion fit, fix direction, or verification target | Return to Step 2a and complete the Evidence Ledger Gate |
-| **Suggestion copied as fix** | `What to change` merely repeats reviewer suggestion without code-derived fix direction | Replace with evidence-derived fix direction or move to discussion |
-| **Reply target mismatch** | Merged duplicates — all authors listed? Each has an `in_reply_to` ID? | Verify all authors accounted for |
-| **Stale already_replied** | A comment marked `already_replied` but discussion revealed the reply was insufficient or from a bot | Reclassify |
+### Pre-Completion Gate
 
-**Gate rule**: If any unresolved item remains after the scan, do NOT write the dossier. Return to Step 3.
+Before transitioning to `verified-complete`, the executor MUST verify:
 
----
+1. Every task with `requires_commit: true` has a recorded `commit_sha` in Modification Commits.
+2. Every commit is remotely reachable (Remote Reachability and Push Receipts populated).
+3. Every eligible reply target has disposition `verified` and a Reply ID recorded.
+4. All verification evidence records show `outcome: pass`.
+5. Read-back evidence confirms every posted reply.
 
-### 2. Post-Write Artifact and Response Verification
-
-After writing a Review Dossier or Direct Fix Brief, run the applicable checks.
-
-#### 2.1 Persisted Review Dossier File Existence and Integrity
-
-| Check | Command/Condition |
-|-------|-------------------|
-| File exists | `test -f "$ARTIFACT_PATH"` |
-| Valid markdown | File starts with `# Review Dossier:` |
-| Counts match | Executive Summary counts = actual items in each section |
-| No placeholder left | No `{{...}}` template variables remain |
-| Reply endpoint correct | Each reply task uses the endpoint matching its REPLY_KIND (inline/review/top_level) |
-| Section A reply commit requirement present | Every Section A task includes `Reply commit requirement` requiring the reply text to reference the modification commit SHA |
-| Artifact path correct | Dossier lives under the selected artifact directory: default `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/` or explicit `artifact_dir=<path>` |
-
-**Gate rule**: If an explicit repo-local `artifact_dir` is not ignored, warn that it may appear in `git status` and continue only if the user accepts. Do not edit `.gitignore`, `.git/info/exclude`, or any ignore file in this step.
-
-#### 2.2 Current Response Handoff Completion
-
-Verify the current user-visible final response contains the complete handoff shape for the artifact type.
-
-| Artifact Type | Required Current Response Shape |
-|---------------|---------------------------------|
-| Review Dossier | Actual artifact path, generic executor prompt, OMO / Prometheus prompt, `/start-work` command, and cleanup target from `platform.md` |
-| Direct Fix Brief | Actual brief path, direct execution prompt, and cleanup target from `platform.md` |
-
-**Gate rule**: A path-only response fails this check even when the persisted artifact file is complete. Complete the applicable handoff block in the current user-visible final response before finishing.
-
-#### 2.3 No-Placeholder Leakage Check (Mandatory)
-
-Any unfilled `{{...}}` placeholder means the dossier is incomplete and must be regenerated. Common placeholders: `{{PR_URL}}`, `{{BRANCH}}`, `{{REPO}}`, `{{TIMESTAMP}}`, `{{REPLY_TEXT}}`, `{{FILE_PATH}}`, `{{LINE}}`, `{{COMMENT_ID}}`, `{{REVIEWER_CONCERN}}`, `{{CURRENT_CODE_EVIDENCE}}`, `{{LOCAL_PATTERN_EVIDENCE}}`, `{{SUGGESTION_FIT}}`, `{{SUGGESTION_FIT_REASON}}`, `{{FIX_DIRECTION}}`, `{{DEV_CHANGES}}`, `{{TEST_STRATEGY}}`.
-
-**Gate rule**: If any placeholder remains unfilled, do NOT hand off to Prometheus. Regenerate the dossier.
-
-#### 2.4 Direct Fix Brief Completeness
-
-When using the Direct-Fix Fast Path, verify the brief contains every required execution and reply field:
-
-| Required Field | Why |
-|----------------|-----|
-| PR URL, repo, branch, and target checkout root | Ensures direct execution uses the bound checkout |
-| Comment ID, author, kind, file path, and line | Preserves the review target |
-| Evidence Ledger fields | Preserves reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction |
-| Exact code change and guardrails | Prevents scope creep |
-| Targeted verification | Prevents unverified direct edits |
-| Reply kind and endpoint | Enables correct POST target |
-| Inline `path`, `line`, `side`, and `in_reply_to` when kind is `inline` | Enables correct threaded inline reply |
-| Pre-Reply Gate | Prevents duplicate or stale replies |
-| Commit SHA reply requirement | Ensures reviewer can trace the fix |
-| Read-back verification | Proves the reply exists without duplicate POST |
-
-The direct execution prompt belongs to current response handoff completion in Section 2.2, not to the persisted Direct Fix Brief.
-
-**Gate rule**: If any required field is missing, do NOT hand off the Direct Fix Brief. Either regenerate it or use the normal dossier/Prometheus path.
+If any check fails, the artifact remains in `in-progress`. Report incomplete items.
 
 ---
 
-### 3. Gate Rules
+## Cross-References
 
-#### 3.1 The 🔴 Gate
-
-If any 🔴 item remains unresolved after Step 4 interaction (conflicts unresolved, needs_clarification unanswered, high-risk valid items not acknowledged), the skill MUST NOT write the dossier. It must return to Step 3 for further discussion. This is a hard gate -- no override, no workaround.
-
-#### 3.2 Confirmation Gate
-
-Step 3 user confirmation is required before dossier generation. Dossier generation must not proceed without explicit confirmation.
-
-#### 3.3 How to Block
-
-When a check fails:
-1. **State the failure**: "Validation check failed: [check name]. [Detail of what was found]."
-2. **Explain the consequence**: "This means the dossier cannot be written / the handoff cannot proceed."
-3. **Provide the corrective action**: "Return to Step [N] and [specific fix]."
-4. **Do NOT proceed until the check passes.**
-
----
-
-If a regression scenario check fails, revert the change that caused the regression. Regression passing is a mandatory gate.
+- `execution.md` — checkout binding, collection, artifact paths, handoff, and cleanup commands.
+- `classify.md` — comment classification and evidence ledger gates.
+- `cross-reference.md` — duplicate, conflict, and dependency detection.
+- `interaction.md` — user confirmation and Direct Fix vs Dossier routing.

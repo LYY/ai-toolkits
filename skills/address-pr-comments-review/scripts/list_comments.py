@@ -5,7 +5,7 @@
 # Script-to-skill contract: this script outputs JSON with fields
 # consumed by the skill: kind, id, author, is_ai, created_at, url, body,
 # excerpt, ai_prompts, has_replies, thread_resolved, thread_outdated,
-# path, line (path/line are inline-only). The JSON contract is documented in references/platform.md.
+# path, line (path/line are inline-only). The JSON contract is documented in references/execution.md.
 """
 Collect and normalize GitHub PR feedback via gh CLI.
 

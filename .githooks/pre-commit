@@ -1,25 +1,171 @@
 #!/usr/bin/env bash
-# Pre-commit hook: check cross-references and run lychee on staged markdown files.
+# Pre-commit hook: cross-references, contract validation.
 # Install: git config --local core.hooksPath .githooks
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-# Only run if markdown files are staged
+# ================================================================
+# Cross-reference check
+# ================================================================
 staged_md=$(git diff --cached --name-only --diff-filter=ACM | grep '\.md$' || true)
-if [ -z "$staged_md" ]; then
-    exit 0
+if [ -n "$staged_md" ]; then
+    echo "🔍 Checking cross-references..."
+    if ! bash "$REPO_ROOT/scripts/check-cross-refs.sh"; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo " Dead cross-references found in staged markdown files."
+        echo ""
+        echo " Fix them and try again, or run:"
+        echo "   git commit --no-verify   (to skip this check)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
 fi
 
-echo "🔍 Checking cross-references..."
-if ! bash "$REPO_ROOT/scripts/check-cross-refs.sh"; then
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo " Dead cross-references found in staged markdown files."
-    echo ""
-    echo " Fix them and try again, or run:"
-    echo "   git commit --no-verify   (to skip this check)"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    exit 1
+# ================================================================
+# Contract validation (address-pr-comments-review)
+# ================================================================
+
+# Contract-relevant path patterns
+CONTRACT_PATTERNS=(
+    "skills/address-pr-comments-review/"
+    "docs/address-pr-comments-review/"
+    "scripts/check-address-pr-comments-review-contract.sh"
+    "tests/address-pr-comments-review-contract/"
+)
+
+# Python NUL-parser: detect if any contract-relevant files are staged (A/C/M/R/D)
+contract_hit=$(python3 -c "
+import subprocess, sys
+result = subprocess.run(
+    ['git', 'diff', '--cached', '--name-status', '-z', '--diff-filter=ACMRD'],
+    capture_output=True
+)
+entries = result.stdout.decode('utf-8', errors='replace').rstrip('\0').split('\0')
+# entries alternate: status, path, status, path, ...
+patterns = [
+    'skills/address-pr-comments-review/',
+    'docs/address-pr-comments-review/',
+    'scripts/check-address-pr-comments-review-contract.sh',
+    'tests/address-pr-comments-review-contract/',
+]
+for i in range(0, len(entries) - 1, 2):
+    path = entries[i + 1]
+    for p in patterns:
+        if path.startswith(p):
+            print('hit')
+            sys.exit(0)
+sys.exit(1)
+" 2>/dev/null || true)
+
+if [ -n "$contract_hit" ]; then
+    echo "📋 Validating address-pr-comments-review contract..."
+
+    # Record git state BEFORE materializing snapshot
+    TREE_BEFORE=$(git write-tree)
+    STAGE_BEFORE=$(git ls-files --stage -z | shasum -a 256 | awk '{print $1}')
+
+    # Materialize stage-0 snapshot to temp dir
+    TMP="$(mktemp -d)"
+    cleanup() { rm -rf "$TMP"; }
+    trap cleanup EXIT
+    git checkout-index --all --prefix="$TMP/" 2>/dev/null
+
+    # Seeding a minimal git repo inside $TMP so check-cross-refs.sh
+    # (which uses git rev-parse --show-toplevel) can operate.
+    (cd "$TMP" && git init -q && git add -A && git commit -q -m "staged-snapshot") 2>/dev/null
+
+    # Run contract checker against the staged snapshot
+    if ! bash "$TMP/scripts/check-address-pr-comments-review-contract.sh" "$TMP"; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo " Contract validation failed on staged changes."
+        echo ""
+        echo " Fix the violations and try again, or run:"
+        echo "   git commit --no-verify   (to skip this check)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+
+    # Run fixture suite if target skill/reference files changed
+    skill_hit=$(python3 -c "
+import subprocess, sys
+result = subprocess.run(
+    ['git', 'diff', '--cached', '--name-status', '-z', '--diff-filter=ACMRD'],
+    capture_output=True
+)
+entries = result.stdout.decode('utf-8', errors='replace').rstrip('\0').split('\0')
+patterns = [
+    'skills/address-pr-comments-review/',
+    'docs/address-pr-comments-review/',
+]
+for i in range(0, len(entries) - 1, 2):
+    path = entries[i + 1]
+    for p in patterns:
+        if path.startswith(p):
+            print('hit')
+            sys.exit(0)
+sys.exit(1)
+" 2>/dev/null || true)
+
+    if [ -n "$skill_hit" ]; then
+        echo "🧪 Running contract fixture suite..."
+        if ! bash "$TMP/tests/address-pr-comments-review-contract/run.sh" "$TMP"; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo " Contract fixture suite failed on staged changes."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+        fi
+    fi
+
+    # Verify git tree and stage are unchanged after execution
+    TREE_AFTER=$(git write-tree)
+    STAGE_AFTER=$(git ls-files --stage -z | shasum -a 256 | awk '{print $1}')
+    if [ "$TREE_BEFORE" != "$TREE_AFTER" ] || [ "$STAGE_BEFORE" != "$STAGE_AFTER" ]; then
+        echo "Contract validation modified git state — bug in checker/fixture." >&2
+        exit 1
+    fi
+
+    # A/M mismatch check: for contract files staged as Added/Modified,
+    # the staged version MUST match the working tree.
+    # D/R (deletes/renames) are outside local-hook guarantee — caught by CI.
+    python3 -c "
+import subprocess, sys
+result = subprocess.run(
+    ['git', 'diff', '--cached', '--name-status', '-z', '--diff-filter=AM'],
+    capture_output=True
+)
+entries = result.stdout.decode('utf-8', errors='replace').rstrip('\0').split('\0')
+patterns = [
+    'skills/address-pr-comments-review/',
+    'docs/address-pr-comments-review/',
+    'scripts/check-address-pr-comments-review-contract.sh',
+    'tests/address-pr-comments-review-contract/',
+]
+errors = 0
+for i in range(0, len(entries) - 1, 2):
+    path = entries[i + 1]
+    for p in patterns:
+        if path.startswith(p):
+            r = subprocess.run(['git', 'diff', '--name-only', path], capture_output=True)
+            if r.stdout.strip():
+                print(f'APR010: staged differs from working tree: {path}', file=sys.stderr)
+                errors += 1
+if errors:
+    print('', file=sys.stderr)
+    print('Staged changes must match working tree. Stage all contract files together.', file=sys.stderr)
+    sys.exit(1)
+" || {
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo " Some contract files have a staged-vs-working-tree mismatch."
+        echo " git add the working-tree versions and try again."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    }
+
+    echo "✅"
 fi

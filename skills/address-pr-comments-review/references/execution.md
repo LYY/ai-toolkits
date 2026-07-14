@@ -1,6 +1,6 @@
 # Platform Integration
 
-Runtime commands, paths, cleanup, and the `list_comments.py` script contract. Platform lock: OpenCode + OhMyOpenCode (Sisyphus) only. Artifacts are generic Markdown by default; OMO is optional handoff text.
+Runtime commands, paths, cleanup, and the `list_comments.py` script contract. Artifacts are generic Markdown files. Handoff targets any capable executor.
 
 ## Prerequisites
 
@@ -219,7 +219,7 @@ Rules:
 - Do not edit root `.gitignore`, `.git/info/exclude`, or global gitignore.
 - Do not default to `.omo`, `.agent`, or any repo-local directory.
 - If `artifact_dir` is inside the repository and is not ignored, warn that artifacts may appear in `git status`; continue only if the user accepts.
-- If the user explicitly chooses `.omo/notepads/pr-<N>-dossier/`, treat it as an optional OMO-compatible artifact location, not as the default.
+- If the user explicitly chooses an artifact path like `notepads/pr-<N>-dossier/`, treat it as an optional artifact location, not as the default.
 
 ### Timestamp Format
 
@@ -255,14 +255,14 @@ Read this PR comment review artifact:
 Execute it as a PR review work package. Follow the Execution Contract exactly: apply Section A code changes, run listed verification, commit if requested by the operator, reply to every required PR comment, and verify posted replies by read-back. Do not repeat POST requests for verification.
 ```
 
-OMO / Prometheus prompt:
+Executor handoff prompt:
 
 ```markdown
 Read this PR comment review artifact:
 
 <ARTIFACT_PATH>
 
-Generate an execution plan for OMO/start-work. Preserve every reply task from the artifact:
+Generate an execution plan. Preserve every reply task from the artifact:
 - code changes before replies
 - targeted verification before commit
 - commit SHA included in Section A replies
@@ -271,7 +271,7 @@ Generate an execution plan for OMO/start-work. Preserve every reply task from th
 Ask me before planning if any task is ambiguous.
 ```
 
-After Prometheus writes the plan, run:
+After execution plan is generated, run:
 
 ```bash
 /start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>
@@ -315,17 +315,30 @@ Trigger:
 /address-pr-comments-review cleanup
 /address-pr-comments-review cleanup --repo owner/repo --pr <N>
 /address-pr-comments-review cleanup --artifact-dir <path>
+/address-pr-comments-review cleanup --force
 ```
+
+#### `--force` flag
+
+Without `--force`, only artifacts in `verified-complete` state are eligible for cleanup. Cleanup of `pending`, `in-progress`, or `blocked` artifacts is refused.
+
+The `--force` flag overrides the state gate: it includes force-required artifacts in the candidate list, allowing cleanup of artifacts in any state (`pending`, `in-progress`, `blocked`, or `verified-complete`). Force mode requires two explicit confirmations:
+
+1. **First confirmation**: operator acknowledges the artifact state (`pending`, `in-progress`, or `blocked`) and the risk of cleaning up incomplete work.
+2. **Second confirmation**: operator confirms the exact artifact path(s) to delete.
+
+If no artifact exists in a force-required state, `--force` has no effect and cleanup proceeds as normal.
 
 Behavior:
 
 1. If `--artifact-dir <path>` is provided, target that explicit path and skip PR inference.
 2. If `--repo` and `--pr` are omitted, run the minimal checkout binding and PR verification from Step 0a and 0d before inference. Use `TARGET_WORKTREE_ROOT` and `gh pr view` from that root. If inference fails, ask for `--repo owner/repo --pr <N>`.
 3. Default target: `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`.
-4. List exact files/directories that will be deleted.
-5. Ask for confirmation before deleting.
-6. Delete the PR artifact directory after confirmation.
-7. If the parent `<owner>__<repo>/` directory is empty, remove it too.
+4. Check artifact state. Without `--force`, refuse cleanup if state is not `verified-complete`. With `--force`, include non-verified-complete artifacts in the candidate list.
+5. List exact files/directories that will be deleted, including artifact state for each.
+6. Ask for confirmation before deleting. With `--force`, require two confirmations as described above.
+7. Delete the PR artifact directory after confirmation.
+8. If the parent `<owner>__<repo>/` directory is empty, remove it too.
 
 Safety rules:
 
@@ -333,6 +346,8 @@ Safety rules:
 - Do not delete `.omo`, `.agent`, or any repo path during default cleanup.
 - Do not post replies, collect comments, classify, or generate artifacts during cleanup.
 - If no artifacts exist, report `no artifacts found`.
+- Without `--force`, refuse cleanup of non-verified-complete artifacts.
+- With `--force`, require two confirmations before deleting non-verified-complete artifacts.
 
 ### Cleanup All
 

@@ -14,10 +14,10 @@ description: >-
 A three-phase interactive workflow for GitHub PR comment review. First bind the current checkout, then detect the PR and collect comments from that checkout.
 
 - **Phase 1** (this skill): bind the current checkout, detect the PR, collect comments, ground actionable items in current-code evidence, classify from that evidence, and confirm interactively. If code changes are needed, either produce a review dossier for an executor or, for explicitly confirmed simple low-risk work, produce a Direct Fix Brief. If only replies are needed, post them directly and verify by read-back. If nothing is actionable, end.
-- **Phase 2**: user gives the generated artifact to an executor. OMO/Prometheus is optional and supported by copy-paste handoff prompts.
-- **Phase 3**: execution runs in the same checkout. For OMO, user runs `/start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>`.
+- **Phase 2**: user gives the generated artifact to any capable executor via copy-paste handoff prompts.
+- **Phase 3**: execution runs in the same checkout by the chosen executor.
 
-**Platform lock**: OpenCode + OhMyOpenCode (Sisyphus) only for this installed workflow. Artifact storage is generic by default; Prometheus mode and `/start-work` are optional handoff targets.
+Artifact storage is generic; handoff prompts are copy-paste compatible with any executor.
 **Self-contained**: uses vendored `scripts/list_comments.py` (no Python package dependencies; requires `gh` CLI).
 
 ## On-Demand Loading
@@ -26,8 +26,8 @@ Load only the file needed for the current step. No file assumes you've read prev
 
 | Step | What You're Doing | Load | ~Lines |
 |------|------------------|------|--------|
-| 0 | Bind current checkout before PR detection | `references/platform.md` | 150 |
-| 1 | Detect PR and collect comments from bound checkout | `references/platform.md` | 150 |
+| 0 | Bind current checkout before PR detection | `references/execution.md` | 150 |
+| 1 | Detect PR and collect comments from bound checkout | `references/execution.md` | 150 |
 | 2a | Build evidence ledger for actionable comments | `references/classify.md` | 420 |
 | 2b | Classify each comment from evidence, not suggestion text | `references/classify.md` | 420 |
 | 2c | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
@@ -35,22 +35,21 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 4a | Pre-write cross-reference scan (9 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
 | 4c | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
-| 4d | Optional Direct Fix Brief for simple low-risk Section A, then direct-fix handoff | `references/dossier-output.md` §Direct-Fix Fast Path + `references/platform.md` §Direct Fix Brief Handoff | 200 |
+| 4d | Optional Direct Fix Brief for simple low-risk Section A, then direct-fix handoff | `references/dossier-output.md` §Direct-Fix Fast Path + `references/execution.md` §Direct Fix Brief Handoff | 200 |
 | 4e | Enforce reply task contract (gate check, templates, duplicate strategy) | `references/dossier-output.md` §Reply Policy | 200 |
-| 5 | Handoff message to user | `references/platform.md` §Handoff | 20 |
-| cleanup | Clean current PR artifacts | `references/platform.md` §Artifact Cleanup | 80 |
-| cleanup-all | Clean all default artifacts | `references/platform.md` §Artifact Cleanup | 80 |
+| 5 | Handoff message to user | `references/execution.md` §Handoff | 20 |
+| cleanup | Clean current PR artifacts | `references/execution.md` §Artifact Cleanup | 80 |
+| cleanup-all | Clean all default artifacts | `references/execution.md` §Artifact Cleanup | 80 |
 
 **Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion. This compresses interaction only; it does not by itself authorize direct code execution.
 
-**Direct-Fix Fast Path** (simple low-risk Section A): after Step 3 confirmation and Step 4a scan, the user may explicitly choose direct fix when every code-change item is unambiguous, low-risk, single-file, dependency-free, conflict-free, and has complete reply target data. Run the Dossier Accuracy Grill Gate first. If it passes, write a Direct Fix Brief instead of the full Prometheus dossier. If any ambiguity appears, use the normal dossier/Prometheus path.
+**Direct-Fix Fast Path** (simple low-risk Section A): after Step 3 confirmation and Step 4a scan, the user may explicitly choose direct fix when every code-change item is unambiguous, low-risk, single-file, dependency-free, conflict-free, and has complete reply target data. Run the Dossier Accuracy Grill Gate first. If it passes, write a Direct Fix Brief instead of the full dossier. If any ambiguity appears, use the normal dossier path.
 
 **Reply-only path** (Section A = 0, Section B > 0): after Step 0 has bound the current checkout and Step 3 confirms replies only, load `dossier-output.md`. Read §Reply Endpoints, §Direct Reply-Only Posting, and §Reply Policy. Skip Dossier Structure, Sections A/B/C, Validation Gates, and Handoff. This path MUST POST/send replies through the documented endpoints, then verify each reply by read-back with GET/LIST operations. Drafting or composing reply text is not completion.
 
 ## Prerequisites
 
 - `gh` CLI installed and authenticated (`gh auth status`)
-- OpenCode + OhMyOpenCode (Sisyphus) environment
 - A target checkout can be resolved from the current Git root; explicit `worktree_path=` is used for handoff or operator override, not as the default interaction path
 
 ## Error Recovery
@@ -66,10 +65,10 @@ Load only the file needed for the current step. No file assumes you've read prev
 ## Workflow (with Gates)
 
 ```
-[0] Bind Current Checkout (references/platform.md)
+[0] Bind Current Checkout (references/execution.md)
   │  └─ TARGET_WORKTREE_ROOT bound before PR detection
   │
-[1] Detect PR + Collect (references/platform.md)
+[1] Detect PR + Collect (references/execution.md)
   │
 [2a] Evidence Ledger (references/classify.md)
   │  └─ actionable comments grounded in current HEAD code evidence before conclusion
@@ -87,7 +86,7 @@ Load only the file needed for the current step. No file assumes you've read prev
   │  └─ User explicitly confirms ("ok" / "proceed" / etc.)
   │
   ├── Post-Confirmation Routing (references/interaction.md §Post-Confirmation Routing)
-  │     ├─ A > 0 (simple, direct-fix chosen) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → platform.md §Direct Fix Brief Handoff
+  │     ├─ A > 0 (simple, direct-fix chosen) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → execution.md §Direct Fix Brief Handoff
   │     ├─ A > 0 (default/complex code changes) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4c] Dossier → Reply task contract → [5]
   │     ├─ A = 0, B > 0 (replies) ─► POST/send replies → read-back verify replies → done
   │     └─ A = 0, B = 0 (nothing)  ─► done
@@ -104,19 +103,19 @@ Load only the file needed for the current step. No file assumes you've read prev
   │  └─ contains exact edit, guardrails, verification, reply endpoint, commit SHA requirement, read-back verification
   │
 [4e] Replies (references/dossier-output.md §Reply Policy)
-  │  └─ Prometheus execution plan MUST include reply task(s) after code/test/commit work and before read-back verification
+  │  └─ Execution plan MUST include reply task(s) after code/test/commit work and before read-back verification
   │
-[5] Handoff → generic executor prompt; optional OMO /start-work prompt with worktree_path=TARGET_WORKTREE_ROOT
+[5] Handoff → generic executor prompt
 ```
 
-**Do NOT run Prometheus or `/start-work` yourself.** User drives optional OMO Phase 2 & 3.
+**Do NOT act as the executor yourself.** User drives Phase 2 & 3.
 
-**Cleanup commands route first**: If the user invokes `/address-pr-comments-review cleanup` or `/address-pr-comments-review cleanup-all`, load `references/platform.md` §Artifact Cleanup immediately. Do not bind PR comments, classify, generate dossiers, post replies, or run the normal review workflow.
+**Cleanup commands route first**: If the user invokes `/address-pr-comments-review cleanup` or `/address-pr-comments-review cleanup-all`, load `references/execution.md` §Artifact Cleanup immediately. Do not bind PR comments, classify, generate dossiers, post replies, or run the normal review workflow.
 
-For exact handoff wording, use `references/platform.md` §Handoff: dossier artifacts use §Dossier Handoff, and Direct Fix Brief artifacts use §Direct Fix Brief Handoff. Do not duplicate the handoff wording here.
+For exact handoff wording, use `references/execution.md` §Handoff: dossier artifacts use §Dossier Handoff, and Direct Fix Brief artifacts use §Direct Fix Brief Handoff. Do not duplicate the handoff wording here.
 
-**After `/start-work` succeeds**: `git log --oneline`, `git push`, verify PR replies.
-**If `/start-work` fails mid-execution**: re-run this skill. `has_replies` detection skips handled items.
+**After execution succeeds**: `git log --oneline`, `git push`, verify PR replies.
+**If execution fails mid-way**: re-run this skill. `has_replies` detection skips handled items.
 
 ## Key Principles
 
@@ -132,7 +131,7 @@ For exact handoff wording, use `references/platform.md` §Handoff: dossier artif
 ```bash
 # Resolve SCRIPT: <skill-dir>/scripts/list_comments.py
 # (<skill-dir> = directory containing this SKILL.md)
-# Resolve TARGET_WORKTREE_ROOT first in references/platform.md, then run commands from that checkout.
+# Resolve TARGET_WORKTREE_ROOT first in references/execution.md, then run commands from that checkout.
 
 # Auto-detect PR, collect comments
 python3 "$SCRIPT" --json

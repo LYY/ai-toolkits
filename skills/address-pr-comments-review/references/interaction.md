@@ -4,7 +4,7 @@ This file defines the interaction protocol for the interactive review confirmati
 
 ## Cleanup Routing
 
-If the user invokes `/address-pr-comments-review cleanup` or `/address-pr-comments-review cleanup-all`, load `platform.md` §Artifact Cleanup and stop this interaction flow. Do not produce an overview table, classify comments, generate artifacts, or post replies.
+If the user invokes `/address-pr-comments-review cleanup` or `/address-pr-comments-review cleanup-all`, load `execution.md` §Artifact Cleanup and stop this interaction flow. Do not produce an overview table, classify comments, generate artifacts, or post replies.
 
 Cleanup confirmation rules:
 
@@ -176,16 +176,16 @@ After user explicitly confirms the final table, check what kind of work is neede
 
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|
-| Simple low-risk code change, direct fix explicitly chosen | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `platform.md` §Direct Fix Brief Handoff after brief verification. Do not generate the full Prometheus dossier. |
+| Simple low-risk code change, direct fix explicitly chosen | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `execution.md` §Direct Fix Brief Handoff after brief verification. Do not generate the full dossier. |
 | Code changes needed by default, or direct-fix criteria fail | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (Dossier Accuracy Grill Gate) → Step 4c (dossier) → Step 4e (reply task contract) → Step 5 (handoff) |
 | Replies only, no code changes | = 0 | > 0 | **Skip dossier.** State: "No code changes are needed. N comments need replies. I will post replies now and verify them by read-back." Then send replies per Direct Reply-Only Posting and Reply Policy (`dossier-output.md`). |
 | Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
 
 **Direct-fix criteria**: every Section A item must be single-file, low-risk, mechanically specified, dependency-free, conflict-free, and complete enough to execute without plan synthesis. The user must explicitly choose direct fix after seeing the final table. Small PR fast-path consent does not count as direct-fix consent.
 
-**Dossier Accuracy Grill Gate**: before either Direct Fix Brief or full dossier, ask only questions whose answers cannot be obtained from code, comment text, or prior user decisions. Use grill-me style: one question at a time, with a recommended answer. If the gate reveals ambiguity, conflict, cross-file scope, architecture choice, or unclear test/reply behavior, route to the normal dossier/Prometheus path. Do not invoke `grill-with-docs` by default; it is only appropriate when the PR comment requires domain glossary or ADR-style decision capture.
+**Dossier Accuracy Grill Gate**: before either Direct Fix Brief or full dossier, ask only questions whose answers cannot be obtained from code, comment text, or prior user decisions. Use grill-me style: one question at a time, with a recommended answer. If the gate reveals ambiguity, conflict, cross-file scope, architecture choice, or unclear test/reply behavior, route to the normal dossier path. Do not invoke `grill-with-docs` by default; it is only appropriate when the PR comment requires domain glossary or ADR-style decision capture.
 
-**Rationale**: The dossier feeds into Prometheus for execution plan generation. It's valuable for complex code changes, but a one-file low-risk task can be executed from a Direct Fix Brief as long as the reply policy and read-back verification are preserved. For reply-only or no-action scenarios, dossier generation is unnecessary overhead with no downstream benefit. The reply-only route is operational: post replies through the documented endpoints, then use read/list/get read-back verification. Do not verify by repeating a POST.
+**Rationale**: The dossier feeds into an executor for plan-driven implementation. It's valuable for complex code changes, but a one-file low-risk task can be executed from a Direct Fix Brief as long as the reply policy and read-back verification are preserved. For reply-only or no-action scenarios, dossier generation is unnecessary overhead with no downstream benefit. The reply-only route is operational: post replies through the documented endpoints, then use read/list/get read-back verification. Do not verify by repeating a POST.
 
 ---
 
