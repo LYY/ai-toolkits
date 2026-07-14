@@ -1307,35 +1307,45 @@ class TestCleanupIdentityMismatch(unittest.TestCase):
 
 
 class TestNonPosixFailsBeforeWrite(unittest.TestCase):
-    """Non-POSIX platform must fail before any file write."""
+    """Non-POSIX platform must fail before any file write.
+
+    Uses sys.meta_path to intercept fcntl import at the finder level,
+    which works for both Python and C-extension modules.
+    """
 
     def test_non_posix_fails_before_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Run with fcntl import stubbed out via PYTHONPATH trick
-            # Create a shim that raises ImportError for fcntl
-            shim_dir = os.path.join(tmpdir, "shim")
-            os.makedirs(shim_dir)
-
-            # Write a shim module that blocks fcntl import
-            with open(os.path.join(shim_dir, "fcntl.py"), "w") as f:
-                f.write("raise ImportError('fcntl not available')\n")
-
-            # Create a test script that imports fcntl via our shim path
+            # Use meta_path finder to block fcntl at import-finder level.
+            # A plain sys.path shim does not shadow C-extension modules
+            # (e.g. fcntl on Linux), but meta_path hooks fire first.
             test_script = os.path.join(tmpdir, "test_nonposix.py")
             with open(test_script, "w") as f:
                 f.write(
-                    """import sys
-sys.path.insert(0, {shim_dir!r})
-# Now attempt to import the artifact_ops module's POSIX check logic
+                    """import importlib.abc
+import importlib.machinery
+import json
+import sys
+
+class _FcntlBlocker(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    def find_spec(self, fullname, path, target=None):
+        if fullname in ("fcntl", "_fcntl"):
+            return importlib.machinery.ModuleSpec(fullname, self)
+        return None
+    def create_module(self, spec):
+        return None
+    def exec_module(self, module):
+        raise ImportError("fcntl not available (non-POSIX simulation)")
+
+sys.meta_path.insert(0, _FcntlBlocker())
+
 try:
-    import fcntl
+    import fcntl  # noqa: F401
     print("UNEXPECTED: fcntl imported")
     sys.exit(0)
 except ImportError:
-    import json
-    print(json.dumps({{"schema_version":1,"operation":"init","diagnostic_code":"platform-unsupported","message":"POSIX required"}}))
+    print(json.dumps({"schema_version":1,"operation":"init","diagnostic_code":"platform-unsupported","message":"POSIX required"}))
     sys.exit(2)
-""".format(shim_dir=shim_dir)
+"""
                 )
 
             # Run the test script (simulates non-POSIX)
