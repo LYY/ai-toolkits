@@ -1,0 +1,30 @@
+{
+  "complex-dossier": [
+    {"ordinal": 1, "task_id": "bg_843f506a", "session_id": "ses_0a1631a71ffeLcVvLv5ISkDlN9"},
+    {"ordinal": 2, "task_id": "bg_70902d71", "session_id": "ses_0a1630e40ffdB3SXVGb2bPfZCn"},
+    {"ordinal": 3, "task_id": "bg_4aa79b72", "session_id": "ses_0a16301e8ffeJwItBJCD0qj9wr"},
+    {"ordinal": 4, "task_id": "bg_98ddb4ca", "session_id": "ses_0a162f573ffeVL8OWKTZUBpleY"},
+    {"ordinal": 5, "task_id": "bg_b44ea57b", "session_id": "ses_0a162e8a4ffev7u3lvAtyHZqCx"}
+  ],
+  "direct-fix-fallback": [
+    {"ordinal": 1, "task_id": "bg_aee688fc", "session_id": "ses_0a162b0d9ffeDUdZ7KM8KNdVOZ"},
+    {"ordinal": 2, "task_id": "bg_43edc55a", "session_id": "ses_0a1629450ffeGxNkEf3qD0gyE5"},
+    {"ordinal": 3, "task_id": "bg_aa7d0aa6", "session_id": "ses_0a16283e4ffezyjWWqnDV3wIHe"},
+    {"ordinal": 4, "task_id": "bg_abcd8e9c", "session_id": "ses_0a1627d88ffe5awIPH2H2yr4fq"},
+    {"ordinal": 5, "task_id": "bg_2d29d4ae", "session_id": "ses_0a1626069ffesIDYKERfH3y62V"}
+  ],
+  "interrupted-recovery": [
+    {"ordinal": 1, "task_id": "bg_046b777c", "session_id": "pending"},
+    {"ordinal": 2, "task_id": "bg_0a4eaa51", "session_id": "pending"},
+    {"ordinal": 3, "task_id": "bg_fa8f75d9", "session_id": "pending"},
+    {"ordinal": 4, "task_id": "bg_fd0199d2", "session_id": "pending"},
+    {"ordinal": 5, "task_id": "bg_e11ca153", "session_id": "pending"}
+  ],
+  "neutral-handoff": [
+    {"ordinal": 1, "task_id": "bg_32698f34", "session_id": "pending"},
+    {"ordinal": 2, "task_id": "bg_bc1d7d2a", "session_id": "pending"},
+    {"ordinal": 3, "task_id": "bg_42d95523", "session_id": "pending"},
+    {"ordinal": 4, "task_id": "bg_27bc2bc8", "session_id": "pending"},
+    {"ordinal": 5, "task_id": "bg_c065ded5", "session_id": "pending"}
+  ]
+}
