@@ -60,4 +60,4 @@ jobs:
       - name: Run contract fixture suite
         run: bash tests/address-pr-comments-review-contract/run.sh
       - name: Run contract unit tests
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v discover -s tests -p "test_*.py"
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -v tests/
