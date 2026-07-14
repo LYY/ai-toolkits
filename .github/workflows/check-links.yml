@@ -1,6 +1,7 @@
 name: Check Dead Links
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'skills/**/*.md'
