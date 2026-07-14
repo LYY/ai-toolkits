@@ -41,8 +41,8 @@ jobs:
         uses: lycheeverse/lychee-action@v2
         with:
           args: >
-            --base '${{ github.workspace }}'
-            --root-dir '${{ github.workspace }}'
+            --base ${{ github.workspace }}
+            --root-dir ${{ github.workspace }}
             --no-progress
             --exclude 'https://github.com/LYY/ai-toolkits'
             --exclude 'node_modules'
