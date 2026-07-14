@@ -217,7 +217,7 @@ If the user provides `artifact_dir=<path>`, write artifacts there instead of the
 Rules:
 
 - Do not edit root `.gitignore`, `.git/info/exclude`, or global gitignore.
-- Do not default to `.omo`, `.agent`, or any repo-local directory.
+- Do not default to `.agent` or any repo-local directory.
 - If `artifact_dir` is inside the repository and is not ignored, warn that artifacts may appear in `git status`; continue only if the user accepts.
 - If the user explicitly chooses an artifact path like `notepads/pr-<N>-dossier/`, treat it as an optional artifact location, not as the default.
 
@@ -271,11 +271,7 @@ Generate an execution plan. Preserve every reply task from the artifact:
 Ask me before planning if any task is ambiguous.
 ```
 
-After execution plan is generated, run:
-
-```bash
-/start-work <PLAN_PATH> worktree_path=<TARGET_WORKTREE_ROOT>
-```
+After execution plan is generated, pass it to your executor along with `worktree_path=<TARGET_WORKTREE_ROOT>` as the target checkout.
 
 Cleanup target after verified execution:
 `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`
@@ -343,7 +339,7 @@ Behavior:
 Safety rules:
 
 - Do not delete repo-local `artifact_dir` outputs unless the user explicitly passes `--artifact-dir <path>`.
-- Do not delete `.omo`, `.agent`, or any repo path during default cleanup.
+- Do not delete `.agent` or any repo path during default cleanup.
 - Do not post replies, collect comments, classify, or generate artifacts during cleanup.
 - If no artifacts exist, report `no artifacts found`.
 - Without `--force`, refuse cleanup of non-verified-complete artifacts.

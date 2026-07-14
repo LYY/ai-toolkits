@@ -11,9 +11,8 @@ on:
       - 'docs/address-pr-comments-review/**'
       - 'scripts/check-address-pr-comments-review-contract.sh'
       - 'tests/address-pr-comments-review-contract/**'
-      - 'tests/test_artifact_ops.py'
-      - 'tests/test_attempt_manager.py'
-      - 'tests/test_eval_support.py'
+      - 'tests/**'
+      - 'tests/test_*.py'
   pull_request:
     paths:
       - 'skills/**/*.md'
@@ -23,9 +22,8 @@ on:
       - 'docs/address-pr-comments-review/**'
       - 'scripts/check-address-pr-comments-review-contract.sh'
       - 'tests/address-pr-comments-review-contract/**'
-      - 'tests/test_artifact_ops.py'
-      - 'tests/test_attempt_manager.py'
-      - 'tests/test_eval_support.py'
+      - 'tests/**'
+      - 'tests/test_*.py'
 
 jobs:
   cross-refs:
@@ -44,6 +42,7 @@ jobs:
         with:
           args: >
             --base '${{ github.workspace }}'
+            --root-dir '${{ github.workspace }}'
             --no-progress
             --exclude 'https://github.com/LYY/ai-toolkits'
             --exclude 'node_modules'

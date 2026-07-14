@@ -112,7 +112,7 @@ sys.exit(1)
 
     if [ -n "$skill_hit" ]; then
         echo "🧪 Running contract fixture suite..."
-        if ! bash "$TMP/tests/address-pr-comments-review-contract/run.sh" "$TMP"; then
+        if ! bash "$TMP/tests/address-pr-comments-review-contract/run.sh"; then
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo " Contract fixture suite failed on staged changes."

@@ -222,10 +222,10 @@ check_marker_order() {
     return $found
 }
 
-# --- check old-name references (platform.md must not appear in skill files) ---
+# --- check old-name references (platform.md must not appear in skill runtime files) ---
 check_platform_alias() {
     local found=0
-    local files=("$SKILL_MD" "$DESIGN_MD" "$ARCH_MD" "$EVAL_MD" "$INTERACTION_MD" "$DOSSIER_MD" "$README_MD")
+    local files=("$SKILL_MD" "$INTERACTION_MD" "$DOSSIER_MD" "$README_MD")
     for f in "${files[@]}"; do
         [ -f "$f" ] || continue
         local rel="${f#$REPO_ROOT/}"
@@ -254,17 +254,9 @@ for file_label in \
     scan_file_substrings "$file" "$label" || errors=1
 done
 
-# --- 2. Scan maintainer docs for forbidden tokens/substrings ---
-for file_label in \
-    "DESIGN_MD:doc executor-neutral-design.md" \
-    "ARCH_MD:doc architecture.md" \
-    "EVAL_MD:doc eval-matrix.md"; do
-    fvar="${file_label%%:*}"
-    label="${file_label##*:}"
-    file="${!fvar}"
-    scan_file_tokens "$file" "$label" || errors=1
-    scan_file_substrings "$file" "$label" || errors=1
-done
+# --- 2. Scan maintainer docs for structural issues only (not platform tokens) ---
+# Docs record design decisions including migration history — platform references are intentional.
+# Token/substring scans only apply to skill runtime files (Section 1).
 
 # --- 3. Durable-only scan on eval-matrix.md (eval evidence) ---
 scan_file_durable "$EVAL_MD" "doc eval-matrix.md" || errors=1

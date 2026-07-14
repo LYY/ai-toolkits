@@ -117,17 +117,21 @@ for src in "$REPO_ROOT"/*.md; do
     done < <(extract_refs "$src")
 done
 
-# 4. Script references
+# 4. Script references — generic: any scripts/*.py referenced from reference .md files
 for src in "${skill_refs_dirs[@]}"/*.md; do
     [ -f "$src" ] || continue
     skill_dir="$(dirname "$(dirname "$src")")"
     src_rel="${src#$REPO_ROOT/}"
-    if grep -q 'list_comments\.py' "$src" 2>/dev/null; then
-        [ -f "$skill_dir/scripts/list_comments.py" ] || {
-            red "  ❌ $src_rel → scripts/list_comments.py (not found)"
+    while IFS= read -r script_ref; do
+        [ -z "$script_ref" ] && continue
+        [ -f "$skill_dir/$script_ref" ] || {
+            red "  ❌ $src_rel → $script_ref (not found)"
             errors=1
         }
-    fi
+    done < <(perl -ne '
+        while (/`(scripts\/[^`]+\.py)`/g)  { print "$1\n"; }
+        while (/\((scripts\/[^)]+\.py)\)/g) { print "$1\n"; }
+    ' "$src" 2>/dev/null || true)
 done
 
 echo ""
