@@ -1,0 +1,11 @@
+APR001: forbidden token "omo" in skill execution.md
+APR001: forbidden substring "/start-work" in skill execution.md
+APR001: forbidden substring "platform.md" in doc executor-neutral-design.md
+APR001: forbidden token "omo" in doc eval-matrix.md
+APR001: forbidden token "prometheus" in doc eval-matrix.md
+APR001: forbidden substring "/start-work" in doc eval-matrix.md
+APR001: forbidden substring ".omo/" in doc eval-matrix.md
+APR001: forbidden substring "generated plan" in doc eval-matrix.md
+APR006: platform.md reference found in docs/address-pr-comments-review/executor-neutral-design.md
+APR007: cross-reference check failed
+APR008: absolute symlink /Users/liuyuyu/program/github/LYY/ai-toolkits/.codegraph -> /Users/liuyuyu/.omo/codegraph/projects/ai-toolkits-605a6fbca1879480 escapes root
