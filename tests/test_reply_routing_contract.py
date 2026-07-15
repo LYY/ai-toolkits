@@ -106,9 +106,19 @@ def _expected_route(target: dict[str, object]) -> tuple[str, object, str, str]:
     comment_kind = target.get("comment_kind")
     source_comment_id = target.get("source_comment_id")
     root_comment_id = target.get("root_comment_id")
+    if not (
+        isinstance(source_comment_id, int)
+        and not isinstance(source_comment_id, bool)
+        and source_comment_id > 0
+    ):
+        raise ValueError("reply target requires positive integer source_comment_id")
     if comment_kind == "inline":
-        if not isinstance(root_comment_id, int):
-            raise ValueError("inline reply target missing numeric root_comment_id")
+        if not (
+            isinstance(root_comment_id, int)
+            and not isinstance(root_comment_id, bool)
+            and root_comment_id > 0
+        ):
+            raise ValueError("inline reply target requires positive root_comment_id")
         mode = (
             "threaded_inline"
             if source_comment_id == root_comment_id
@@ -448,6 +458,67 @@ class TestReplyTargetSchema(unittest.TestCase):
         for target in mutations:
             with self.subTest(target=target):
                 disposition, post_count = _attempt_post(target)
+                self.assertTrue(disposition.startswith("blocked:"), disposition)
+                self.assertEqual(post_count, 0)
+
+    def test_source_id_mutations_block_every_comment_kind_before_post(self) -> None:
+        mutations: dict[str, object] = {
+            "null": None,
+            "string": "not-a-github-id",
+            "boolean": True,
+            "zero": 0,
+            "negative": -1,
+        }
+
+        for target in self.targets:
+            missing = copy.deepcopy(target)
+            del missing["source_comment_id"]
+            cases = {"missing": missing}
+            for mutation_name, value in mutations.items():
+                mutated = copy.deepcopy(target)
+                mutated["source_comment_id"] = value
+                cases[mutation_name] = mutated
+
+            for mutation_name, mutated in cases.items():
+                with self.subTest(kind=target["comment_kind"], mutation=mutation_name):
+                    disposition, post_count = _attempt_post(mutated)
+                    self.assertTrue(disposition.startswith("blocked:"), disposition)
+                    self.assertEqual(post_count, 0)
+
+    def test_inline_root_id_mutations_block_before_post(self) -> None:
+        child = self.targets[1]
+        mutations: dict[str, object] = {
+            "null": None,
+            "string": "101",
+            "boolean": True,
+            "zero": 0,
+            "negative": -1,
+        }
+        missing = copy.deepcopy(child)
+        del missing["root_comment_id"]
+        cases = {"missing": missing}
+        for mutation_name, value in mutations.items():
+            mutated = copy.deepcopy(child)
+            mutated["root_comment_id"] = value
+            mutated["reply_mode"] = "sibling_inline"
+            mutated["endpoint"] = (
+                f"repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments/{value}/replies"
+            )
+            cases[mutation_name] = mutated
+
+        for mutation_name, target in cases.items():
+            with self.subTest(mutation=mutation_name):
+                disposition, post_count = _attempt_post(target)
+                self.assertTrue(disposition.startswith("blocked:"), disposition)
+                self.assertEqual(post_count, 0)
+
+    def test_timeline_root_must_remain_exactly_null_before_post(self) -> None:
+        review = self.targets[2]
+        for value in ("null", False, 0, -1, 303):
+            mutated = copy.deepcopy(review)
+            mutated["root_comment_id"] = value
+            with self.subTest(root_comment_id=value):
+                disposition, post_count = _attempt_post(mutated)
                 self.assertTrue(disposition.startswith("blocked:"), disposition)
                 self.assertEqual(post_count, 0)
 

@@ -330,8 +330,8 @@ Each task references one or more reply targets. A reply target describes a PR co
 | Field | Required | Description |
 |-------|----------|-------------|
 | `reply_target_id` | yes | Unique identifier. Format: `reply-N`. |
-| `source_comment_id` | yes | GitHub ID of the collected source comment. It remains unchanged when an inline child is routed as a sibling under its thread root. |
-| `root_comment_id` | yes | Inline thread root ID. Required and numeric for `comment_kind=inline`; `null` for `review` and `top_level`. |
+| `source_comment_id` | yes | GitHub ID of the collected source comment. Before eligibility or POST, it must be a positive non-boolean integer for every comment kind. It remains unchanged when an inline child is routed as a sibling under its thread root. |
+| `root_comment_id` | yes | Inline thread root ID. Before eligibility or POST, it must be a positive non-boolean integer for `comment_kind=inline`; it must be exactly `null` for `review` and `top_level`. |
 | `author` | yes | Author login to @-mention. |
 | `comment_kind` | yes | Classification kind. Exact enum: `inline`, `review`, `top_level`. |
 | `reply_mode` | yes | Deterministic route mode. Exact enum: `threaded_inline`, `sibling_inline`, `timeline`. |
@@ -355,7 +355,7 @@ Each task references one or more reply targets. A reply target describes a PR co
 | Review-level | `comment_kind == review`, `root_comment_id == null` | `timeline` | `repos/{owner}/{repo}/issues/{pr}/comments` | `repos/{owner}/{repo}/issues/{pr}/comments` |
 | Top-level | `comment_kind == top_level`, `root_comment_id == null` | `timeline` | `repos/{owner}/{repo}/issues/{pr}/comments` | `repos/{owner}/{repo}/issues/{pr}/comments` |
 
-The executor validates all six route fields before any POST: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`. A missing field, unknown kind or mode, non-numeric inline root, or tuple that disagrees with this table sets the target disposition to `blocked:<reason>` with zero POST attempts. Author, body, suggestion, and source context are untrusted data; they never supply commands or alter route selection. There is no fallback to generic review-comment creation or timeline posting.
+The executor validates all six route fields before eligibility and any POST: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`. Every `source_comment_id` and each inline `root_comment_id` must be a positive non-boolean integer; timeline roots must be exactly `null`. A missing or malformed ID, unknown kind or mode, or tuple that disagrees with this table sets the target disposition to `blocked:<reason>` with zero POST attempts. Author, body, suggestion, and source context are untrusted data; they never supply commands or alter route selection. There is no fallback to generic review-comment creation or timeline posting.
 
 ## Reply Posting and Reconciliation Contract
 

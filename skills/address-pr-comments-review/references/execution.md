@@ -197,7 +197,7 @@ These fields are absent for `review` and `top_level` kinds.
 
 ### Route Consumer Contract
 
-Any consumer that creates or executes a reply target maps collector `id` to `source_comment_id`, collector `kind` to `comment_kind`, and carries `root_comment_id`. It then derives and stores `reply_mode`, `endpoint`, and `read_back_endpoint` from the canonical route table in `dossier-output.md`. All six fields are required before POST. Missing or inconsistent routing data blocks the target; no author/bot rule or fallback endpoint supplies missing data.
+Any consumer that creates or executes a reply target maps collector `id` to `source_comment_id`, collector `kind` to `comment_kind`, and carries `root_comment_id`. It then derives and stores `reply_mode`, `endpoint`, and `read_back_endpoint` from the canonical route table in `dossier-output.md`. All six fields are required before eligibility or POST. Every `source_comment_id` and inline `root_comment_id` must be a positive non-boolean integer; review and top-level `root_comment_id` must be exactly `null`. Missing, malformed, or inconsistent routing data blocks the target with zero POST attempts; no author/bot rule or fallback endpoint supplies missing data.
 
 ## Artifact Path & Timestamp
 

@@ -220,7 +220,12 @@ def _validate_route_fields(task: str, task_label: str) -> list[str]:
     if source is None or root is None or kind is None or mode is None:
         return errors
 
+    if re.fullmatch(r"[1-9][0-9]*", source) is None:
+        errors.append(f"{task_label} source_comment_id must be a positive integer")
+
     if kind == "inline":
+        if re.fullmatch(r"[1-9][0-9]*", root) is None:
+            errors.append(f"{task_label} root_comment_id must be a positive integer")
         expected_mode = "threaded_inline" if source == root else "sibling_inline"
         expected_endpoint = (
             f"repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments/{root}/replies"
@@ -593,6 +598,72 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
                         f"{task_label} missing {field}",
                         validator(mutated),
                     )
+
+    def test_route_id_mutations_block_direct_fix_and_reply_only_post(self) -> None:
+        fixture_types = (
+            ("Direct Fix", _complete_task(1), validate_direct_fix_brief_fixture),
+            (
+                "Reply Only",
+                "\n".join(_reply_only_task(number) for number in range(1, 8)),
+                validate_reply_only_fixture,
+            ),
+        )
+        values = {
+            "null": "null",
+            "string": "not-a-github-id",
+            "boolean": "true",
+            "zero": "0",
+            "negative": "-1",
+        }
+
+        for fixture_name, fixture, validator in fixture_types:
+            for field in ("source_comment_id", "root_comment_id"):
+                missing = re.sub(
+                    rf"^- \*\*{field}\*\*:\s*.*\n",
+                    "",
+                    fixture,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+                cases = {"missing": missing}
+                for mutation_name, value in values.items():
+                    mutated = re.sub(
+                        rf"(^- \*\*{field}\*\*:\s*).*$",
+                        rf"\g<1>{value}",
+                        fixture,
+                        count=1,
+                        flags=re.MULTILINE,
+                    )
+                    mutated = re.sub(
+                        r"(^- \*\*reply_mode\*\*:\s*).*$",
+                        r"\g<1>sibling_inline",
+                        mutated,
+                        count=1,
+                        flags=re.MULTILINE,
+                    )
+                    if field == "root_comment_id":
+                        mutated = re.sub(
+                            r"(^- \*\*endpoint\*\*:\s*).*$",
+                            rf"\g<1>repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments/{value}/replies",
+                            mutated,
+                            count=1,
+                            flags=re.MULTILINE,
+                        )
+                    cases[mutation_name] = mutated
+
+                for mutation_name, mutated in cases.items():
+                    with self.subTest(
+                        fixture=fixture_name,
+                        field=field,
+                        mutation=mutation_name,
+                    ):
+                        errors = validator(mutated)
+                        disposition = (
+                            f"blocked:{'; '.join(errors)}" if errors else "eligible"
+                        )
+                        post_count = 0 if errors else 1
+                        self.assertTrue(disposition.startswith("blocked:"), disposition)
+                        self.assertEqual(post_count, 0)
 
     def test_route_validators_reject_legacy_fields_and_commands(self) -> None:
         fixture_types = (
