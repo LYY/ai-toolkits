@@ -85,6 +85,17 @@ def markdown_prompt_count(section: str) -> int:
     return len(re.findall(r"^```markdown[ \t]*$", section, re.MULTILINE))
 
 
+def extract_markdown_fixture(section: str) -> str:
+    fixtures: list[str] = re.findall(
+        r"^```markdown[ \t]*\r?\n(.*?)^```[ \t]*$",
+        section,
+        re.MULTILINE | re.DOTALL,
+    )
+    if len(fixtures) != 1:
+        raise AssertionError(f"expected one Markdown fixture, found {len(fixtures)}")
+    return fixtures[0]
+
+
 def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
     task_matches = list(_TASK_RE.finditer(brief))
     errors: list[str] = []
@@ -111,6 +122,17 @@ def _complete_task(number: int) -> str:
 - **Verification**: python3 -m unittest
 - **Commit message**: fix task {number}
 - **Reply targets**: comment-{number}
+- **Read-back**: GET comment-{number}
+"""
+
+
+def _reply_only_task(number: int) -> str:
+    return f"""### Reply-Only Task {number}: reply without code change
+- **Source**: @reviewer-{number} | inline | path/to/file.md:{number}
+- **Reply targets**: comment-{number}, reviewer-{number}, inline, endpoint
+- **Reply kind**: `invalid`
+- **Reply body**: explanation-{number}
+- **Pre-Reply Gate**: must pass for this target before posting
 - **Read-back**: GET comment-{number}
 """
 
@@ -239,6 +261,24 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
             self.direct_fix(), r"(?i)each task touches one clearly named file"
         )
 
+    def test_each_task_change_is_mechanically_derivable(self) -> None:
+        self.assertContractRegex(
+            self.direct_fix(),
+            r"(?i)each task is a local, mechanically derivable",
+        )
+
+    def test_each_task_change_is_low_risk(self) -> None:
+        self.assertContractRegex(
+            self.direct_fix(),
+            r"(?i)each task is a local,[^\n]*low-risk change",
+        )
+
+    def test_each_task_requires_exact_target_file(self) -> None:
+        self.assertContractRegex(
+            self.direct_fix(),
+            r"(?i)each task has an exact target file, exact change",
+        )
+
     def test_each_task_is_independent(self) -> None:
         self.assertContractRegex(self.direct_fix(), r"(?i)independent")
 
@@ -305,6 +345,45 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
         self.assertContractRegex(
             self.direct_fix(), r"All eligibility checks passed:\s*yes\|no"
         )
+
+    def test_section_b_is_outside_n_over_five_with_unlimited_gated_replies(
+        self,
+    ) -> None:
+        direct_fix = self.direct_fix()
+        template = extract_markdown_fixture(direct_fix)
+        section_b = extract_markdown_section(template, "Section B: Reply Only")
+        fixture = "\n".join(
+            [_complete_task(number) for number in range(1, 6)]
+            + [_reply_only_task(number) for number in range(1, 8)]
+        )
+
+        self.assertContractRegex(
+            direct_fix,
+            r"(?i)section B reply-only entries remain a separate inventory",
+        )
+        self.assertContractRegex(
+            direct_fix,
+            r"(?i)outside section A and outside `N/5`.*never consume the five-task limit",
+        )
+        self.assertContractRegex(section_b, r"(?i)may have unlimited reply targets")
+        self.assertTextIn("Pre-Reply Gate", section_b)
+        self.assertTextIn("Read-back", section_b)
+        for code_change_field in (
+            "Target file",
+            "Exact change",
+            "Verification",
+            "Commit message",
+            "Commit SHA",
+        ):
+            with self.subTest(code_change_field=code_change_field):
+                self.assertContractNotRegex(
+                    section_b,
+                    re.compile(
+                        rf"^- \*\*{re.escape(code_change_field)}\*\*:",
+                        re.MULTILINE,
+                    ),
+                )
+        self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
 
     def test_fallback_names_every_failed_eligibility_condition(self) -> None:
         section = self.direct_fix()
