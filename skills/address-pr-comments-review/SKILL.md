@@ -30,14 +30,15 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 1 | Detect PR and collect comments from bound checkout | `references/execution.md` | 150 |
 | 2a | Build evidence ledger for actionable comments | `references/classify.md` | 420 |
 | 2b | Classify each comment from evidence, not suggestion text | `references/classify.md` | 420 |
-| 2c | Detect duplicates, conflicts, relations across full set | `references/cross-reference.md` | 340 |
+| 2c | Detect duplicates; preserve separate source/root/kind reply targets | `references/cross-reference.md` §Duplicate Detection | 200 |
 | 3 | Present overview table, discuss 🔴 items, get confirmation | `references/interaction.md` | 200 |
 | 4a | Pre-write cross-reference scan (9 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
-| 4c | Generate dossier (Sections A/B/C, guardrails, dependencies) | `references/dossier-output.md` §Dossier Structure | 200 |
-| 4d | Optional Direct Fix Brief for simple low-risk Section A, then direct-fix handoff | `references/dossier-output.md` §Direct-Fix Fast Path + `references/execution.md` §Direct Fix Brief Handoff | 200 |
-| 4e | Enforce reply task contract (gate check, templates, duplicate strategy) | `references/dossier-output.md` §Reply Policy | 200 |
+| 4c | Generate dossier with canonical route fields in Sections A/B | `references/dossier-output.md` §Dossier Structure + §Reply Target Schema | 240 |
+| 4d | Optional Direct Fix Brief for simple low-risk Section A, then direct-fix handoff | `references/dossier-output.md` §Direct Fix Brief + `references/execution.md` §Direct Fix Brief Handoff | 240 |
+| 4e | Enforce route, body-only POST, read-back, and duplicate policy | `references/dossier-output.md` §Reply Posting and Reconciliation Contract + §Reply Policy | 240 |
 | 5 | Handoff message to user | `references/execution.md` §Dossier Handoff or §Direct Fix Brief Handoff | 20 |
+| resume | Reconcile interrupted reply targets before deciding any POST remains | `references/dossier-output.md` §lease-recover | 20 |
 | cleanup | Clean current PR artifacts | `references/execution.md` §Artifact Cleanup | 80 |
 | cleanup-all | Clean all default artifacts | `references/execution.md` §Artifact Cleanup | 80 |
 
@@ -45,7 +46,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 
 **Direct-Fix Fast Path** (simple low-risk Section A): after Step 3 confirmation and Step 4a scan, the user may explicitly choose Direct Fix after seeing the final classification table. The batch is bounded to one through five independent Section A tasks. Every task must be unambiguous, low-risk, single-file, dependency-free, conflict-free, and complete enough for execution and reply read-back. Run the Dossier Accuracy Grill Gate first. If all eligibility checks pass, write a Direct Fix Brief instead of the full dossier. No second plan-approval step is required for an eligible batch. If any eligibility condition fails, name every failed condition and route to Review Dossier.
 
-**Reply-only path** (Section A = 0, Section B > 0): after Step 0 has bound the current checkout and Step 3 confirms replies only, load `dossier-output.md`. Read §Reply Endpoints, §Direct Reply-Only Posting, and §Reply Policy. Skip Dossier Structure, Sections A/B/C, Validation Gates, and Handoff. This path MUST POST/send replies through the documented endpoints, then verify each reply by read-back with GET/LIST operations. Drafting or composing reply text is not completion.
+**Reply-only path** (Section A = 0, Section B > 0): after Step 0 has bound the current checkout and Step 3 confirms replies only, load `dossier-output.md`. Read §Reply Target Schema, §Reply Posting and Reconciliation Contract, §Reply Endpoints, and §Reply Policy. Skip Dossier Structure, Sections A/B/C, Validation Gates, and Handoff. Require `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint` for every target. POST once through the exact endpoint, then verify by route-specific GET/LIST read-back. Missing or inconsistent route data blocks before POST; uncertain results are read back and never blindly retried.
 
 ## Prerequisites
 
@@ -117,7 +118,7 @@ Direct Fix execution is serial and fail-stop. A failed checkout validation, veri
 For exact handoff wording, use `references/execution.md` §Dossier Handoff or §Direct Fix Brief Handoff. Do not duplicate handoff templates here.
 
 **After execution succeeds**: `git log --oneline`, `git push`, verify PR replies.
-**If execution fails mid-way**: re-run this skill. `has_replies` detection skips handled items.
+**If execution fails mid-way**: load `dossier-output.md` §lease-recover. Read back current remote state for every prior target before deciding whether any POST remains; preserve the one-POST maximum across repeated interruptions.
 
 ## Key Principles
 

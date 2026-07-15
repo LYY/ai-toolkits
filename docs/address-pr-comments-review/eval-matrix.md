@@ -1,7 +1,7 @@
 # Eval Matrix: address-pr-comments-review
 
 > **Behavioral acceptance criteria** for the address-pr-comments-review skill.
-> Each scenario defines behavior a maintainer can regression review. Review dimensions stay close to the runtime phase being protected: current checkout binding, classification, reply posture, overview-table treatment, dossier escalation, exclusive handoff shape, or post reply read-back.
+> Each scenario defines behavior a maintainer can regression review. Review dimensions stay close to the runtime phase being protected: current checkout binding, classification, canonical route fields, reply posture, overview-table treatment, dossier escalation, exclusive handoff shape, or route-specific post reply read-back.
 > Used to verify skill behavior correctness during development and regression testing.
 
 ---
@@ -97,16 +97,16 @@
 
 ### 6. duplicate reply
 
-**Description:** Multiple reviewers (e.g., a human and CodeRabbit/Copilot) flag the same or substantially overlapping concern on the same code. The agent must detect this as a duplicate, merge the entries, and produce ONE code change task with replies to EACH author individually.
+**Description:** Multiple reviewers (e.g., a human and CodeRabbit/Copilot) flag the same or substantially overlapping concern on the same code. The agent must detect this as a duplicate, merge the entries, and produce ONE code change task with a separate canonical reply target for EACH source author.
 
 **Origin:** PR #1215 patterns. Multiple reviewers independently flagged the publisher shutdown ordering issue. Risk of replying twice with the same information or applying the fix twice in parallel.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | Cross-reference check detects duplicate. Merged into one entry with all authors noted. If the common concern is valid, conclusion is `valid`. |
-| expected reply posture | One code change. Then reply to EACH author individually using their own `in_reply_to` ID. Same reply content for all duplicate authors. |
+| expected reply posture | One code change. Then post one reply per source author using that target's `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`. Inline duplicates in one thread share the root `/replies` endpoint; each target gets its own route-specific read-back. |
 | expected overview-table | Merged single entry with multiple authors listed (e.g., `@copilot, @alice`). Conclusion `valid`. Note: `≡ merged (N reviews)`. |
-| expected dossier escalation | Yes — Section A (one code change task). Dossier must list ALL duplicate authors and their individual `in_reply_to` IDs. Dedup count in Executive Summary. |
+| expected dossier escalation | Yes — Section A (one code change task). Dossier must list every duplicate source author and all six canonical route fields for each reply target. Dedup count stays in Executive Summary. |
 
 **Critical rule:** Never create separate Section A tasks for duplicate comments. Never reply to one author without replying to the others. Never apply the same fix twice.
 
@@ -148,7 +148,7 @@
 | 13 | `reply-only posting and read-back` | Reply-only workflow regression | Generating needless plan or skipping post reply read-back |
 | 14 | `direct-fix fast path` | PR #2166, simple proto field rename | Forcing a full dossier for bounded low-risk work, or bypassing reply/read-back duties |
 | 15 | `dossier accuracy grill gate` | Simple-path and ambiguous-dossier regression | Writing a dossier or brief while unresolved implementation, scope, test, or reply ambiguity remains |
-| 16 | `direct fix brief retaining PR reply fields` | Direct-fix handoff regression | Losing comment ID, endpoint, `in_reply_to`, commit SHA requirement, or read-back verification |
+| 16 | `direct fix brief retaining PR reply fields` | Direct-fix handoff regression | Losing source/root route fields, endpoint, full commit SHA body requirement, or read-back verification |
 | 17 | `artifact_dir override no ignore edit` | Artifact storage decoupling | Mutating root/global ignore files or treating repo-local override as default-safe |
 | 18 | `Review Dossier plan-first exclusive handoff` | Review Dossier handoff routing | Emitting a Direct Fix prompt, a second handoff, or allowing edits before explicit approval |
 | 19 | `exclusive Dossier and Direct Fix handoff` | Exclusive handoff routing | Using a direct prompt for a Dossier, a plan-first prompt for Direct Fix, or requiring a second plan approval |
@@ -237,12 +237,12 @@
 
 ### 13. reply-only posting and read-back
 
-**Description:** The confirmed review result has Section B items and no Section A items. The runtime path should send replies directly and read back the posted replies instead of producing a code-work plan.
+**Description:** The confirmed review result has Section B items and no Section A items. The runtime path should select each route from canonical source/root/kind/mode fields, send a body-only reply through its exact endpoint, and read back the posted reply through its route-specific endpoint instead of producing a code-work plan.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | All actionable follow-up items are Section B reply-only, such as `already_fixed`, `invalid`, or `needs_clarification`. |
-| expected reply posture | Directly send replies, then read back posted replies to verify. |
+| expected reply posture | Directly send body-only replies, then verify each with route-specific read-back. A timeout or malformed response is uncertain, not success; read back before deciding whether any POST remains. |
 | expected overview-table | Section B entries stay visible in the confirmation table. |
 | expected dossier escalation | No code plan. Dossier or evidence may record the reply-only result, but ownership stays with the reply-only route. |
 
@@ -254,14 +254,14 @@
 
 ### 14. direct-fix fast path
 
-**Description:** A confirmed Section A item is a simple, low-risk change: one code-change task, one file, no conflicts, no dependencies, no cross-file pattern, exact edit known, and reply target complete. The agent may skip Prometheus only after explicit user confirmation and a successful dossier accuracy grill gate.
+**Description:** A confirmed Section A item is a simple, low-risk change: one code-change task, one file, no conflicts, no dependencies, no cross-file pattern, exact edit known, and all canonical reply target fields complete. The agent may skip the full dossier path only after explicit user confirmation and a successful dossier accuracy grill gate.
 
 **Origin:** PR #2166 (`peatio/hub`). Copilot asked to rename `HasInvestCompletedResponse.exists` to `has_invest_completed` in `protos/peatio/coffer/v1/welfare/eligibility/eligibility.proto`, preserving field number `1` and not manually editing generated `.pb.go` files.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | `valid` Section A. The issue is a concrete field-name clarity fix. |
-| expected reply posture | Code change, targeted validation, commit, inline reply with commit SHA, and read-back verification. |
+| expected reply posture | Code change, targeted validation, commit, body-only reply through the target's exact endpoint, full task-specific 40-character commit SHA in fixed or partially addressed body text, and route-specific read-back verification. |
 | expected overview-table | One Section A item, no conflicts, no duplicates, no 🔴 discussion items. |
 | expected dossier escalation | Optional direct-fix fast path. If the user chooses direct fix, generate a Direct Fix Brief instead of the full Prometheus dossier. If the user does not choose direct fix, use the normal dossier/Prometheus path. |
 
@@ -286,12 +286,12 @@
 
 ### 16. direct fix brief retaining PR reply fields
 
-**Description:** A Direct Fix Brief is shorter than a dossier but must preserve every field needed for implementation and PR reply completion.
+**Description:** A Direct Fix Brief is shorter than a dossier but must preserve every field needed for implementation and PR reply completion. It must preserve source/root/kind/mode/endpoint/read-back routing, not diff coordinates or nested-reply metadata.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | Only confirmed Section A items eligible for direct-fix are represented in the brief. |
-| expected reply posture | The brief includes comment author, comment ID, reply kind, endpoint, inline target fields (`path`, `line`, `side`, `in_reply_to`), Pre-Reply Gate, commit SHA requirement, and read-back verification. |
+| expected reply posture | The brief includes source author, `source_comment_id`, nullable `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, `read_back_endpoint`, Reply kind, Pre-Reply Gate, full commit SHA body requirement for fixed or partially addressed conclusions, and read-back verification. Threaded POST payload is exactly `{body}` and rejects `commit_id`, `path`, `line`, `side`, and `in_reply_to`. |
 | expected overview-table | The final overview must explain that the item is routed to Direct Fix Brief rather than full dossier only after explicit user choice. |
 | expected dossier escalation | No full dossier is generated for the direct-fix item, but the brief is blocked if required reply fields are missing. |
 
@@ -417,6 +417,92 @@
 
 **Failure pattern guarded:** Deleting fresh artifacts during age-filtered cleanup.
 
+### 25. inline root 101 threaded_inline
+
+**Description:** An inline root comment with `source_comment_id=101` and `root_comment_id=101` must use the threaded inline route.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | `valid` Section A or a confirmed Section B reply-only item, according to existing classification evidence. |
+| expected reply posture | `reply_mode=threaded_inline`; POST to `repos/{owner}/{repo}/pulls/{pr}/comments/101/replies`; payload key set exactly `{body}`; read back PR review comments and match actor, full body, target PR, and `in_reply_to_id=101`. |
+| expected overview-table | Preserves source 101, root 101, kind `inline`, mode `threaded_inline`, POST endpoint, and read-back endpoint. |
+| expected dossier escalation | Follows Section A/B classification. Missing route fields block before POST. |
+
+**Failure pattern guarded:** Posting a generic inline comment, using a child target, or including commit or diff metadata in the threaded request.
+
+---
+
+### 26. inline child 202 sibling_inline
+
+**Description:** An inline child comment with `source_comment_id=202` and `root_comment_id=101` must create a sibling under root 101, never a nested reply under child 202.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Existing classification is unchanged. |
+| expected reply posture | `reply_mode=sibling_inline`; POST to `repos/{owner}/{repo}/pulls/{pr}/comments/101/replies`, not `/comments/202/replies`; payload key set exactly `{body}`; read back against root 101. |
+| expected overview-table | Preserves source 202, root 101, kind `inline`, mode `sibling_inline`, POST endpoint, and read-back endpoint. |
+| expected dossier escalation | Follows the selected Section A/B route. Unknown or missing root blocks before POST. |
+
+**Failure pattern guarded:** Targeting child ID 202 or inventing a fourth classification kind.
+
+---
+
+### 27. review-level 303 timeline
+
+**Description:** A review-level comment with source 303 and no diff thread must receive a PR issue timeline comment.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Existing classification is unchanged. |
+| expected reply posture | `comment_kind=review`, `root_comment_id=null`, `reply_mode=timeline`; POST and read back through `repos/{owner}/{repo}/issues/{pr}/comments`; payload key set exactly `{body}`. |
+| expected overview-table | Shows source 303, kind `review`, mode `timeline`, issue-comment endpoint, and matching read-back endpoint. |
+| expected dossier escalation | Follows the selected Section A/B route; no inline root is fabricated. |
+
+---
+
+### 28. top-level 404 timeline
+
+**Description:** A top-level PR timeline comment with source 404 must receive a PR issue timeline comment.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Existing classification is unchanged. |
+| expected reply posture | `comment_kind=top_level`, `root_comment_id=null`, `reply_mode=timeline`; POST and read back through `repos/{owner}/{repo}/issues/{pr}/comments`; payload key set exactly `{body}`. |
+| expected overview-table | Shows source 404, kind `top_level`, mode `timeline`, issue-comment endpoint, and matching read-back endpoint. |
+| expected dossier escalation | Follows the selected Section A/B route; no diff coordinates are required. |
+
+---
+
+### 29. threaded body-only payload
+
+**Description:** Every threaded inline POST must reject `commit_id`, `path`, `line`, `side`, and `in_reply_to`. Fixed and partially addressed reply bodies still include the full task-specific 40-character commit SHA after commit and remote reachability checks.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Existing conclusion remains unchanged. |
+| expected reply posture | Request body is exactly `{body}`. Forbidden fields block the request. Full SHA appears in rendered fixed or partially addressed body text, not request metadata. |
+| expected overview-table | Retains canonical route fields and commit-SHA requirement. |
+| expected dossier escalation | Section A keeps commit, remote reachability, reply, and read-back order. Section B has no code-change fields but keeps reply and read-back gates. |
+
+**Failure pattern guarded:** Treating diff coordinates or commit metadata as valid threaded request fields.
+
+---
+
+### 30. read-back uncertainty no retry
+
+**Description:** A timeout or malformed POST response is uncertain. Read back current remote state first. One exact match verifies the reply; zero exact matches become blocked absent; multiple exact matches become blocked ambiguous. None authorizes a second POST.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Existing classification is unchanged. |
+| expected reply posture | Route-specific GET/LIST read-back checks actor, full body, target PR, and root relationship for inline, or actor, full body, and target PR for timeline. |
+| expected overview-table | Records uncertain, reconciled, blocked absent, or blocked ambiguous outcome with read-back evidence. |
+| expected dossier escalation | Resume and repeated interruption remain blocked until evidence is unambiguous. The workflow preserves at most one POST attempt. |
+
+**Failure pattern guarded:** Blind retry, treating zero or multiple matches as success, or skipping read-back after timeout or malformed output.
+
+---
+
 ## QA Check Tokens
 
 The following tokens MUST appear in this file for automated QA:
@@ -437,6 +523,15 @@ The following tokens MUST appear in this file for automated QA:
 - `direct-fix fast path`
 - `dossier accuracy grill gate`
 - `direct fix brief retaining PR reply fields`
+- `inline root 101 threaded_inline`
+- `inline child 202 sibling_inline`
+- `review-level 303 timeline`
+- `top-level 404 timeline`
+- `threaded body-only payload`
+- `read-back uncertainty no retry`
+- `malformed_input`
+- `cancel_resume`
+- `repeated_interruption`
 - `artifact_dir override no ignore edit`
 - `Review Dossier plan-first exclusive handoff`
 - `exclusive Dossier and Direct Fix handoff`

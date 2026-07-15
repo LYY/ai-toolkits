@@ -71,7 +71,7 @@ def _make_source_template(
 <!-- verifications-json:end -->
 
 <!-- reply-targets-json:start -->
-[{"reply_target_id":"reply-1","comment_id":42,"author":"reviewer","kind":"inline","endpoint":"repos/owner/repo/pulls/1/comments","target_path":"src/file.go","target_line":10,"target_side":"RIGHT","in_reply_to":42,"reply_body_template":"Fixed in {commit_sha}.","reply_kind":"fixed","requires_commit_sha":true,"duplicate_of":null,"disposition":"pending","disposition_reason":null}]
+[{"reply_target_id":"reply-1","source_comment_id":42,"root_comment_id":42,"author":"reviewer","comment_kind":"inline","reply_mode":"threaded_inline","endpoint":"repos/owner/repo/pulls/1/comments/42/replies","read_back_endpoint":"repos/owner/repo/pulls/1/comments","source_path":"src/file.go","source_line":10,"reply_body_template":"Fixed in {commit_sha}.","reply_kind":"fixed","requires_commit_sha":true,"duplicate_of":null,"disposition":"pending","disposition_reason":null}]
 <!-- reply-targets-json:end -->
 """
 

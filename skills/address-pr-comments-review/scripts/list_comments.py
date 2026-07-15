@@ -3,9 +3,10 @@
 # The archived address-pr-comments skill is no longer maintained.
 #
 # Script-to-skill contract: this script outputs JSON with fields
-# consumed by the skill: kind, id, author, is_ai, created_at, url, body,
-# excerpt, ai_prompts, has_replies, thread_resolved, thread_outdated,
-# path, line (path/line are inline-only). The JSON contract is documented in references/execution.md.
+# consumed by the skill: kind, id, root_comment_id, author, is_ai, created_at,
+# url, body, excerpt, ai_prompts, has_replies, thread_resolved,
+# thread_outdated, path, line (root_comment_id/path/line are inline-only).
+# The JSON contract is documented in references/execution.md.
 """
 Collect and normalize GitHub PR feedback via gh CLI.
 
@@ -266,9 +267,13 @@ def normalize_inline(
     normalized = []
     for comment in comments:
         comment_id = comment.get("id")
+        try:
+            thread_comment_id = int(comment_id) if comment_id is not None else None
+        except (TypeError, ValueError):
+            thread_comment_id = None
         thread_status = (
-            review_thread_status.get(int(comment_id))
-            if comment_id is not None
+            review_thread_status.get(thread_comment_id)
+            if thread_comment_id is not None
             else None
         )
         if (
@@ -283,6 +288,11 @@ def normalize_inline(
             {
                 "kind": "inline",
                 "id": comment_id,
+                "root_comment_id": (
+                    comment.get("in_reply_to_id")
+                    if comment.get("in_reply_to_id") is not None
+                    else comment_id
+                ),
                 "author": login,
                 "is_ai": is_ai_reviewer(login),
                 "created_at": comment.get("created_at"),

@@ -145,7 +145,7 @@ The script emits a JSON array of normalized comment objects. Each object represe
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `kind` | string | yes | One of: `inline`, `review`, `top_level` |
-| `id` | integer | yes | GitHub comment/review ID (used for `in_reply_to` in gh API) |
+| `id` | JSON value | yes | Source GitHub comment/review ID, preserved without fabricating a fallback when missing or malformed. |
 | `author` | string | yes | Author login. May be `null` (ghost account). |
 | `is_ai` | boolean | yes | `true` if author is a known bot/AI reviewer |
 | `body` | string | yes | Full comment body text (may be empty string). **Authoritative for classification — `excerpt` is truncated and must not be used.** |
@@ -174,6 +174,7 @@ Timestamp and URL fields vary by output kind:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
+| `root_comment_id` | JSON value | yes (inline only) | REST `in_reply_to_id` when present; otherwise source `id`. Missing or malformed source identity remains unpostable and must not gain a fallback target. |
 | `path` | string | no (inline only) | File path relative to repo root. Only present when `kind=inline`. |
 | `line` | integer | no (inline only) | Line number in the file. Only present when `kind=inline`. |
 
@@ -190,9 +191,13 @@ These fields are absent for `review` and `top_level` kinds.
 | Protocol File | Key Fields Consumed |
 |---------------|---------------------|
 | `classify.md` | `author`, `is_ai`, `body`, `has_replies`, `thread_outdated`, `thread_resolved`, `path`, `line`, `kind` |
-| `cross-reference.md` | `has_replies`, `kind`, `path`, `line`, `id`, `author` |
-| `dossier-output.md` | `id`, `author`, `kind`, `path`, `line`, `url` |
-| `interaction.md` | `id`, `author`, `kind`, `path`, `line`, `url` |
+| `cross-reference.md` | `has_replies`, source `id`, `root_comment_id`, `kind`, `path`, `line`, `author` |
+| `dossier-output.md` | Maps source `id` to `source_comment_id`; emits `root_comment_id`, `comment_kind`, derived `reply_mode`, `endpoint`, `read_back_endpoint`, author, and source context |
+| `interaction.md` | Source `id`, `root_comment_id`, `kind`, `author`, `path`, `line`, `url`; route selection remains kind-derived |
+
+### Route Consumer Contract
+
+Any consumer that creates or executes a reply target maps collector `id` to `source_comment_id`, collector `kind` to `comment_kind`, and carries `root_comment_id`. It then derives and stores `reply_mode`, `endpoint`, and `read_back_endpoint` from the canonical route table in `dossier-output.md`. All six fields are required before POST. Missing or inconsistent routing data blocks the target; no author/bot rule or fallback endpoint supplies missing data.
 
 ## Artifact Path & Timestamp
 
@@ -256,8 +261,9 @@ Generate an execution plan and preserve every reply task from the artifact:
 - code changes before replies
 - targeted verification before commit
 - commit SHA included in Section A replies
-- PR comment replies posted through the listed endpoints
-- read-back verification after posting replies
+- each reply target routed only from `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`
+- PR comment replies posted once through the listed endpoints
+- remote state read back before any resume decision or success claim; no failed or uncertain write is blindly retried
 Ask me before planning if any task is ambiguous. Wait for my explicit approval of the plan before editing. Do not edit files, commit, push, or post replies before that approval.
 ```
 
@@ -282,7 +288,7 @@ Read and directly execute this Direct Fix Brief:
 
 <ARTIFACT_PATH>
 
-This brief is bounded to one through five Section A tasks. Execute tasks serially, in order, without another approval step. First validate checkout root, branch, HEAD, and PR identity. For each task, execute exactly: edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back. Use a distinct task-specific commit SHA in each required reply. Stop the whole batch on the first failed validation, verification, commit, push, remote-reachability check, reply, or read-back. Preserve completed task evidence, leave later tasks unresolved, and mark the artifact blocked. Do not expand scope beyond the brief or produce planning output.
+This brief is bounded to one through five Section A tasks. Execute tasks serially, in order, without another approval step. First validate checkout root, branch, HEAD, and PR identity. For each task, execute exactly: edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back. Before each reply, require and validate `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`. POST at most once, then read back remote state; on resume, read back before deciding whether any POST remains. Use a distinct task-specific commit SHA in each required reply. Stop the whole batch on the first failed validation, verification, commit, push, remote-reachability check, reply, or read-back. Preserve completed task evidence, leave later tasks unresolved, and mark the artifact blocked. Do not expand scope beyond the brief or produce planning output.
 ```
 
 Cleanup target after verified execution:

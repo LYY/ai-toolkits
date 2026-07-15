@@ -42,7 +42,7 @@ docs/address-pr-comments-review/
 - 评论采集（`scripts/list_comments.py`）
 - Evidence Ledger 构建
 - 逐条分类与交叉比对
-- 路由决策：将确认后的结果路由到四种最终结果之一
+- 路由决策：将确认后的结果路由到 Review Dossier、Direct Fix Brief、Reply Only 或 No Action
 - 在需要代码工作时生成持久化 artifact（Review Dossier 或 Direct Fix Brief）
 - Dossier Accuracy Grill Gate
 
@@ -83,11 +83,24 @@ After Step 0, local reads and git commands are interpreted relative to `TARGET_W
 - `--force` 覆盖需二次确认
 - Reply Only 和 No Action 是终端路由，不产生 artifact，不经过 lifecycle
 
+### Canonical Reply Routes
+
+每个 reply target 都必须保留 `source_comment_id`、`root_comment_id`、`comment_kind`、`reply_mode`、`endpoint` 和 `read_back_endpoint`。路由只由 source/root/kind/mode 决定，不按作者或子评论 ID 选择 endpoint。
+
+| Maintained scenario | Route | POST endpoint | POST payload | Route-specific read-back |
+|---|---|---|---|---|
+| inline root 101, `source_comment_id=101`, `root_comment_id=101` | `threaded_inline` | `repos/{owner}/{repo}/pulls/{pr}/comments/101/replies` | exactly `{body}` | PR review comments, authenticated actor, full body, target PR, `in_reply_to_id=101` |
+| inline child 202, `source_comment_id=202`, `root_comment_id=101` | `sibling_inline` | `repos/{owner}/{repo}/pulls/{pr}/comments/101/replies` | exactly `{body}` | PR review comments, authenticated actor, full body, target PR, `in_reply_to_id=101` |
+| review-level 303, `comment_kind=review`, null root | `timeline` | `repos/{owner}/{repo}/issues/{pr}/comments` | exactly `{body}` | PR issue comments, authenticated actor, full body, target PR |
+| top-level 404, `comment_kind=top_level`, null root | `timeline` | `repos/{owner}/{repo}/issues/{pr}/comments` | exactly `{body}` | PR issue comments, authenticated actor, full body, target PR |
+
+Threaded payload rejects `commit_id`, `path`, `line`, `side`, and `in_reply_to`. `fixed` and `partially_addressed` replies keep the full task-specific 40-character commit SHA in rendered body text, never in threaded POST metadata. Missing or inconsistent route data, timeout, malformed response, zero exact read-back matches, and multiple exact matches fail closed. Uncertain writes are read back before deciding whether any POST remains, and this workflow never retries by sending a second POST.
+
 The dossier owns downstream reply-task requirements. Section A items require implementation tasks plus reply tasks. Section B items require reply tasks even when no code changes are needed. The execution contract must preserve those reply tasks instead of treating the artifact as a code-only brief.
 
-The direct-fix route owns bounded Section A shortcuts. It permits one through five independent, low-risk, mechanically specified tasks, requires explicit user choice after the final classification table, gives each task its own commit and full reply/read-back fields, and stops the batch on the first failure. Clear local runtime behavior fixes remain eligible. Complex or ambiguous Section A work remains on the dossier path by default.
+The direct-fix route owns bounded Section A shortcuts. It permits one through five independent, low-risk, mechanically specified tasks, requires explicit user choice after the final classification table, gives each task its own canonical route fields, commit and full reply/read-back requirements, and stops the batch on the first failure. Fixed and partially addressed replies include the full task-specific commit SHA in their body. Clear local runtime behavior fixes remain eligible. Complex or ambiguous Section A work remains on the dossier path by default.
 
-The reply-only route owns direct sending. When the confirmed outcome has Section B items and no Section A work, the route sends replies directly and reads them back instead of creating a work plan. No artifact is persisted.
+The reply-only route owns direct sending. When the confirmed outcome has Section B items and no Section A work, the route selects the canonical endpoint from each target's source/root/kind/mode fields, sends a body-only reply, and performs route-specific read-back instead of creating a work plan. A timeout or malformed POST result still requires read-back; zero or multiple exact matches remain blocked, with no second POST. No artifact is persisted.
 
 No Action is a terminal route: nothing remains actionable. No write operations occur. The completion is recorded but no artifact is written.
 
@@ -100,7 +113,7 @@ Artifact cleanup follows the Execution Handoff lifecycle. Cleanup is only permit
 | `classify.md` | source detection, intent, conclusion taxonomy, edge cases, evidence requirements, section mapping | cross-reference (duplicate/conflict/relation), interaction flow |
 | `cross-reference.md` | duplicate/conflict/relation detection, cross-file escalation | individual classification, reply templates |
 | `interaction.md` | overview table format, silent consent, 🔴 discussion flow, scaling, zero-actionable fast path, route selection (Review Dossier / Direct Fix Brief / Reply Only / No Action) | comment classification, dossier/brief structure, artifact lifecycle |
-| `dossier-output.md` | dossier structure (A/B/C), Direct Fix Brief, dossier accuracy grill gate, reply endpoints, reply policy + gate, 7-check validation, Cross-File Pattern template, downstream reply task requirements, Section A commit order reference | classification rules, interaction flow, current checkout binding |
+| `dossier-output.md` | dossier structure (A/B/C), Direct Fix Brief, canonical reply target fields, deterministic endpoints, body-only payload, route-specific read-back, fail-closed reconciliation, reply policy + gate, 7-check validation, Cross-File Pattern template, downstream reply task requirements, Section A commit order reference | classification rules, interaction flow, current checkout binding |
 | `execution.md` | checkout binding, `list_comments.py` usage, GitHub CLI prerequisites, default local-state artifact paths, `artifact_dir` override, handoff format, cleanup commands, artifact lifecycle (pending/in-progress/blocked/verified-complete), Section A mandatory commit order, dirty-target blocking, `--force` + two-confirmation cleanup | reply API commands (owned by dossier-output.md), classification rules (owned by classify.md) |
 
 ## Artifact Lifecycle

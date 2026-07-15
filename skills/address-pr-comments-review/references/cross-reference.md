@@ -31,8 +31,9 @@ Find two or more comments that point to the same or substantially overlapping co
 When duplicates are found:
 1. Create ONE entry in the overview table with all authors listed (format: `@copilot, @alice`)
 2. Assign the most specific common conclusion (e.g., `valid` from `valid` + `valid`, or surface conflict if conclusions differ)
-3. In the dossier, produce ONE task with all authors listed
-4. Reply to each author individually using their own `in_reply_to` ID
+3. In the dossier, produce ONE code task with all authors listed
+4. Produce a separate reply target per source author. Preserve each `source_comment_id`, `root_comment_id`, and `comment_kind`, then derive `reply_mode`, `endpoint`, and `read_back_endpoint` from the canonical route table.
+5. Inline duplicates in one thread all use the same root `/replies` endpoint. Each target still owns its POST attempt and read-back evidence.
 
 ### False Positive Guard
 
