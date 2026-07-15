@@ -8,4 +8,6 @@
 | EN-03 | Section A order is exactly edit, verify, commit, remote-reachability, reply, read-back; push_authorized is false |
 | EN-04 | All four recovery fields are true: stable_ids, cas, read_back, cleanup_blocks_incomplete |
 | EN-05 | handoff_complete is true |
+| EN-06 | direct_fix_policy exactly matches min_tasks=1, max_tasks=5, summary_format="N/5", explicit_selection_required=true, per_task_commit=true, serial_fail_stop=true, report_all_failures=true, local_runtime_behavior_eligible_when_clear=true |
+| EN-07 | handoff_prompt_counts exactly matches review_dossier=1 and direct_fix_brief=1; Review Dossier is plan-first and Direct Fix Brief is direct execution |
 <!-- rubric-v1:end -->

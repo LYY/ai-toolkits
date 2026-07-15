@@ -81,7 +81,7 @@ def _make_transcript(
 
 
 def _make_valid_response_json(case_id: str = "complex-dossier") -> dict:
-    """Build a response dict that passes all EN-01..EN-05 checks."""
+    """Build a response dict that passes all EN-01..EN-07 checks."""
     return {
         "routes": ["review-dossier"],
         "persisted_artifacts": ["review-dossier"],
@@ -102,6 +102,20 @@ def _make_valid_response_json(case_id: str = "complex-dossier") -> dict:
         },
         "runtime_specific_terms": [],
         "handoff_complete": True,
+        "direct_fix_policy": {
+            "min_tasks": 1,
+            "max_tasks": 5,
+            "summary_format": "N/5",
+            "explicit_selection_required": True,
+            "per_task_commit": True,
+            "serial_fail_stop": True,
+            "report_all_failures": True,
+            "local_runtime_behavior_eligible_when_clear": True,
+        },
+        "handoff_prompt_counts": {
+            "review_dossier": 1,
+            "direct_fix_brief": 1,
+        },
     }
 
 
@@ -438,6 +452,10 @@ class TestPrepareScoreCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"stderr={result.stderr}")
         data = json.loads(result.stdout)
         self.assertTrue(data["all_pass"])
+        self.assertEqual(
+            [v["criterion_id"] for v in data["verdicts"]],
+            [f"EN-0{i}" for i in range(1, 8)],
+        )
         for v in data["verdicts"]:
             self.assertEqual(v["status"], "PASS", f"verdict {v} not PASS")
 
@@ -502,8 +520,95 @@ class TestPrepareScoreCLI(unittest.TestCase):
         self.assertEqual(en02["status"], "FAIL")
         self.assertEqual(en02["reason_code"], "route-mismatch")
 
+    def test_score_en06_policy_mismatch_is_independent(self) -> None:
+        """max_tasks above five fails only EN-06."""
+        resp = _make_valid_response_json()
+        resp["direct_fix_policy"]["max_tasks"] = 6
+        resp_path = self.tmp / "response.json"
+        resp_path.write_bytes(_canonical_json_bytes(resp))
+        out_path = self.tmp / "score.json"
+
+        result = run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--score",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--response",
+                str(resp_path),
+                "--output",
+                str(out_path),
+            ],
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["all_pass"])
+        for verdict in data["verdicts"]:
+            expected_status = "FAIL" if verdict["criterion_id"] == "EN-06" else "PASS"
+            self.assertEqual(verdict["status"], expected_status)
+        en06 = next(v for v in data["verdicts"] if v["criterion_id"] == "EN-06")
+        self.assertEqual(en06["reason_code"], "policy-mismatch")
+
+    def test_score_en07_handoff_count_mismatch_is_independent(self) -> None:
+        """Two Review Dossier prompts fail only EN-07."""
+        resp = _make_valid_response_json()
+        resp["handoff_prompt_counts"]["review_dossier"] = 2
+        resp_path = self.tmp / "response.json"
+        resp_path.write_bytes(_canonical_json_bytes(resp))
+        out_path = self.tmp / "score.json"
+
+        result = run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--score",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--response",
+                str(resp_path),
+                "--output",
+                str(out_path),
+            ],
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["all_pass"])
+        for verdict in data["verdicts"]:
+            expected_status = "FAIL" if verdict["criterion_id"] == "EN-07" else "PASS"
+            self.assertEqual(verdict["status"], expected_status)
+        en07 = next(v for v in data["verdicts"] if v["criterion_id"] == "EN-07")
+        self.assertEqual(en07["reason_code"], "handoff-count-mismatch")
+
+    def test_score_schema_error_emits_all_seven_criteria(self) -> None:
+        """Schema-invalid response emits seven stable schema-error verdicts."""
+        resp_path = self.tmp / "response.json"
+        resp_path.write_bytes(_canonical_json_bytes([]))
+        out_path = self.tmp / "score.json"
+
+        result = run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--score",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--response",
+                str(resp_path),
+                "--output",
+                str(out_path),
+            ],
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertEqual(len(data["verdicts"]), 7)
+        self.assertEqual({v["reason_code"] for v in data["verdicts"]}, {"schema-error"})
+
     def test_score_parse_error(self) -> None:
-        """Invalid JSON → all parse-error."""
+        """Invalid JSON → all seven criteria report parse-error."""
         resp_path = self.tmp / "response.json"
         resp_path.write_text("not json", encoding="utf-8")
         out_path = self.tmp / "score.json"
@@ -525,9 +630,35 @@ class TestPrepareScoreCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
         self.assertFalse(data["all_pass"])
+        self.assertEqual(len(data["verdicts"]), 7)
         for v in data["verdicts"]:
             self.assertEqual(v["status"], "FAIL")
             self.assertEqual(v["reason_code"], "parse-error")
+
+    def test_score_invalid_utf8_emits_all_seven_criteria(self) -> None:
+        """Invalid UTF-8 response emits seven stable parse-error verdicts."""
+        resp_path = self.tmp / "response.json"
+        resp_path.write_bytes(b"\xff")
+        out_path = self.tmp / "score.json"
+
+        result = run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--score",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--response",
+                str(resp_path),
+                "--output",
+                str(out_path),
+            ],
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertEqual(len(data["verdicts"]), 7)
+        self.assertEqual({v["reason_code"] for v in data["verdicts"]}, {"parse-error"})
 
     def test_score_matrix_all_four_cases(self) -> None:
         """All 4 case IDs produce valid score output."""
@@ -567,6 +698,10 @@ class TestPrepareScoreCLI(unittest.TestCase):
                     ],
                 )
                 self.assertEqual(result.returncode, 0)
+                data = json.loads(result.stdout)
+                self.assertTrue(data["all_pass"])
+                self.assertEqual(len(data["verdicts"]), 7)
+                self.assertTrue(all(v["status"] == "PASS" for v in data["verdicts"]))
 
     # -- criterion text drift -------------------------------------------------
 

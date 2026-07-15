@@ -20,7 +20,7 @@ The finished workflow must be usable by any agent or human operator that can rea
 
 ## Chosen Architecture
 
-Split the workflow into two modules joined by one approved Markdown artifact interface.
+Split the workflow into two modules joined by an approved Markdown artifact interface.
 
 ```text
 PR + bound checkout + comments
@@ -56,7 +56,7 @@ Responsibilities:
 - Detect duplicates, conflicts, dependencies, and existing replies.
 - Route to one of four outcomes (see Artifact Types below).
 - Obtain required user decisions and confirmation.
-- Generate exactly one approved artifact when code work is required.
+- Generate exactly one approved artifact when code work is required. A Review Dossier and Direct Fix Brief each expose only their applicable handoff.
 
 The module does not select an executor, prescribe a runtime command, generate an executor-specific plan, or apply code changes.
 
@@ -79,7 +79,7 @@ Artifact types (two persisted, two terminal):
 | Artifact | Condition | Consumer action |
 |----------|-----------|-----------------|
 | Review Dossier | Code work is complex, cross-file, dependent, or otherwise unsuitable for direct execution | Execute ordered tasks under the full execution contract; persisted artifact |
-| Direct Fix Brief | Confirmed low-risk, mechanically specified code work meets every fast-path gate | Execute the exact bounded change; persisted artifact |
+| Direct Fix Brief | Confirmed one through five independent, low-risk, mechanically specified tasks meet every fast-path gate | Execute the exact bounded change serially; persisted artifact |
 | Reply Only | No code changes are needed, but confirmed replies remain | Direct POST to each reply endpoint, then GET/LIST read-back verification; no artifact written |
 | No Action | Nothing remains actionable | Terminal no-write; record completion only |
 
@@ -121,18 +121,19 @@ The module contains no agent names, runtime commands, plan file conventions, or 
 
 ### Section A Mandatory Commit Order
 
-When a Review Dossier or Direct Fix Brief contains Section A items (code changes that require replies with commit SHAs), the execution order is fixed:
+When a Review Dossier or Direct Fix Brief contains Section A items, each Section A task follows the fixed execution order. Direct Fix tasks run serially.
 
 ```
-edit → verify → commit → remote-reachability → reply → read-back
+edit → verify → commit → push → remote-reachability → reply → read-back
 ```
 
 1. **edit**: Apply authorized code changes to the bound checkout.
 2. **verify**: Run the artifact's targeted verification commands. Do not proceed if verification fails.
-3. **commit**: Commit only if requested by the operator. If no commit is requested, Section A replies must use a no-commit annotation instead of a commit SHA.
-4. **remote-reachability**: Confirm the commit is reachable from the remote (pushed). If not pushed, Section A replies must not include a SHA.
-5. **reply**: Post each reply through the correct endpoint with the commit SHA (or no-commit annotation).
-6. **read-back**: Verify every posted reply via GET or LIST. Skip only items already proven posted.
+3. **commit**: Commit the task only if requested by the operator. If no commit is requested, Section A replies must use a no-commit annotation instead of a commit SHA.
+4. **push**: Push the task commit when a remote commit SHA is required.
+5. **remote-reachability**: Confirm the task commit is reachable from the remote. If not pushed, Section A replies must not include a SHA.
+6. **reply**: Post each reply through the correct endpoint with the task-specific commit SHA or no-commit annotation.
+7. **read-back**: Verify every posted reply via GET or LIST. Skip only items already proven posted.
 
 This order is mandatory for every Section A artifact. Reordering or skipping steps invalidates the reply contract.
 
@@ -164,7 +165,7 @@ Artifact cleanup is governed by the following rules:
 4. Present the overview and resolve blocking decisions.
 5. Obtain explicit confirmation where required.
 6. Route to one of four outcomes: Review Dossier, Direct Fix Brief, Reply Only, or No Action.
-7. For persisted artifacts: generate the artifact, run completeness checks, present executor-neutral handoff prompt.
+7. For persisted artifacts: generate the artifact, run completeness checks, and present exactly one applicable handoff prompt. Review Dossier is plan-first and waits for explicit approval before editing. Direct Fix is direct execution after explicit selection and needs no second plan approval.
 8. Executor validates checkout identity before acting.
 9. Executor applies authorized work, verifies it, and commits only if requested.
 10. Executor posts required replies and verifies them by read-back.
@@ -181,7 +182,7 @@ Artifact cleanup is governed by the following rules:
 | Commit unreachable from remote | Section A replies must not include a commit SHA |
 | Reply POST result is unclear | Read back first; retry only after proving the reply is absent |
 | Execution is interrupted | Re-read artifact, current HEAD, and existing replies; skip only items already proven complete |
-| Some tasks remain blocked | Preserve artifact and report exact blocked items and required decisions |
+| Some tasks remain blocked | Preserve artifact and report exact blocked items and required decisions; a Direct Fix batch stops on the first failure while completed task evidence remains recorded |
 | Cleanup requested before verified-complete | Refuse cleanup unless `--force` with two confirmations |
 
 ## File Migration
@@ -208,7 +209,7 @@ Artifact cleanup is governed by the following rules:
 
 - Replace generated-plan terminology with Artifact Execution Contract.
 - Express ordering and reply obligations directly as executor requirements.
-- Make handoff completeness require only the generic prompt, artifact path, and cleanup target.
+- Make handoff completeness require exactly one applicable prompt, artifact path, and cleanup target.
 - Route Direct Fix ineligibility to Review Dossier.
 - Add Section A mandatory commit order reference.
 

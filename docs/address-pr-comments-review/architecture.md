@@ -11,7 +11,7 @@ skills/address-pr-comments-review/
 │   ├── classify.md           ← Step 2a: 逐条分类（source/intent/conclusion/edge cases/section mapping）
 │   ├── cross-reference.md    ← Step 2b: 全局交叉比对（dedup/conflict/relation/cross-file escalation）
 │   ├── interaction.md        ← Step 3: 交互确认（overview table、silent consent、🔴 discussion、route selection）
-│   ├── dossier-output.md     ← Step 4: dossier/direct-fix brief + reply + 验证（模板、reply policy、7-check gates）
+│   ├── dossier-output.md     ← Step 4: dossier/direct-fix brief + reply + 验证（模板、bounded Direct Fix、exclusive handoff、7-check gates）
 │   └── execution.md          ← 运行时合约：checkout binding、GitHub CLI 前提、artifact paths、handoff、cleanup、artifact lifecycle、Section A commit order、dirty-target blocking
 └── scripts/list_comments.py  ← PR 评论采集脚本
 
@@ -46,7 +46,7 @@ docs/address-pr-comments-review/
 - 在需要代码工作时生成持久化 artifact（Review Dossier 或 Direct Fix Brief）
 - Dossier Accuracy Grill Gate
 
-**完成条件**: 路由已确定，分类完成，（需要时）一个已验证完整性的 artifact 已存在。
+**完成条件**: 路由已确定，分类完成，（需要时）一个已验证完整性的 artifact 已存在，并且其适用 handoff 已唯一确定。
 
 ### Execution Handoff Module
 
@@ -55,7 +55,7 @@ docs/address-pr-comments-review/
 **职责**:
 - Checkout 身份验证与绑定
 - Artifact lifecycle 管理（pending → in-progress → blocked → verified-complete）
-- Section A 强制提交顺序（edit → verify → commit → remote-reachability → reply → read-back）
+- Section A 强制提交顺序（每个任务 edit → verify → commit → push → remote-reachability → reply → read-back）
 - Dirty-target blocking（目标文件有未提交修改时阻止执行）
 - Scope check、变更应用、验证、可选 commit
 - Reply 发送与 POST/read-back 验证
@@ -85,7 +85,7 @@ After Step 0, local reads and git commands are interpreted relative to `TARGET_W
 
 The dossier owns downstream reply-task requirements. Section A items require implementation tasks plus reply tasks. Section B items require reply tasks even when no code changes are needed. The execution contract must preserve those reply tasks instead of treating the artifact as a code-only brief.
 
-The direct-fix route owns simple Section A shortcuts. It is optional, requires explicit user choice, and still preserves reply endpoint, commit SHA, and read-back verification fields. Complex or ambiguous Section A work remains on the dossier path by default.
+The direct-fix route owns bounded Section A shortcuts. It permits one through five independent, low-risk, mechanically specified tasks, requires explicit user choice after the final classification table, gives each task its own commit and full reply/read-back fields, and stops the batch on the first failure. Clear local runtime behavior fixes remain eligible. Complex or ambiguous Section A work remains on the dossier path by default.
 
 The reply-only route owns direct sending. When the confirmed outcome has Section B items and no Section A work, the route sends replies directly and reads them back instead of creating a work plan. No artifact is persisted.
 

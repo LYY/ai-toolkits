@@ -5,7 +5,7 @@ Receipt CLI (--receipt):
   Parses a session-read-v2 transcript and emits a Local Receipt.
 
 Score CLI (--score):
-  Reads a task() response JSON and emits mechanical Score verdicts (EN-01–EN-05).
+  Reads a task() response JSON and emits mechanical Score verdicts (EN-01–EN-07).
 
 stdlib only. No external dependencies.
 """
@@ -356,6 +356,28 @@ _EN_EXPECTED: dict[str, tuple[list[str], list[str]]] = {
 }
 
 _EN03_ORDER = ["edit", "verify", "commit", "remote-reachability", "reply", "read-back"]
+_EN_CRITERION_IDS = [f"EN-0{i}" for i in range(1, 8)]
+_EXPECTED_DIRECT_FIX_POLICY = {
+    "min_tasks": 1,
+    "max_tasks": 5,
+    "summary_format": "N/5",
+    "explicit_selection_required": True,
+    "per_task_commit": True,
+    "serial_fail_stop": True,
+    "report_all_failures": True,
+    "local_runtime_behavior_eligible_when_clear": True,
+}
+_EXPECTED_HANDOFF_PROMPT_COUNTS = {
+    "review_dossier": 1,
+    "direct_fix_brief": 1,
+}
+
+
+def _verdicts_for_all(reason_code: str) -> list[dict[str, str]]:
+    return [
+        {"criterion_id": criterion_id, "status": "FAIL", "reason_code": reason_code}
+        for criterion_id in _EN_CRITERION_IDS
+    ]
 
 
 def _check_en01(runtime_specific_terms: list, response_text: str) -> tuple[str, str]:
@@ -434,6 +456,18 @@ def _check_en05(handoff_complete: bool) -> tuple[str, str]:
     return ("PASS", "ok")
 
 
+def _check_en06(direct_fix_policy: dict[str, int | str | bool]) -> tuple[str, str]:
+    if direct_fix_policy != _EXPECTED_DIRECT_FIX_POLICY:
+        return ("FAIL", "policy-mismatch")
+    return ("PASS", "ok")
+
+
+def _check_en07(handoff_prompt_counts: dict[str, int]) -> tuple[str, str]:
+    if handoff_prompt_counts != _EXPECTED_HANDOFF_PROMPT_COUNTS:
+        return ("FAIL", "handoff-count-mismatch")
+    return ("PASS", "ok")
+
+
 def _do_score(args: argparse.Namespace) -> None:
     phase: str = args.phase
     case_id: str = args.case_id
@@ -448,26 +482,25 @@ def _do_score(args: argparse.Namespace) -> None:
         _die(f"Cannot read response file: {e}", 2)
 
     output_sha256 = _sha256_hex(response_raw)
-    response_text = response_raw.decode("utf-8")
+    try:
+        response_text = response_raw.decode("utf-8")
+    except UnicodeDecodeError:
+        verdicts = _verdicts_for_all("parse-error")
+        _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
+        return
 
     # Parse JSON
     try:
         response_obj = json.loads(response_text)
     except (json.JSONDecodeError, ValueError) as e:
         # Parse failure → all parse-error
-        verdicts = [
-            {"criterion_id": cid, "status": "FAIL", "reason_code": "parse-error"}
-            for cid in ["EN-01", "EN-02", "EN-03", "EN-04", "EN-05"]
-        ]
+        verdicts = _verdicts_for_all("parse-error")
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
     # Schema check: must be dict with required fields
     if not isinstance(response_obj, dict):
-        verdicts = [
-            {"criterion_id": cid, "status": "FAIL", "reason_code": "schema-error"}
-            for cid in ["EN-01", "EN-02", "EN-03", "EN-04", "EN-05"]
-        ]
+        verdicts = _verdicts_for_all("schema-error")
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
@@ -480,11 +513,14 @@ def _do_score(args: argparse.Namespace) -> None:
         recovery: dict = response_obj.get("recovery", {})
         runtime_specific_terms: list = response_obj.get("runtime_specific_terms", [])
         handoff_complete = response_obj.get("handoff_complete")
+        direct_fix_policy: dict[str, int | str | bool] = response_obj.get(
+            "direct_fix_policy", {}
+        )
+        handoff_prompt_counts: dict[str, int] = response_obj.get(
+            "handoff_prompt_counts", {}
+        )
     except Exception:
-        verdicts = [
-            {"criterion_id": cid, "status": "FAIL", "reason_code": "schema-error"}
-            for cid in ["EN-01", "EN-02", "EN-03", "EN-04", "EN-05"]
-        ]
+        verdicts = _verdicts_for_all("schema-error")
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
@@ -493,11 +529,10 @@ def _do_score(args: argparse.Namespace) -> None:
         push_authorized is None
         or not isinstance(recovery, dict)
         or handoff_complete is None
+        or not isinstance(direct_fix_policy, dict)
+        or not isinstance(handoff_prompt_counts, dict)
     ):
-        verdicts = [
-            {"criterion_id": cid, "status": "FAIL", "reason_code": "schema-error"}
-            for cid in ["EN-01", "EN-02", "EN-03", "EN-04", "EN-05"]
-        ]
+        verdicts = _verdicts_for_all("schema-error")
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
@@ -538,19 +573,25 @@ def _do_score(args: argparse.Namespace) -> None:
         verdicts.append(
             {"criterion_id": "EN-05", "status": en05_status, "reason_code": en05_reason}
         )
+
+        en06_status, en06_reason = _check_en06(direct_fix_policy)
+        verdicts.append(
+            {"criterion_id": "EN-06", "status": en06_status, "reason_code": en06_reason}
+        )
+
+        en07_status, en07_reason = _check_en07(handoff_prompt_counts)
+        verdicts.append(
+            {"criterion_id": "EN-07", "status": en07_status, "reason_code": en07_reason}
+        )
     else:
         # EN-01 failed: remaining criteria not evaluated
-        verdicts.append(
-            {"criterion_id": "EN-02", "status": "FAIL", "reason_code": "forbidden-term"}
-        )
-        verdicts.append(
-            {"criterion_id": "EN-03", "status": "FAIL", "reason_code": "forbidden-term"}
-        )
-        verdicts.append(
-            {"criterion_id": "EN-04", "status": "FAIL", "reason_code": "forbidden-term"}
-        )
-        verdicts.append(
-            {"criterion_id": "EN-05", "status": "FAIL", "reason_code": "forbidden-term"}
+        verdicts.extend(
+            {
+                "criterion_id": criterion_id,
+                "status": "FAIL",
+                "reason_code": "forbidden-term",
+            }
+            for criterion_id in _EN_CRITERION_IDS[1:]
         )
 
     # Sort verdicts by criterion_id

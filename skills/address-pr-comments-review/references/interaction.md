@@ -154,7 +154,7 @@ The same table format and SELF-CHECK rules apply to the final table.
 
 ### Confirmation Gate
 
-The user must explicitly confirm before dossier generation. Confirmation equivalents:
+The user must explicitly confirm the final classification table before dossier generation or reply posting. Confirmation equivalents:
 
 - "ok"
 - "yes"
@@ -162,6 +162,8 @@ The user must explicitly confirm before dossier generation. Confirmation equival
 - "proceed"
 - "confirmed"
 - Any affirmative response
+
+Final-table confirmation and Direct Fix route selection are separate decisions. Generic consent such as `proceed` does not select Direct Fix. It confirms the table and the normal route only. Direct Fix requires the user to explicitly choose that route after seeing the final classification table. Record that explicit route choice before using the Direct Fix branch.
 
 If the user does not explicitly confirm, ask, based on the final table's A/B counts:
 - **Code changes needed (A > 0)**: "Shall I proceed with dossier generation based on this final table?"
@@ -172,16 +174,20 @@ The validation gates in `dossier-output.md` enforce that Step 4 confirmation was
 
 ### Post-Confirmation Routing (Decision Gate)
 
-After user explicitly confirms the final table, check what kind of work is needed **before** generating the dossier:
+After user explicitly confirms the final table, check what kind of work is needed **before** generating the dossier. Direct Fix is available only when the user explicitly selected it after the final classification table and the Section A batch is eligible at 1-5 tasks.
+
+Generic consent such as `proceed` does not select Direct Fix. Direct Fix requires an explicit route choice after the final classification table.
 
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|
-| Simple low-risk code change, direct fix explicitly chosen | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `execution.md` §Direct Fix Brief Handoff after brief verification. Do not generate the full dossier. |
+| Simple low-risk code change, Direct Fix explicitly chosen after the final table | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `execution.md` §Direct Fix Brief Handoff after brief verification. For an eligible 1-5 task batch, no second plan-approval step is required. Do not generate the full dossier. |
 | Code changes needed by default, or direct-fix criteria fail | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (Dossier Accuracy Grill Gate) → Step 4c (dossier) → Step 4e (reply task contract) → Step 5 (handoff) |
 | Replies only, no code changes | = 0 | > 0 | **Skip dossier.** State: "No code changes are needed. N comments need replies. I will post replies now and verify them by read-back." Then send replies per Direct Reply-Only Posting and Reply Policy (`dossier-output.md`). |
 | Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
 
 **Direct-fix criteria**: every Section A item must be single-file, low-risk, mechanically specified, dependency-free, conflict-free, and complete enough to execute without plan synthesis. The user must explicitly choose direct fix after seeing the final table. Small PR fast-path consent does not count as direct-fix consent.
+
+If the Direct Fix preflight finds any failed eligibility condition, list every failed condition before routing to Review Dossier. Do not silently downgrade the route or omit failed conditions from the fallback record.
 
 **Dossier Accuracy Grill Gate**: before either Direct Fix Brief or full dossier, ask only questions whose answers cannot be obtained from code, comment text, or prior user decisions. Use grill-me style: one question at a time, with a recommended answer. If the gate reveals ambiguity, conflict, cross-file scope, architecture choice, or unclear test/reply behavior, route to the normal dossier path. Do not invoke `grill-with-docs` by default; it is only appropriate when the PR comment requires domain glossary or ADR-style decision capture.
 

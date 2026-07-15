@@ -245,33 +245,23 @@ After an artifact is saved, place the complete applicable handoff block in the c
 Review Dossier saved to:
 <ARTIFACT_PATH>
 
-Generic executor prompt:
+Plan-first executor handoff prompt:
 
 ```markdown
 Read this PR comment review artifact:
 
 <ARTIFACT_PATH>
 
-Execute it as a PR review work package. Follow the Execution Contract exactly: apply Section A code changes, run listed verification, commit if requested by the operator, reply to every required PR comment, and verify posted replies by read-back. Do not repeat POST requests for verification.
-```
-
-Executor handoff prompt:
-
-```markdown
-Read this PR comment review artifact:
-
-<ARTIFACT_PATH>
-
-Generate an execution plan. Preserve every reply task from the artifact:
+Generate an execution plan and preserve every reply task from the artifact:
 - code changes before replies
 - targeted verification before commit
 - commit SHA included in Section A replies
 - PR comment replies posted through the listed endpoints
 - read-back verification after posting replies
-Ask me before planning if any task is ambiguous.
+Ask me before planning if any task is ambiguous. Wait for my explicit approval of the plan before editing. Do not edit files, commit, push, or post replies before that approval.
 ```
 
-After execution plan is generated, pass it to your executor along with `worktree_path=<TARGET_WORKTREE_ROOT>` as the target checkout.
+After the plan is generated, wait for explicit user approval before editing. Then pass the approved plan to the executor along with `worktree_path=<TARGET_WORKTREE_ROOT>` as the target checkout.
 
 Cleanup target after verified execution:
 `~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/`
@@ -288,11 +278,11 @@ Direct Fix Brief saved to:
 Direct execution prompt:
 
 ```markdown
-Read and execute this Direct Fix Brief:
+Read and directly execute this Direct Fix Brief:
 
 <ARTIFACT_PATH>
 
-Complete the exact code change, run the listed verification, commit if requested by the operator, post the required PR comment reply, and verify the reply by read-back. Do not expand scope beyond the brief.
+This brief is bounded to one through five Section A tasks. Execute tasks serially, in order, without another approval step. First validate checkout root, branch, HEAD, and PR identity. For each task, execute exactly: edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back. Use a distinct task-specific commit SHA in each required reply. Stop the whole batch on the first failed validation, verification, commit, push, remote-reachability check, reply, or read-back. Preserve completed task evidence, leave later tasks unresolved, and mark the artifact blocked. Do not expand scope beyond the brief or produce planning output.
 ```
 
 Cleanup target after verified execution:

@@ -635,23 +635,37 @@ Each line between the markers is a JSON evidence envelope. The executor appends 
 
 ## Direct Fix Brief
 
-A Direct Fix Brief is generated when a single Section A task meets all Direct Fix eligibility checks. The brief contains the same execution contract as a dossier but scoped to one task.
+A Direct Fix Brief is generated when one through five independent Section A tasks meet all Direct Fix eligibility checks. This is a bounded 1 through 5 task batch. Five is a hard limit. The brief remains one artifact and contains the complete execution contract for every eligible task.
 
 ### Direct Fix Eligibility
 
-All conditions must be true:
-- Section A has exactly one task (unless user explicitly allows more).
-- Each task touches one clearly named file.
-- Change is mechanical low-risk (wording, comments, docs, config, rename, proto field rename with field number preserved).
-- No unresolved duplicate ambiguity, conflict, dependency, or Strong cross-file escalation.
-- Complete evidence ledger: reviewer concern, current code evidence, local pattern evidence, suggestion fit, fix direction, verification target.
-- Fix direction is derived from code evidence, not copied from raw reviewer suggestion.
-- Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
-- "What to change" and "How to test" are exact enough for direct execution.
-- Reply data is complete: comment ID, author, reply kind, endpoint, inline target fields.
-- User explicitly chose direct fix.
+The preflight evaluates every batch-level and task-level condition. It records every failed condition before choosing a fallback. It must not stop at the first failed check.
 
-If any check fails, the workflow must generate a full Review Dossier instead.
+All conditions must be true for the batch and for each Section A task:
+- Section A contains one through five tasks. More than five tasks, including six or more, is ineligible and falls back to a Review Dossier.
+- Each task touches one clearly named file, recorded as one clearly named target file.
+- Each task is a local, mechanically derivable, low-risk change. Wording, comments, docs, config, renames, proto field renames with field numbers preserved, and clear local runtime behavior fixes are eligible when scope, derivation, risk, and verification are unambiguous. File type alone does not determine eligibility.
+- Tasks are independent. There is no dependency, shared modification, or execution-order requirement between tasks.
+- No unresolved duplicate ambiguity, conflict, or cross-file escalation exists.
+- No cross-module state, API changes, authorization changes, or data changes are involved.
+- The evidence ledger is complete: reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction derived from code evidence rather than copied from the raw suggestion.
+- Verification is exact and clear enough for direct execution. Unclear verification is ineligible.
+- Each task has an exact target file, exact change, guardrails, verification target, commit message, task-specific commit SHA slot, complete reply target data, and read-back target.
+- Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
+- The user explicitly selected Direct Fix after the final classification table.
+
+Before Dossier fallback, the summary lists every failed eligibility condition. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
+
+### Direct Fix Summary
+
+Every Direct Fix Brief summary includes these fields, using the Section A count only:
+
+```text
+Section A tasks: N/5
+All eligibility checks passed: yes|no
+```
+
+Section B Reply-Only entries remain a separate inventory. They are outside Section A and outside `N/5`; they never consume the five-task limit. Reply target count has no independent limit. Every Section B target still passes the Pre-Reply Gate and read-back verification.
 
 ### Direct Fix Brief Template
 
@@ -673,46 +687,66 @@ If any check fails, the workflow must generate a full Review Dossier instead.
 | ... | |
 <!-- artifact-execution-status:end -->
 
-## Comment
-- Comment ID: COMMENT_ID
-- Author: @AUTHOR
-- Kind: KIND
-- Location: FILE_PATH:LINE
-- Conclusion: `valid`
+## Summary
+Section A tasks: N/5
+All eligibility checks passed: yes|no
 
-## Evidence Ledger
-- Reviewer concern: CONCERN
-- Current code evidence: EVIDENCE
-- Local pattern evidence: PATTERN
-- Reviewer suggestion fit: `FIT` -- REASON
-- Fix direction: DIRECTION
+## Section A: Code Change + Reply
 
-## Change
-DEV_CHANGES
+Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and Task 5 as applicable. Do not merge task entries or omit fields.
 
-## Guardrails
-- GUARDRAIL
-
-## Verification
-TEST_STRATEGY
-
-## Reply
-- Reply kind: `REPLY_KIND`
-- Endpoint: `REPLY_ENDPOINT`
-- Inline target: path=FILE_PATH, line=LINE, side=RIGHT, in_reply_to=COMMENT_ID
-- Pre-Reply Gate: must pass before composing reply
-- Reply commit requirement: reply text MUST reference the modification commit SHA
-- Reply body: REPLY_TEMPLATE
+### Task N: Comment #COMMENT_ID - SUMMARY
+- **Source**: @AUTHOR | KIND | FILE_PATH:LINE
+- **Comment ID**: COMMENT_ID
+- **Conclusion**: `valid`
+- **Reviewer concern**: CONCERN
+- **Current code evidence**: EVIDENCE
+- **Local pattern evidence**: PATTERN
+- **Reviewer suggestion fit**: `FIT` - REASON
+- **Fix direction**: DIRECTION
+- **Target file**: FILE_PATH
+- **Exact change**: DEV_CHANGES
+- **Guardrails**: GUARDRAIL
+- **Verification**: TEST_STRATEGY
+- **Commit message**: `SUGGESTED_COMMIT_MESSAGE`
+- **Commit SHA**: TASK_SPECIFIC_COMMIT_SHA
+- **Reply targets**: COMMENT_ID, AUTHOR, KIND, ENDPOINT, path, line, side, in_reply_to
+- **Reply kind**: `REPLY_KIND`
+- **Reply body template**: REPLY_TEMPLATE with `{commit_sha}` placeholder
+- **Read-back**: READ_BACK_ENDPOINT and expected body, author, thread relationship
+- **Execution order**: edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back
 
 ## Reply Endpoints
-(reply endpoint table and commands — same as dossier)
+(reply endpoint table and commands - same as dossier)
+
+## Section B: Reply Only
+
+Keep reply-only entries separate from Section A. Section B entries are outside `N/5` and may have unlimited reply targets. Each target still includes its own Pre-Reply Gate and read-back requirements.
+
+### Reply-Only Task N: Comment #COMMENT_ID - SUMMARY
+- **Source**: @AUTHOR | KIND | FILE_PATH:LINE
+- **Reply targets**: COMMENT_ID, AUTHOR, KIND, ENDPOINT, in_reply_to
+- **Reply kind**: `REPLY_KIND`
+- **Reply body**: REPLY_TEMPLATE
+- **Pre-Reply Gate**: must pass for this target before posting
+- **Read-back**: READ_BACK_ENDPOINT and expected body, author, thread relationship
 
 ## Evidence Inventory
 <!-- artifact-execution-inventory:start -->
 <!-- artifact-execution-inventory:end -->
 ```
 
-For non-inline comments, replace the inline target with the `review` or `top_level` target from Reply Endpoints. Do not remove Comment ID, Author, Reply kind, Endpoint, Pre-Reply Gate, Reply commit requirement, or Read-Back.
+For non-inline comments, replace the inline target with the `review` or `top_level` target from Reply Endpoints. Do not remove Comment ID, Author, Reply kind, Endpoint, Pre-Reply Gate, Reply commit requirement, or Read-Back from any Section A task. Section B remains reply-only and does not receive code-change fields.
+
+### Direct Fix Execution
+
+After explicit Direct Fix selection, no second plan-approval step is required. Before editing the first task, validate the initial checkout root, branch, HEAD, and PR identity. The executor validates the batch and each task before execution, then runs tasks serially in this exact order:
+
+`edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back`
+
+Each task requires its own distinct task-specific commit SHA, and every reply for that task references that SHA. Reply target count has no independent limit, but every target runs the Pre-Reply Gate and read-back verification.
+
+Any execution failure stops the whole batch immediately. This includes checkout, branch, HEAD, PR identity, edit, verification, commit, push, remote-reachability, reply, and reply read-back failures. Completed task evidence is preserved, the artifact becomes `blocked`, and later tasks remain unresolved. Do not continue, skip ahead, or silently retry a failed write. Record the failure and the evidence needed for resume.
 
 ---
 
