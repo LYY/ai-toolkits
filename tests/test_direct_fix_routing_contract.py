@@ -18,6 +18,9 @@ _EXECUTION = pathlib.Path("skills/address-pr-comments-review/references/executio
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 _TASK_RE = re.compile(r"^### Task [1-9][0-9]*\b.*$", re.MULTILINE)
+_REPLY_ONLY_TASK_RE = re.compile(
+    r"^### Reply-Only Task ([1-9][0-9]*)\b.*$", re.MULTILINE
+)
 _REQUIRED_TASK_FIELDS = (
     "Target file",
     "Evidence",
@@ -112,6 +115,51 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         for field in _REQUIRED_TASK_FIELDS:
             if not re.search(rf"^- \*\*{re.escape(field)}\*\*:", task, re.MULTILINE):
                 errors.append(f"Task {index + 1} missing {field}")
+    return errors
+
+
+def validate_reply_only_fixture(brief: str) -> list[str]:
+    task_matches = list(_REPLY_ONLY_TASK_RE.finditer(brief))
+    errors: list[str] = []
+    if len(task_matches) != 7:
+        errors.append(
+            f"Reply-Only task count must be exactly 7, got {len(task_matches)}"
+        )
+
+    task_numbers = [int(match.group(1)) for match in task_matches]
+    if task_numbers != list(range(1, 8)):
+        errors.append(f"Reply-Only task numbers must be 1-7, got {task_numbers}")
+
+    required_fields = ("Reply targets", "Pre-Reply Gate", "Read-back")
+    forbidden_fields = (
+        "Target file",
+        "Exact change",
+        "Verification",
+        "Commit message",
+        "Commit SHA",
+    )
+    for index, task_match in enumerate(task_matches):
+        end = (
+            task_matches[index + 1].start()
+            if index + 1 < len(task_matches)
+            else len(brief)
+        )
+        task = brief[task_match.start() : end]
+        task_number = task_match.group(1)
+        for field in required_fields:
+            if not re.search(
+                rf"^- \*\*{re.escape(field)}\*\*:\s*\S",
+                task,
+                re.MULTILINE,
+            ):
+                errors.append(f"Reply-Only Task {task_number} missing {field}")
+        for field in forbidden_fields:
+            if re.search(
+                rf"^- \*\*{re.escape(field)}\*\*:",
+                task,
+                re.MULTILINE,
+            ):
+                errors.append(f"Reply-Only Task {task_number} contains {field}")
     return errors
 
 
@@ -352,10 +400,11 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
         direct_fix = self.direct_fix()
         template = extract_markdown_fixture(direct_fix)
         section_b = extract_markdown_section(template, "Section B: Reply Only")
-        fixture = "\n".join(
-            [_complete_task(number) for number in range(1, 6)]
-            + [_reply_only_task(number) for number in range(1, 8)]
+        section_a_fixture = "\n".join(_complete_task(number) for number in range(1, 6))
+        reply_only_fixture = "\n".join(
+            _reply_only_task(number) for number in range(1, 8)
         )
+        fixture = f"{section_a_fixture}\n{reply_only_fixture}"
 
         self.assertContractRegex(
             direct_fix,
@@ -383,7 +432,43 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
                         re.MULTILINE,
                     ),
                 )
+        self.assertEqual(len(list(_TASK_RE.finditer(section_a_fixture))), 5)
+        self.assertEqual(validate_direct_fix_brief_fixture(section_a_fixture), [])
+        self.assertEqual(
+            [
+                int(match.group(1))
+                for match in _REPLY_ONLY_TASK_RE.finditer(reply_only_fixture)
+            ],
+            list(range(1, 8)),
+        )
+        self.assertEqual(validate_reply_only_fixture(reply_only_fixture), [])
         self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
+
+    def test_reply_only_fixture_validator_rejects_count_and_field_mutations(
+        self,
+    ) -> None:
+        fixture = "\n".join(_reply_only_task(number) for number in range(1, 8))
+        mutations = {
+            "zero entries": "",
+            "six entries": "\n".join(
+                _reply_only_task(number) for number in range(1, 7)
+            ),
+            "missing Read-back": fixture.replace(
+                "- **Read-back**: GET comment-1\n", "", 1
+            ),
+            "missing Pre-Reply Gate": fixture.replace(
+                "- **Pre-Reply Gate**: must pass for this target before posting\n",
+                "",
+                1,
+            ),
+        }
+
+        for mutation_name, mutated_fixture in mutations.items():
+            with self.subTest(mutation=mutation_name):
+                self.assertTrue(
+                    validate_reply_only_fixture(mutated_fixture),
+                    mutation_name,
+                )
 
     def test_fallback_names_every_failed_eligibility_condition(self) -> None:
         section = self.direct_fix()
