@@ -176,7 +176,7 @@ check_reference_topology() {
             report "FST008" "$reference contains a local absolute path"
             return
         fi
-        if grep -qE '\`(tdd|codeprobe-testing|debugging|systematic-debugging|test-driven-development|golang-concurrency|golang-security)\`' "$path"; then
+        if grep -qE '`(tdd|codeprobe-testing|debugging|systematic-debugging|test-driven-development|golang-concurrency|golang-security)`' "$path"; then
             report "FST008" "$reference contains public-skill routing"
             return
         fi
