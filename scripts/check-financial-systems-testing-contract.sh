@@ -114,7 +114,7 @@ check_on_demand_loading() {
         expected_count=$((expected_count + 1))
     done
     local listed_count
-    listed_count="$(printf '%s\n' "$table_rows" | grep -Eo '\`[^\`]+\.md\`' | wc -l | tr -d ' ')"
+    listed_count="$(printf '%s\n' "$table_rows" | grep -Eo '`[^`]+\.md`' | wc -l | tr -d ' ')"
     if [ "$listed_count" -ne "$expected_count" ]; then
         report "FST004" "On-Demand Loading contains an unexpected reference"
     fi
