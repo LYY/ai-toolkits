@@ -68,6 +68,9 @@ RECEIPT_FIELDS = frozenset(
         "case_id",
         "producer_session_id",
         "producer_task_id",
+        "grader_session_id",
+        "grader_task_id",
+        "grader_output_sha256",
         "prompt_sha256",
         "response_sha256",
         "rubric",
@@ -184,8 +187,9 @@ def validate_manifest(manifest_path: Path) -> list[JsonObject]:
 
 
 def validate_receipt(
-    receipt: JsonObject, case: JsonObject, phase: str, label: str
+    receipt: JsonObject, case: JsonObject, phase: str, receipt_path: Path
 ) -> None:
+    label = receipt_path.name
     if set(receipt) != set(RECEIPT_FIELDS):
         raise ContractError(f"receipt fields mismatch: {label}")
     if receipt.get("schema_version") != SCHEMA_VERSION:
@@ -196,6 +200,9 @@ def validate_receipt(
         "case_id",
         "producer_session_id",
         "producer_task_id",
+        "grader_session_id",
+        "grader_task_id",
+        "grader_output_sha256",
         "prompt_sha256",
         "response_sha256",
     ):
@@ -206,10 +213,25 @@ def validate_receipt(
         raise ContractError(f"receipt case_id mismatch: {label}")
     prompt_sha256 = required_string(receipt, "prompt_sha256", label)
     response_sha256 = required_string(receipt, "response_sha256", label)
+    grader_output_sha256 = required_string(receipt, "grader_output_sha256", label)
     require_sha256(prompt_sha256, f"receipt prompt_sha256: {label}")
     require_sha256(response_sha256, f"receipt response_sha256: {label}")
+    require_sha256(grader_output_sha256, f"grader_output_sha256: {label}")
     if prompt_sha256 != case["prompt_sha256"]:
         raise ContractError(f"receipt prompt_sha256 mismatch: {label}")
+    producer_session_id = required_string(receipt, "producer_session_id", label)
+    grader_session_id = required_string(receipt, "grader_session_id", label)
+    producer_task_id = required_string(receipt, "producer_task_id", label)
+    grader_task_id = required_string(receipt, "grader_task_id", label)
+    if producer_session_id == grader_session_id:
+        raise ContractError(f"grader_session_id must differ: {label}")
+    if producer_task_id == grader_task_id:
+        raise ContractError(f"grader_task_id must differ: {label}")
+    response_path = receipt_path.parent / f"{case['case_id']}.response.md"
+    if not response_path.is_file():
+        raise ContractError(f"raw response missing: {label}")
+    if sha256_file(response_path) != response_sha256:
+        raise ContractError(f"response_sha256 mismatch: {label}")
     rubric = receipt.get("rubric")
     if not isinstance(rubric, dict):
         raise ContractError(f"receipt rubric must be an object: {label}")
@@ -230,6 +252,19 @@ def validate_receipt(
         raise ContractError(f"evidence keys mismatch: {label}")
     if not all(isinstance(item, str) and item for item in evidence_values.values()):
         raise ContractError(f"evidence values must be non-empty strings: {label}")
+    grader_path = receipt_path.parent / f"{case['case_id']}.grader.json"
+    if not grader_path.is_file():
+        raise ContractError(f"raw grader output missing: {label}")
+    if sha256_file(grader_path) != grader_output_sha256:
+        raise ContractError(f"grader_output_sha256 mismatch: {label}")
+    grader_output = load_json_object(grader_path, f"grader output {grader_path.name}")
+    if set(grader_output) != {"rubric", "evidence"}:
+        raise ContractError(f"grader output fields mismatch: {label}")
+    if (
+        grader_output.get("rubric") != rubric_values
+        or grader_output.get("evidence") != evidence_values
+    ):
+        raise ContractError(f"grader output verdict mismatch: {label}")
 
 
 def load_receipts(
@@ -242,7 +277,7 @@ def load_receipts(
     }
     receipts: dict[str, JsonObject] = {}
     seen_identity: set[tuple[str, str]] = set()
-    for receipt_path in sorted(receipts_path.glob("*.json")):
+    for receipt_path in sorted(receipts_path.glob("*.receipt.json")):
         receipt = load_json_object(receipt_path, f"receipt {receipt_path.name}")
         case_id = required_string(receipt, "case_id", receipt_path.name)
         receipt_phase = required_string(receipt, "phase", receipt_path.name)
@@ -255,7 +290,7 @@ def load_receipts(
         case = case_by_id.get(case_id)
         if case is None:
             raise ContractError(f"receipt case_id not in manifest: {case_id}")
-        validate_receipt(receipt, case, phase, receipt_path.name)
+        validate_receipt(receipt, case, phase, receipt_path)
         receipts[case_id] = receipt
     if set(receipts) != set(case_by_id):
         raise ContractError("receipt set mismatch")
@@ -329,8 +364,8 @@ def results_text(
     if phase == "red":
         lines.extend(
             [
-                "| Case ID | Group | Missed criteria | Producer session |",
-                "|---|---|---|---|",
+                "| Case ID | Group | Missed criteria | Producer session | Grader session |",
+                "|---|---|---|---|---|",
             ]
         )
         for case in cases:
@@ -340,7 +375,7 @@ def results_text(
             missed = ", ".join(
                 criterion for criterion, passed in rubric.items() if passed is False
             )
-            row = f"| `{case_id}` | `{case['branch_group']}` | {missed or 'None'} | `{receipt['producer_session_id']}` |"
+            row = f"| `{case_id}` | `{case['branch_group']}` | {missed or 'None'} | `{receipt['producer_session_id']}` | `{receipt['grader_session_id']}` |"
             lines.append(row)
     else:
         lines.append("Pending until T1 RED validation is recorded.")

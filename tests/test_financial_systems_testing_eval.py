@@ -103,10 +103,34 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         for case in self.cases():
             case_id = required_str(case, "case_id")
             receipt = self.receipt(case, phase, misses.get(case_id, set()))
-            _ = (receipts_dir / f"{case_id}.json").write_text(
+            _ = (receipts_dir / f"{case_id}.response.md").write_text(case_id)
+            _ = (receipts_dir / f"{case_id}.receipt.json").write_text(
                 json.dumps(receipt, sort_keys=True) + "\n"
             )
+            _ = self.add_grader_artifact(receipts_dir, case_id)
         return receipts_dir
+
+    def add_grader_artifact(
+        self, receipts_dir: pathlib.Path, case_id: str
+    ) -> dict[str, object]:
+        receipt_path = receipts_dir / f"{case_id}.receipt.json"
+        receipt = load_json_object(receipt_path)
+        grader_output = {
+            "rubric": receipt["rubric"],
+            "evidence": receipt["evidence"],
+        }
+        grader_path = receipts_dir / f"{case_id}.grader.json"
+        raw_output = (
+            json.dumps(grader_output, sort_keys=True, separators=(",", ":")) + "\n"
+        )
+        _ = grader_path.write_text(raw_output)
+        receipt["grader_session_id"] = f"grader-{case_id}"
+        receipt["grader_task_id"] = f"grader-task-{case_id}"
+        receipt["grader_output_sha256"] = hashlib.sha256(
+            raw_output.encode()
+        ).hexdigest()
+        _ = receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+        return receipt
 
     def run_validator(
         self, phase: str, receipts_dir: pathlib.Path
@@ -172,7 +196,7 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
 
     def test_rejects_missing_rubric_key(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
-        receipt_path = receipts_dir / "money-rounding-source-missing.json"
+        receipt_path = receipts_dir / "money-rounding-source-missing.receipt.json"
         receipt = load_json_object(receipt_path)
         rubric = receipt.get("rubric")
         if not isinstance(rubric, dict):
@@ -197,10 +221,49 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
 
     def test_rejects_incomplete_receipt_set(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
-        (receipts_dir / "wallet-freeze-reversal.json").unlink()
+        (receipts_dir / "wallet-freeze-reversal.receipt.json").unlink()
         result = self.run_validator("red", receipts_dir)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("receipt set mismatch", result.stderr)
+
+    def test_rejects_missing_raw_response(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        (receipts_dir / "money-rounding-source-missing.response.md").unlink()
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("raw response missing", result.stderr)
+
+    def test_rejects_tampered_raw_response(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        _ = (receipts_dir / "money-rounding-source-missing.response.md").write_text(
+            "tampered"
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("response_sha256 mismatch", result.stderr)
+
+    def test_rejects_matching_producer_and_grader_session(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        receipt = self.add_grader_artifact(
+            receipts_dir, "money-rounding-source-missing"
+        )
+        receipt["grader_session_id"] = receipt["producer_session_id"]
+        _ = (receipts_dir / "money-rounding-source-missing.receipt.json").write_text(
+            json.dumps(receipt, sort_keys=True) + "\n"
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader_session_id must differ", result.stderr)
+
+    def test_rejects_tampered_grader_output(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        _ = self.add_grader_artifact(receipts_dir, "money-rounding-source-missing")
+        _ = (receipts_dir / "money-rounding-source-missing.grader.json").write_text(
+            "tampered\n"
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader_output_sha256 mismatch", result.stderr)
 
     def test_rejects_green_with_failed_blocking_criterion(self) -> None:
         result = self.run_validator(
