@@ -164,6 +164,35 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
             json.dumps(provenance, sort_keys=True) + "\n"
         )
 
+    def refresh_grader_binding(
+        self,
+        receipts_dir: pathlib.Path,
+        case_id: str,
+        grader_output: dict[str, object],
+    ) -> None:
+        raw_output = (
+            json.dumps(grader_output, sort_keys=True, separators=(",", ":")) + "\n"
+        )
+        _ = (receipts_dir / f"{case_id}.grader.json").write_text(raw_output)
+        grader_output_sha256 = hashlib.sha256(raw_output.encode()).hexdigest()
+        receipt_path = receipts_dir / f"{case_id}.receipt.json"
+        receipt = load_json_object(receipt_path)
+        receipt["grader_output_sha256"] = grader_output_sha256
+        _ = receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+        provenance_path = receipts_dir / "grader-provenance.json"
+        provenance = load_json_object(provenance_path)
+        bindings = provenance.get("bindings")
+        if not isinstance(bindings, list):
+            self.fail("Expected provenance bindings")
+        for raw_binding in cast(list[object], bindings):
+            if not isinstance(raw_binding, dict):
+                self.fail("Expected provenance binding object")
+            binding = cast(dict[str, object], raw_binding)
+            if binding.get("case_id") == case_id:
+                binding["grader_output_sha256"] = grader_output_sha256
+                break
+        _ = provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+
     def run_validator(
         self, phase: str, receipts_dir: pathlib.Path
     ) -> subprocess.CompletedProcess[str]:
@@ -294,6 +323,40 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         result = self.run_validator("red", receipts_dir)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("grader provenance missing", result.stderr)
+
+    def test_rejects_provenance_run_id_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        provenance_path = receipts_dir / "grader-provenance.json"
+        provenance = load_json_object(provenance_path)
+        provenance["run_id"] = "other-run"
+        _ = provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader provenance run_id mismatch", result.stderr)
+
+    def test_rejects_raw_grader_producer_identity_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        grader_path = receipts_dir / "money-rounding-source-missing.grader.json"
+        grader_output = load_json_object(grader_path)
+        grader_output["producer_session_id"] = "other-producer-session"
+        self.refresh_grader_binding(
+            receipts_dir, "money-rounding-source-missing", grader_output
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader output producer_session_id mismatch", result.stderr)
+
+    def test_rejects_raw_grader_response_hash_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        grader_path = receipts_dir / "money-rounding-source-missing.grader.json"
+        grader_output = load_json_object(grader_path)
+        grader_output["response_sha256"] = "0" * 64
+        self.refresh_grader_binding(
+            receipts_dir, "money-rounding-source-missing", grader_output
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader output response_sha256 mismatch", result.stderr)
 
     def test_rejects_missing_raw_grader_output(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
