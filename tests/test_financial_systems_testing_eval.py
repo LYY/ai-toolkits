@@ -100,6 +100,7 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         receipts_dir = self.temp / f"{phase}-receipts"
         receipts_dir.mkdir()
         misses = misses or {}
+        bindings: list[dict[str, object]] = []
         for case in self.cases():
             case_id = required_str(case, "case_id")
             receipt = self.receipt(case, phase, misses.get(case_id, set()))
@@ -107,7 +108,8 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
             _ = (receipts_dir / f"{case_id}.receipt.json").write_text(
                 json.dumps(receipt, sort_keys=True) + "\n"
             )
-            _ = self.add_grader_artifact(receipts_dir, case_id)
+            bindings.append(self.add_grader_artifact(receipts_dir, case_id))
+        self.write_provenance(receipts_dir, phase, bindings)
         return receipts_dir
 
     def add_grader_artifact(
@@ -116,6 +118,17 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         receipt_path = receipts_dir / f"{case_id}.receipt.json"
         receipt = load_json_object(receipt_path)
         grader_output = {
+            "schema_version": 1,
+            "run_id": receipt["run_id"],
+            "phase": receipt["phase"],
+            "case_id": case_id,
+            "producer_session_id": receipt["producer_session_id"],
+            "producer_task_id": receipt["producer_task_id"],
+            "grader_session_id": f"self-reported-{case_id}",
+            "grader_task_id": f"self-reported-task-{case_id}",
+            "grader_output_sha256": "0" * 64,
+            "prompt_sha256": receipt["prompt_sha256"],
+            "response_sha256": receipt["response_sha256"],
             "rubric": receipt["rubric"],
             "evidence": receipt["evidence"],
         }
@@ -124,13 +137,32 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
             json.dumps(grader_output, sort_keys=True, separators=(",", ":")) + "\n"
         )
         _ = grader_path.write_text(raw_output)
-        receipt["grader_session_id"] = f"grader-{case_id}"
-        receipt["grader_task_id"] = f"grader-task-{case_id}"
-        receipt["grader_output_sha256"] = hashlib.sha256(
-            raw_output.encode()
-        ).hexdigest()
+        binding = {
+            "case_id": case_id,
+            "grader_session_id": f"grader-{case_id}",
+            "grader_task_id": f"grader-task-{case_id}",
+            "grader_output_sha256": hashlib.sha256(raw_output.encode()).hexdigest(),
+            "response_sha256": receipt["response_sha256"],
+        }
+        receipt.update(binding)
         _ = receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
-        return receipt
+        return binding
+
+    def write_provenance(
+        self,
+        receipts_dir: pathlib.Path,
+        phase: str,
+        bindings: list[dict[str, object]],
+    ) -> None:
+        provenance = {
+            "schema_version": 1,
+            "run_id": "20260717T162345Z",
+            "phase": phase,
+            "bindings": sorted(bindings, key=lambda binding: str(binding["case_id"])),
+        }
+        _ = (receipts_dir / "grader-provenance.json").write_text(
+            json.dumps(provenance, sort_keys=True) + "\n"
+        )
 
     def run_validator(
         self, phase: str, receipts_dir: pathlib.Path
@@ -242,18 +274,33 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("response_sha256 mismatch", result.stderr)
 
-    def test_rejects_matching_producer_and_grader_session(self) -> None:
+    def test_rejects_mismatched_external_grader_provenance(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
-        receipt = self.add_grader_artifact(
-            receipts_dir, "money-rounding-source-missing"
-        )
-        receipt["grader_session_id"] = receipt["producer_session_id"]
-        _ = (receipts_dir / "money-rounding-source-missing.receipt.json").write_text(
-            json.dumps(receipt, sort_keys=True) + "\n"
-        )
+        provenance_path = receipts_dir / "grader-provenance.json"
+        provenance = load_json_object(provenance_path)
+        bindings = provenance.get("bindings")
+        if not isinstance(bindings, list):
+            self.fail("Expected provenance bindings")
+        binding = cast(dict[str, object], bindings[0])
+        binding["grader_task_id"] = "other-task"
+        _ = provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
         result = self.run_validator("red", receipts_dir)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("grader_session_id must differ", result.stderr)
+        self.assertIn("provenance grader_task_id mismatch", result.stderr)
+
+    def test_rejects_missing_external_grader_provenance(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        (receipts_dir / "grader-provenance.json").unlink()
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader provenance missing", result.stderr)
+
+    def test_rejects_missing_raw_grader_output(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        (receipts_dir / "money-rounding-source-missing.grader.json").unlink()
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("raw grader output missing", result.stderr)
 
     def test_rejects_tampered_grader_output(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())

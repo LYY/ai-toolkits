@@ -77,6 +77,23 @@ RECEIPT_FIELDS = frozenset(
         "evidence",
     }
 )
+PROVENANCE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "phase",
+        "bindings",
+    }
+)
+PROVENANCE_BINDING_FIELDS = frozenset(
+    {
+        "case_id",
+        "grader_session_id",
+        "grader_task_id",
+        "grader_output_sha256",
+        "response_sha256",
+    }
+)
 JsonObject = dict[str, object]
 
 
@@ -187,7 +204,11 @@ def validate_manifest(manifest_path: Path) -> list[JsonObject]:
 
 
 def validate_receipt(
-    receipt: JsonObject, case: JsonObject, phase: str, receipt_path: Path
+    receipt: JsonObject,
+    case: JsonObject,
+    phase: str,
+    receipt_path: Path,
+    provenance: JsonObject,
 ) -> None:
     label = receipt_path.name
     if set(receipt) != set(RECEIPT_FIELDS):
@@ -219,6 +240,14 @@ def validate_receipt(
     require_sha256(grader_output_sha256, f"grader_output_sha256: {label}")
     if prompt_sha256 != case["prompt_sha256"]:
         raise ContractError(f"receipt prompt_sha256 mismatch: {label}")
+    for field in (
+        "grader_session_id",
+        "grader_task_id",
+        "grader_output_sha256",
+        "response_sha256",
+    ):
+        if receipt[field] != provenance[field]:
+            raise ContractError(f"provenance {field} mismatch: {label}")
     producer_session_id = required_string(receipt, "producer_session_id", label)
     grader_session_id = required_string(receipt, "grader_session_id", label)
     producer_task_id = required_string(receipt, "producer_task_id", label)
@@ -258,13 +287,70 @@ def validate_receipt(
     if sha256_file(grader_path) != grader_output_sha256:
         raise ContractError(f"grader_output_sha256 mismatch: {label}")
     grader_output = load_json_object(grader_path, f"grader output {grader_path.name}")
-    if set(grader_output) != {"rubric", "evidence"}:
-        raise ContractError(f"grader output fields mismatch: {label}")
+    if grader_output.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError(f"grader output schema_version mismatch: {label}")
+    for field, expected in (
+        ("run_id", receipt["run_id"]),
+        ("phase", phase),
+        ("case_id", case["case_id"]),
+    ):
+        if grader_output.get(field) != expected:
+            raise ContractError(f"grader output {field} mismatch: {label}")
     if (
         grader_output.get("rubric") != rubric_values
         or grader_output.get("evidence") != evidence_values
     ):
         raise ContractError(f"grader output verdict mismatch: {label}")
+
+
+def load_provenance(
+    receipts_path: Path, case_by_id: dict[str, JsonObject], phase: str
+) -> dict[str, JsonObject]:
+    provenance_path = receipts_path / "grader-provenance.json"
+    if not provenance_path.is_file():
+        raise ContractError("grader provenance missing")
+    provenance = load_json_object(provenance_path, "grader provenance")
+    if set(provenance) != set(PROVENANCE_FIELDS):
+        raise ContractError("grader provenance fields mismatch")
+    if provenance.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError("grader provenance schema_version must be 1")
+    if provenance.get("phase") != phase:
+        raise ContractError("grader provenance phase mismatch")
+    _ = required_string(provenance, "run_id", "grader provenance")
+    raw_bindings = provenance.get("bindings")
+    if not isinstance(raw_bindings, list):
+        raise ContractError("grader provenance bindings must be an array")
+    bindings: dict[str, JsonObject] = {}
+    for raw_binding in cast(list[object], raw_bindings):
+        if not isinstance(raw_binding, dict):
+            raise ContractError("grader provenance binding must be an object")
+        binding = cast(JsonObject, raw_binding)
+        if set(binding) != set(PROVENANCE_BINDING_FIELDS):
+            raise ContractError("grader provenance binding fields mismatch")
+        case_id = required_string(binding, "case_id", "grader provenance binding")
+        if case_id in bindings:
+            raise ContractError(f"duplicate grader provenance case_id: {case_id}")
+        if case_id not in case_by_id:
+            raise ContractError(f"grader provenance case_id not in manifest: {case_id}")
+        for field in (
+            "grader_session_id",
+            "grader_task_id",
+            "grader_output_sha256",
+            "response_sha256",
+        ):
+            _ = required_string(binding, field, f"grader provenance {case_id}")
+        require_sha256(
+            required_string(binding, "grader_output_sha256", case_id),
+            f"grader provenance grader_output_sha256: {case_id}",
+        )
+        require_sha256(
+            required_string(binding, "response_sha256", case_id),
+            f"grader provenance response_sha256: {case_id}",
+        )
+        bindings[case_id] = binding
+    if set(bindings) != set(case_by_id):
+        raise ContractError("grader provenance case set mismatch")
+    return bindings
 
 
 def load_receipts(
@@ -275,6 +361,7 @@ def load_receipts(
     case_by_id = {
         required_string(case, "case_id", "manifest case"): case for case in cases
     }
+    provenance_by_case = load_provenance(receipts_path, case_by_id, phase)
     receipts: dict[str, JsonObject] = {}
     seen_identity: set[tuple[str, str]] = set()
     for receipt_path in sorted(receipts_path.glob("*.receipt.json")):
@@ -290,7 +377,9 @@ def load_receipts(
         case = case_by_id.get(case_id)
         if case is None:
             raise ContractError(f"receipt case_id not in manifest: {case_id}")
-        validate_receipt(receipt, case, phase, receipt_path)
+        validate_receipt(
+            receipt, case, phase, receipt_path, provenance_by_case[case_id]
+        )
         receipts[case_id] = receipt
     if set(receipts) != set(case_by_id):
         raise ContractError("receipt set mismatch")
