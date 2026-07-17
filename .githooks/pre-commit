@@ -169,3 +169,134 @@ if errors:
 
     echo "✅"
 fi
+
+# ================================================================
+# Contract validation (financial-systems-testing)
+# ================================================================
+
+FINANCIAL_CONTRACT_PATTERNS=(
+    "skills/financial-systems-testing/"
+    "docs/financial-systems-testing/"
+    "scripts/check-financial-systems-testing-contract.sh"
+    "scripts/validate-financial-systems-testing-eval.py"
+    "tests/financial-systems-testing-contract/"
+    "tests/financial-systems-testing-eval/cases.json"
+    "tests/financial-systems-testing-eval/rubric.md"
+    "tests/financial-systems-testing-eval/prompts/"
+    "tests/test_financial_systems_testing_contract.py"
+    "tests/test_financial_systems_testing_eval.py"
+)
+
+financial_contract_hit=$(python3 -c "
+import subprocess, sys
+result = subprocess.run(
+    ['git', 'diff', '--cached', '--name-status', '-z', '--diff-filter=ACMRD'],
+    capture_output=True
+)
+entries = result.stdout.decode('utf-8', errors='replace').rstrip('\\0').split('\\0')
+patterns = [
+    'skills/financial-systems-testing/',
+    'docs/financial-systems-testing/',
+    'scripts/check-financial-systems-testing-contract.sh',
+    'scripts/validate-financial-systems-testing-eval.py',
+    'tests/financial-systems-testing-contract/',
+    'tests/financial-systems-testing-eval/cases.json',
+    'tests/financial-systems-testing-eval/rubric.md',
+    'tests/financial-systems-testing-eval/prompts/',
+    'tests/test_financial_systems_testing_contract.py',
+    'tests/test_financial_systems_testing_eval.py',
+]
+for i in range(0, len(entries) - 1, 2):
+    path = entries[i + 1]
+    for pattern in patterns:
+        if path.startswith(pattern):
+            print('hit')
+            sys.exit(0)
+sys.exit(1)
+" 2>/dev/null || true)
+
+if [ -n "$financial_contract_hit" ]; then
+(
+    echo "📋 Validating financial-systems-testing contract..."
+
+    TREE_BEFORE=$(git write-tree)
+    STAGE_BEFORE=$(git ls-files --stage -z | shasum -a 256 | awk '{print $1}')
+
+    TMP="$(mktemp -d)"
+    cleanup() { rm -rf "$TMP"; }
+    trap cleanup EXIT
+    git checkout-index --all --prefix="$TMP/" 2>/dev/null
+
+    (cd "$TMP" && git init -q && git add -A && git commit -q -m "staged-snapshot") 2>/dev/null
+
+    if ! bash "$TMP/scripts/check-financial-systems-testing-contract.sh" "$TMP"; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo " Financial contract validation failed on staged changes."
+        echo ""
+        echo " Fix the violations and try again, or run:"
+        echo "   git commit --no-verify   (to skip this check)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+
+    echo "🧪 Running financial contract fixture suite..."
+    if ! bash "$TMP/tests/financial-systems-testing-contract/run.sh"; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo " Financial contract fixture suite failed on staged changes."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+
+    TREE_AFTER=$(git write-tree)
+    STAGE_AFTER=$(git ls-files --stage -z | shasum -a 256 | awk '{print $1}')
+    if [ "$TREE_BEFORE" != "$TREE_AFTER" ] || [ "$STAGE_BEFORE" != "$STAGE_AFTER" ]; then
+        echo "Financial contract validation modified git state — bug in checker/fixture." >&2
+        exit 1
+    fi
+
+    python3 -c "
+import subprocess, sys
+result = subprocess.run(
+    ['git', 'diff', '--cached', '--name-status', '-z', '--diff-filter=AM'],
+    capture_output=True
+)
+entries = result.stdout.decode('utf-8', errors='replace').rstrip('\\0').split('\\0')
+patterns = [
+    'skills/financial-systems-testing/',
+    'docs/financial-systems-testing/',
+    'scripts/check-financial-systems-testing-contract.sh',
+    'scripts/validate-financial-systems-testing-eval.py',
+    'tests/financial-systems-testing-contract/',
+    'tests/financial-systems-testing-eval/cases.json',
+    'tests/financial-systems-testing-eval/rubric.md',
+    'tests/financial-systems-testing-eval/prompts/',
+    'tests/test_financial_systems_testing_contract.py',
+    'tests/test_financial_systems_testing_eval.py',
+]
+errors = 0
+for i in range(0, len(entries) - 1, 2):
+    path = entries[i + 1]
+    for pattern in patterns:
+        if path.startswith(pattern):
+            result = subprocess.run(['git', 'diff', '--name-only', path], capture_output=True)
+            if result.stdout.strip():
+                print(f'FST010: staged differs from working tree: {path}', file=sys.stderr)
+                errors += 1
+if errors:
+    print('', file=sys.stderr)
+    print('Staged changes must match working tree. Stage all contract files together.', file=sys.stderr)
+    sys.exit(1)
+" || {
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo " Some financial contract files have a staged-vs-working-tree mismatch."
+        echo " git add the working-tree versions and try again."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    }
+
+    echo "✅"
+)
+fi

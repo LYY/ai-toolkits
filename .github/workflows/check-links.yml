@@ -12,6 +12,16 @@ on:
       - 'docs/address-pr-comments-review/**'
       - 'scripts/check-address-pr-comments-review-contract.sh'
       - 'tests/address-pr-comments-review-contract/**'
+      - 'skills/financial-systems-testing/**'
+      - 'docs/financial-systems-testing/**'
+      - 'scripts/check-financial-systems-testing-contract.sh'
+      - 'scripts/validate-financial-systems-testing-eval.py'
+      - 'tests/financial-systems-testing-contract/**'
+      - 'tests/financial-systems-testing-eval/cases.json'
+      - 'tests/financial-systems-testing-eval/rubric.md'
+      - 'tests/financial-systems-testing-eval/prompts/**'
+      - 'tests/test_financial_systems_testing_contract.py'
+      - 'tests/test_financial_systems_testing_eval.py'
       - 'tests/**'
       - 'tests/test_*.py'
   pull_request:
@@ -23,6 +33,16 @@ on:
       - 'docs/address-pr-comments-review/**'
       - 'scripts/check-address-pr-comments-review-contract.sh'
       - 'tests/address-pr-comments-review-contract/**'
+      - 'skills/financial-systems-testing/**'
+      - 'docs/financial-systems-testing/**'
+      - 'scripts/check-financial-systems-testing-contract.sh'
+      - 'scripts/validate-financial-systems-testing-eval.py'
+      - 'tests/financial-systems-testing-contract/**'
+      - 'tests/financial-systems-testing-eval/cases.json'
+      - 'tests/financial-systems-testing-eval/rubric.md'
+      - 'tests/financial-systems-testing-eval/prompts/**'
+      - 'tests/test_financial_systems_testing_contract.py'
+      - 'tests/test_financial_systems_testing_eval.py'
       - 'tests/**'
       - 'tests/test_*.py'
 
@@ -61,3 +81,14 @@ jobs:
         run: bash tests/address-pr-comments-review-contract/run.sh
       - name: Run contract unit tests
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -v tests/
+
+  financial-systems-testing-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run financial contract checker
+        run: bash scripts/check-financial-systems-testing-contract.sh
+      - name: Run financial contract fixture suite
+        run: bash tests/financial-systems-testing-contract/run.sh
+      - name: Run financial contract unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests/test_financial_systems_testing_contract.py tests/test_financial_systems_testing_eval.py
