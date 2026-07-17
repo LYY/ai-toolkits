@@ -23,22 +23,7 @@
 
 ## RED Baseline
 
-| Case ID | Group | Missed criteria | Producer session |
-|---|---|---|---|
-| `money-rounding-source-missing` | `money-ledger` | None | `ses_08f0eb837ffeInWfuKNrSFbG2d` |
-| `ledger-transfer-conservation` | `money-ledger` | FSE-03 | `ses_08f0eb82affecJtf3zaZ9nGzi3` |
-| `trade-partial-fill-cancel-race` | `transaction-lifecycle` | None | `ses_08f0eb7c0ffev6NNixp00bpm1q` |
-| `payment-timeout-unknown-outcome` | `transaction-lifecycle` | None | `ses_08f0eb795ffehOyypNpQZ7T0KQ` |
-| `wallet-freeze-reversal` | `transaction-lifecycle` | FSE-03 | `ses_08f0eb765ffe6hdPBRMcM05U77` |
-| `risk-liquidation-price-source` | `risk-settlement` | FSE-05 | `ses_08f0e5532ffeB01o9wUQd4t5qJ` |
-| `credit-decision-replay` | `risk-settlement` | FSE-03 | `ses_08f0e42aeffe4c71hbLh0t6W5f` |
-| `settlement-partial-dvp-calendar` | `risk-settlement` | None | `ses_08f0e214affe2zXTpM19tnsRj2` |
-| `reconciliation-break-correction` | `resilience-reference` | FSE-03, FSE-05 | `ses_08f0e05ebffelhAN0oTNui1MjW` |
-| `reference-data-effective-date` | `resilience-reference` | FSE-03, FSE-05 | `ses_08f0df66effeS4jnafixell85w` |
-| `generic-crud-tests` | `generic` | FSE-06 | `ses_08f0dd07cffennB99U1YcIh7cn` |
-| `generic-concurrency-test` | `generic` | FSE-01, FSE-06 | `ses_08f0dbd1cffejdccIv5IwAqnDG` |
-| `security-only-payment-api` | `security` | FSE-06 | `ses_08f0d8371ffeiFxU7lCZFmPy3r` |
-| `compliance-only-request` | `compliance` | FSE-07 | `ses_08f0d7db8ffe6RoXv2HsowJ7g8` |
+Pending until T1 RED validation is recorded.
 
 ## GREEN Evaluation
 
