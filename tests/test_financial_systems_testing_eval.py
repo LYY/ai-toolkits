@@ -13,6 +13,7 @@ from typing import cast, override
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "validate-financial-systems-testing-eval.py"
 FIXTURE_DIR = REPO_ROOT / "tests" / "financial-systems-testing-eval"
+SCHEMA_VERSION = 2
 Case = dict[str, object]
 
 
@@ -36,6 +37,10 @@ def required_str_list(value: dict[str, object], key: str) -> list[str]:
     if not isinstance(result, list) or not all(isinstance(item, str) for item in items):
         raise ValueError(f"Expected string list {key}")
     return [cast(str, item) for item in items]
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 class FinancialSystemsTestingEvalTests(unittest.TestCase):
@@ -72,22 +77,89 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         return cast(list[Case], cases)
 
     def receipt(
-        self, case: Case, phase: str, failed: set[str] | None = None
+        self,
+        case: Case,
+        phase: str,
+        failed: set[str],
+        producer_capture: dict[str, object],
+        grader_capture: dict[str, object],
+        grader_output_sha256: str,
     ) -> dict[str, object]:
-        failed = failed or set()
         case_id = required_str(case, "case_id")
         prompt_sha256 = required_str(case, "prompt_sha256")
         criteria = required_str_list(case, "blocking_criteria")
         rubric = {criterion: criterion not in failed for criterion in criteria}
         return {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
             "run_id": "20260717T162345Z",
             "phase": phase,
             "case_id": case_id,
-            "producer_session_id": f"producer-{case_id}",
-            "producer_task_id": f"producer-task-{case_id}",
+            "producer_session_id": producer_capture["session_id"],
+            "producer_scheduler_handle_namespace": producer_capture[
+                "scheduler_handle_namespace"
+            ],
+            "producer_scheduler_handle": producer_capture["scheduler_handle"],
+            "producer_message_id": producer_capture["message_id"],
+            "producer_capture_sha256": sha256_text(self.capture_text(producer_capture)),
+            "grader_session_id": grader_capture["session_id"],
+            "grader_scheduler_handle_namespace": grader_capture[
+                "scheduler_handle_namespace"
+            ],
+            "grader_scheduler_handle": grader_capture["scheduler_handle"],
+            "grader_message_id": grader_capture["message_id"],
+            "grader_capture_sha256": sha256_text(self.capture_text(grader_capture)),
+            "grader_output_sha256": grader_output_sha256,
             "prompt_sha256": prompt_sha256,
-            "response_sha256": hashlib.sha256(case_id.encode()).hexdigest(),
+            "response_sha256": required_str(producer_capture, "raw_sha256"),
+            "rubric": rubric,
+            "evidence": {
+                criterion: "Observed evaluation miss." for criterion in failed
+            },
+        }
+
+    def capture(
+        self,
+        case: Case,
+        phase: str,
+        role: str,
+        raw_sha256: str,
+        response_sha256: str,
+    ) -> dict[str, object]:
+        case_id = required_str(case, "case_id")
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": "20260717T162345Z",
+            "phase": phase,
+            "case_id": case_id,
+            "role": role,
+            "session_id": f"ses-{role}-{case_id}",
+            "scheduler_handle_namespace": "opencode.background_task",
+            "scheduler_handle": f"bg-{role}-{case_id}",
+            "message_id": f"msg-{role}-{case_id}",
+            "raw_sha256": raw_sha256,
+            "prompt_sha256": required_str(case, "prompt_sha256"),
+            "response_sha256": response_sha256,
+        }
+
+    def capture_text(self, capture: dict[str, object]) -> str:
+        return json.dumps(capture, sort_keys=True, separators=(",", ":")) + "\n"
+
+    def grader_output(
+        self,
+        case: Case,
+        phase: str,
+        failed: set[str],
+        response_sha256: str,
+    ) -> dict[str, object]:
+        criteria = required_str_list(case, "blocking_criteria")
+        rubric = {criterion: criterion not in failed for criterion in criteria}
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": "20260717T162345Z",
+            "phase": phase,
+            "case_id": required_str(case, "case_id"),
+            "prompt_sha256": required_str(case, "prompt_sha256"),
+            "response_sha256": response_sha256,
             "rubric": rubric,
             "evidence": {
                 criterion: "Observed evaluation miss." for criterion in failed
@@ -103,50 +175,59 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         bindings: list[dict[str, object]] = []
         for case in self.cases():
             case_id = required_str(case, "case_id")
-            receipt = self.receipt(case, phase, misses.get(case_id, set()))
-            _ = (receipts_dir / f"{case_id}.response.md").write_text(case_id)
+            failed = misses.get(case_id, set())
+            response_path = receipts_dir / f"{case_id}.response.md"
+            _ = response_path.write_text(case_id)
+            response_sha256 = sha256_text(case_id)
+            producer_capture = self.capture(
+                case, phase, "producer", response_sha256, response_sha256
+            )
+            grader_output = self.grader_output(case, phase, failed, response_sha256)
+            grader_text = (
+                json.dumps(grader_output, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+            grader_output_sha256 = sha256_text(grader_text)
+            grader_capture = self.capture(
+                case,
+                phase,
+                "grader",
+                grader_output_sha256,
+                response_sha256,
+            )
+            receipt = self.receipt(
+                case,
+                phase,
+                failed,
+                producer_capture,
+                grader_capture,
+                grader_output_sha256,
+            )
+            _ = (receipts_dir / f"{case_id}.producer.capture.json").write_text(
+                self.capture_text(producer_capture)
+            )
+            _ = (receipts_dir / f"{case_id}.grader.json").write_text(grader_text)
+            _ = (receipts_dir / f"{case_id}.grader.capture.json").write_text(
+                self.capture_text(grader_capture)
+            )
             _ = (receipts_dir / f"{case_id}.receipt.json").write_text(
                 json.dumps(receipt, sort_keys=True) + "\n"
             )
-            bindings.append(self.add_grader_artifact(receipts_dir, case_id))
+            bindings.append(
+                {
+                    "case_id": case_id,
+                    "grader_session_id": receipt["grader_session_id"],
+                    "grader_scheduler_handle_namespace": receipt[
+                        "grader_scheduler_handle_namespace"
+                    ],
+                    "grader_scheduler_handle": receipt["grader_scheduler_handle"],
+                    "grader_message_id": receipt["grader_message_id"],
+                    "grader_capture_sha256": receipt["grader_capture_sha256"],
+                    "grader_output_sha256": grader_output_sha256,
+                    "response_sha256": response_sha256,
+                }
+            )
         self.write_provenance(receipts_dir, phase, bindings)
         return receipts_dir
-
-    def add_grader_artifact(
-        self, receipts_dir: pathlib.Path, case_id: str
-    ) -> dict[str, object]:
-        receipt_path = receipts_dir / f"{case_id}.receipt.json"
-        receipt = load_json_object(receipt_path)
-        grader_output = {
-            "schema_version": 1,
-            "run_id": receipt["run_id"],
-            "phase": receipt["phase"],
-            "case_id": case_id,
-            "producer_session_id": receipt["producer_session_id"],
-            "producer_task_id": receipt["producer_task_id"],
-            "grader_session_id": f"self-reported-{case_id}",
-            "grader_task_id": f"self-reported-task-{case_id}",
-            "grader_output_sha256": "0" * 64,
-            "prompt_sha256": receipt["prompt_sha256"],
-            "response_sha256": receipt["response_sha256"],
-            "rubric": receipt["rubric"],
-            "evidence": receipt["evidence"],
-        }
-        grader_path = receipts_dir / f"{case_id}.grader.json"
-        raw_output = (
-            json.dumps(grader_output, sort_keys=True, separators=(",", ":")) + "\n"
-        )
-        _ = grader_path.write_text(raw_output)
-        binding = {
-            "case_id": case_id,
-            "grader_session_id": f"grader-{case_id}",
-            "grader_task_id": f"grader-task-{case_id}",
-            "grader_output_sha256": hashlib.sha256(raw_output.encode()).hexdigest(),
-            "response_sha256": receipt["response_sha256"],
-        }
-        receipt.update(binding)
-        _ = receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
-        return binding
 
     def write_provenance(
         self,
@@ -155,7 +236,7 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         bindings: list[dict[str, object]],
     ) -> None:
         provenance = {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
             "run_id": "20260717T162345Z",
             "phase": phase,
             "bindings": sorted(bindings, key=lambda binding: str(binding["case_id"])),
@@ -174,10 +255,16 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
             json.dumps(grader_output, sort_keys=True, separators=(",", ":")) + "\n"
         )
         _ = (receipts_dir / f"{case_id}.grader.json").write_text(raw_output)
-        grader_output_sha256 = hashlib.sha256(raw_output.encode()).hexdigest()
+        grader_output_sha256 = sha256_text(raw_output)
+        capture_path = receipts_dir / f"{case_id}.grader.capture.json"
+        capture = load_json_object(capture_path)
+        capture["raw_sha256"] = grader_output_sha256
+        _ = capture_path.write_text(self.capture_text(capture))
+        capture_sha256 = sha256_text(self.capture_text(capture))
         receipt_path = receipts_dir / f"{case_id}.receipt.json"
         receipt = load_json_object(receipt_path)
         receipt["grader_output_sha256"] = grader_output_sha256
+        receipt["grader_capture_sha256"] = capture_sha256
         _ = receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
         provenance_path = receipts_dir / "grader-provenance.json"
         provenance = load_json_object(provenance_path)
@@ -190,8 +277,40 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
             binding = cast(dict[str, object], raw_binding)
             if binding.get("case_id") == case_id:
                 binding["grader_output_sha256"] = grader_output_sha256
+                binding["grader_capture_sha256"] = capture_sha256
                 break
         _ = provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+
+    def refresh_capture_hash(
+        self,
+        receipts_dir: pathlib.Path,
+        case_id: str,
+        role: str,
+        capture: dict[str, object],
+    ) -> None:
+        capture_path = receipts_dir / f"{case_id}.{role}.capture.json"
+        _ = capture_path.write_text(self.capture_text(capture))
+        capture_sha256 = sha256_text(self.capture_text(capture))
+        receipt_path = receipts_dir / f"{case_id}.receipt.json"
+        receipt = load_json_object(receipt_path)
+        receipt[f"{role}_capture_sha256"] = capture_sha256
+        _ = receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+        if role == "grader":
+            provenance_path = receipts_dir / "grader-provenance.json"
+            provenance = load_json_object(provenance_path)
+            bindings = provenance.get("bindings")
+            if not isinstance(bindings, list):
+                self.fail("Expected provenance bindings")
+            for raw_binding in cast(list[object], bindings):
+                if not isinstance(raw_binding, dict):
+                    self.fail("Expected provenance binding object")
+                binding = cast(dict[str, object], raw_binding)
+                if binding.get("case_id") == case_id:
+                    binding["grader_capture_sha256"] = capture_sha256
+                    break
+            _ = provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True) + "\n"
+            )
 
     def run_validator(
         self, phase: str, receipts_dir: pathlib.Path
@@ -206,6 +325,27 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
                 str(self.manifest_path),
                 "--receipts",
                 str(receipts_dir),
+                "--results",
+                str(self.temp / "eval-results.md"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def run_combined_validator(
+        self, red_receipts_dir: pathlib.Path, green_receipts_dir: pathlib.Path
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "python3",
+                str(SCRIPT),
+                "--manifest",
+                str(self.manifest_path),
+                "--red-receipts",
+                str(red_receipts_dir),
+                "--green-receipts",
+                str(green_receipts_dir),
                 "--results",
                 str(self.temp / "eval-results.md"),
             ],
@@ -236,6 +376,20 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
             "`tests/financial-systems-testing-eval/prompts/money-rounding-source-missing.md`",
             results,
         )
+        self.assertIn("Producer session", results)
+        self.assertIn("Prompt SHA-256", results)
+        self.assertIn("Response SHA-256", results)
+        self.assertIn("FSE-03=false", results)
+
+    def test_combined_receipts_write_both_phase_results(self) -> None:
+        result = self.run_combined_validator(
+            self.write_receipts("red", self.red_misses()),
+            self.write_receipts("green"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        results = (self.temp / "eval-results.md").read_text()
+        self.assertNotIn("Pending", results)
+        self.assertIn("ses-producer-ledger-transfer-conservation", results)
 
     def test_rejects_duplicate_case_id(self) -> None:
         self.cases().append(dict(self.cases()[0]))
@@ -311,11 +465,11 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         if not isinstance(bindings, list):
             self.fail("Expected provenance bindings")
         binding = cast(dict[str, object], bindings[0])
-        binding["grader_task_id"] = "other-task"
+        binding["grader_scheduler_handle"] = "other-task"
         _ = provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
         result = self.run_validator("red", receipts_dir)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("provenance grader_task_id mismatch", result.stderr)
+        self.assertIn("provenance grader_scheduler_handle mismatch", result.stderr)
 
     def test_rejects_missing_external_grader_provenance(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
@@ -334,17 +488,41 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("grader provenance run_id mismatch", result.stderr)
 
-    def test_rejects_raw_grader_producer_identity_mismatch(self) -> None:
+    def test_rejects_raw_grader_identity_metadata(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
         grader_path = receipts_dir / "money-rounding-source-missing.grader.json"
         grader_output = load_json_object(grader_path)
-        grader_output["producer_session_id"] = "other-producer-session"
+        grader_output["grader_session_id"] = "self-reported-session"
         self.refresh_grader_binding(
             receipts_dir, "money-rounding-source-missing", grader_output
         )
         result = self.run_validator("red", receipts_dir)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("grader output producer_session_id mismatch", result.stderr)
+        self.assertIn("grader output fields mismatch", result.stderr)
+
+    def test_rejects_raw_grader_prompt_hash_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        grader_path = receipts_dir / "money-rounding-source-missing.grader.json"
+        grader_output = load_json_object(grader_path)
+        grader_output["prompt_sha256"] = "0" * 64
+        self.refresh_grader_binding(
+            receipts_dir, "money-rounding-source-missing", grader_output
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader output prompt_sha256 mismatch", result.stderr)
+
+    def test_rejects_raw_grader_schema_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        grader_path = receipts_dir / "money-rounding-source-missing.grader.json"
+        grader_output = load_json_object(grader_path)
+        grader_output["schema_version"] = 1
+        self.refresh_grader_binding(
+            receipts_dir, "money-rounding-source-missing", grader_output
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader output schema_version mismatch", result.stderr)
 
     def test_rejects_raw_grader_response_hash_mismatch(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
@@ -358,6 +536,34 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("grader output response_sha256 mismatch", result.stderr)
 
+    def test_rejects_grader_capture_receipt_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        capture_path = (
+            receipts_dir / "money-rounding-source-missing.grader.capture.json"
+        )
+        capture = load_json_object(capture_path)
+        capture["session_id"] = "other-grader-session"
+        self.refresh_capture_hash(
+            receipts_dir, "money-rounding-source-missing", "grader", capture
+        )
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("grader capture session_id mismatch", result.stderr)
+
+    def test_rejects_grader_capture_provenance_mismatch(self) -> None:
+        receipts_dir = self.write_receipts("red", self.red_misses())
+        provenance_path = receipts_dir / "grader-provenance.json"
+        provenance = load_json_object(provenance_path)
+        bindings = provenance.get("bindings")
+        if not isinstance(bindings, list):
+            self.fail("Expected provenance bindings")
+        binding = cast(dict[str, object], bindings[0])
+        binding["grader_capture_sha256"] = "0" * 64
+        _ = provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+        result = self.run_validator("red", receipts_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("provenance grader_capture_sha256 mismatch", result.stderr)
+
     def test_rejects_missing_raw_grader_output(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
         (receipts_dir / "money-rounding-source-missing.grader.json").unlink()
@@ -367,7 +573,6 @@ class FinancialSystemsTestingEvalTests(unittest.TestCase):
 
     def test_rejects_tampered_grader_output(self) -> None:
         receipts_dir = self.write_receipts("red", self.red_misses())
-        _ = self.add_grader_artifact(receipts_dir, "money-rounding-source-missing")
         _ = (receipts_dir / "money-rounding-source-missing.grader.json").write_text(
             "tampered\n"
         )
