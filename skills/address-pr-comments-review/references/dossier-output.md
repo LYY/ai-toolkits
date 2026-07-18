@@ -889,7 +889,9 @@ Each line between the markers is a JSON evidence envelope. The executor appends 
 
 ## Direct Fix Brief
 
-A Direct Fix Brief is generated when one through five independent Section A tasks meet all Direct Fix eligibility checks. This is a bounded 1 through 5 task batch. Five is a hard limit. The brief remains one artifact and contains the complete execution contract for every eligible task.
+A Direct Fix Brief is generated when one through five complexity-certified Section A tasks meet all Direct Fix eligibility checks. This is a bounded 1 through 5 task batch. Five is a hard limit. The brief remains one artifact and contains the complete execution contract for every eligible task.
+
+These rules are scoped only to Direct Fix eligibility, Direct Fix Brief, and Direct Fix handoff. They do not change Review Dossier task schemas, `expected_paths`, general dependency resolution, or same-order parallel allowance.
 
 ### Direct Fix Eligibility
 
@@ -897,14 +899,17 @@ The preflight evaluates every batch-level and task-level condition. It records e
 
 All conditions must be true for the batch and for each Section A task:
 - Section A contains one through five tasks. More than five tasks, including six or more, is ineligible and falls back to a Review Dossier.
-- Each task touches one clearly named file, recorded as one clearly named target file.
-- Each task is a local, mechanically derivable, low-risk change. Wording, comments, docs, config, renames, proto field renames with field numbers preserved, and clear local runtime behavior fixes are eligible when scope, derivation, risk, and verification are unambiguous. File type alone does not determine eligibility.
-- Tasks are independent. There is no dependency, shared modification, or execution-order requirement between tasks.
+- One task represents one deduplicated root concern, one behavioral outcome, and one production implementation locus. `Behavioral outcome` is exactly one canonical slug `outcome-N::lower_snake_case`; `Implementation locus` is exactly one canonical slug `locus-N::lower_snake_case`. Free-form prose, conjunctions, lists, multiple slugs, spaces, and missing IDs are ineligible in these certificate fields; descriptive detail stays in Reviewer concern, Fix direction, and Exact change. Keep implementation and direct test/spec/fixture companions in the same task. Multiple production paths are eligible only when they form one mechanically enumerated locus; two independent production responsibilities or behavioral outcomes are ineligible. File count alone does not determine eligibility, and file type alone does not determine eligibility.
+- `Complexity class` is exactly `mechanical` or `local-behavior`. Clear local runtime behavior fixes remain eligible when scope, derivation, risk, verification, outcome, and locus are unambiguous.
+- Every task carries a mechanically auditable complexity certificate. `Hard blockers checked` contains every member of this closed fail-closed enum exactly once and in canonical order: `architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `unclear-verification`. `Hard blocker evidence` contains exactly one typed citation per member in the same canonical order. Citation forms are `code:PATH:LINE` with a positive line, `comment:POSITIVE_ID`, or `test:PATH::TEST_NAME`; arbitrary prose and malformed citations are ineligible. `Hard blocker result` is exactly `none`. The serialized shape is `Hard blockers checked: [canonical enum]`, `Hard blocker evidence: one typed citation per member`, and `Hard blocker result: none`. Missing, duplicate, unknown, reordered, empty-evidence, malformed-evidence, or contradictory values are ineligible.
+- Task identity is canonical: heading `### Task N` maps exactly to positive unique ID `task-N`. In `depends_on_task_ids: [task-X]`, `task-X -> task-N` means the prerequisite points to its dependent. Targets must be existing Section A IDs. Duplicate edges, self-edges, missing or external targets, and Section B dependencies are invalid.
+- Direct Fix topology uses total Section A hard cap `5`, ordered-chain hard cap `3`, and ordered-chain count cap `1`. A singleton has in-degree `0` and out-degree `0`. The sole ordered component, when present, is a simple directed path of 2 through 3 nodes with no branch, merge, or cycle. Every remaining component is an independent singleton. A second ordered chain, a four-node chain, or any cross-component dependency is ineligible.
+- Shared production symbols/hunks across tasks are ineligible. Direct test/spec/fixture companions do not create a shared-production conflict when they belong to their task's single implementation locus.
+- Every eligible batch records a deterministic topological order: respect dependency edges first, preserve final-table concern order among simultaneously ready nodes, then use numeric task ID as tie-break when table order is unavailable. Execution remains serial; eligibility never authorizes concurrent Direct Fix execution.
 - No unresolved duplicate ambiguity, conflict, or cross-file escalation exists.
-- No cross-module state, API changes, authorization changes, or data changes are involved.
 - The evidence ledger is complete: reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction derived from code evidence rather than copied from the raw suggestion.
 - Verification is exact and clear enough for direct execution. Unclear verification is ineligible.
-- Each task has an exact target file, exact change, guardrails, verification target, commit message, task-specific commit SHA slot, and complete reply target data: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`.
+- Each task has an exact change, implementation paths, verification companion paths, production symbols/hunks, dependency IDs, guardrails, verification target, commit message, task-specific commit SHA slot, and complete reply target data: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`.
 - Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
 - The user explicitly selected Direct Fix after the final classification table.
 
@@ -916,6 +921,9 @@ Every Direct Fix Brief summary includes these fields, using the Section A count 
 
 ```text
 Section A tasks: N/5
+Ordered chains: N/1
+Maximum chain length: N/3
+Deterministic execution order: task-N, ...
 All eligibility checks passed: yes|no
 ```
 
@@ -943,6 +951,9 @@ Section B Reply-Only entries remain a separate inventory. They are outside Secti
 
 ## Summary
 Section A tasks: N/5
+Ordered chains: N/1
+Maximum chain length: N/3
+Deterministic execution order: task-N, ...
 All eligibility checks passed: yes|no
 
 ## Section A: Code Change + Reply
@@ -957,8 +968,17 @@ Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and
 - **Local pattern evidence**: PATTERN
 - **Reviewer suggestion fit**: `FIT` - REASON
 - **Fix direction**: DIRECTION
-- **Target file**: FILE_PATH
+- **Behavioral outcome**: outcome-N::lower_snake_case
+- **Complexity class**: `mechanical` or `local-behavior`
+- **Implementation locus**: locus-N::lower_snake_case
+- **Implementation paths**: [PRODUCTION_PATH, ...]
+- **Verification companion paths**: [DIRECT_TEST_SPEC_OR_FIXTURE_PATH, ...]
+- **Production symbols/hunks**: [PATH::SYMBOL#HUNK, ...]
+- **depends_on_task_ids**: [task-X, ...] or []
 - **Exact change**: DEV_CHANGES
+- **Hard blockers checked**: [`architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `unclear-verification`]
+- **Hard blocker evidence**: architecture=code:PATH:LINE; cross-module-state=comment:POSITIVE_ID; public-interface=test:PATH::TEST_NAME; authorization=code:PATH:LINE; schema-or-data=code:PATH:LINE; dependency-introduction=code:PATH:LINE; concurrency=code:PATH:LINE; transaction=code:PATH:LINE; retry-or-recovery=code:PATH:LINE; unclear-verification=test:PATH::TEST_NAME
+- **Hard blocker result**: none
 - **Guardrails**: GUARDRAIL
 - **Verification**: TEST_STRATEGY
 - **Commit message**: `SUGGESTED_COMMIT_MESSAGE`
@@ -1005,11 +1025,11 @@ For non-inline comments, fill the route block with the `review` or `top_level` r
 
 ### Direct Fix Execution
 
-After explicit Direct Fix selection, no second plan-approval step is required. Before editing the first task, validate the initial checkout root, branch, HEAD, and PR identity. The executor validates the batch and each task before execution, then runs tasks serially in this exact order:
+After explicit Direct Fix selection, no second plan-approval step is required. Before editing the first task, validate the initial checkout root, branch, HEAD, and PR identity. Recompute and validate the topology certificate, then execute the recorded deterministic order. The executor validates the batch and each task before execution, then runs tasks serially in this exact per-task order:
 
 `edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back`
 
-Each task requires its own distinct task-specific commit SHA, and every reply for that task references that SHA. Reply target count has no independent limit, but every target runs the Pre-Reply Gate and read-back verification.
+Each task requires its own distinct task-specific commit SHA, and every reply for that task references that SHA. Dependency-ready tasks still execute one at a time; Direct Fix never uses the Review Dossier's parallel allowance. Reply target count has no independent limit, but every target runs the Pre-Reply Gate and read-back verification.
 
 Any execution failure stops the whole batch immediately. This includes checkout, branch, HEAD, PR identity, edit, verification, commit, push, remote-reachability, reply, and reply read-back failures. Completed task evidence is preserved, the artifact becomes `blocked`, and later tasks remain unresolved. Do not continue, skip ahead, or silently retry a failed write. Record the failure and the evidence needed for resume.
 

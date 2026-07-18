@@ -152,9 +152,29 @@ Include a change summary so the user can quickly see what changed from Step 3:
 
 The same table format and SELF-CHECK rules apply to the final table.
 
+When Section A is non-empty, append this route disclosure to the final-table surface before asking for confirmation. Fill every value from the final table and Direct Fix preflight; do not use placeholders in user-visible output:
+
+```text
+Recommended route: Direct Fix | Review Dossier
+Batch shape: <independent singletons and optional ordered chain>
+Section A tasks: N/5
+Ordered chains: N/1
+Maximum chain length: N/3
+Eligible complexity classes: `mechanical`, `local-behavior`
+Implementation paths: <paths grouped by task>
+Verification companion paths: <paths grouped by task>
+Execution: serial
+Plan approval: no second plan approval after valid informed Direct Fix confirmation
+Fallback reason inventory: <none, or every failed Direct Fix eligibility condition>
+```
+
+This disclosure is route-specific. For a Direct Fix recommendation, it states the exact candidate batch and direct-execution consequences. For a Review Dossier recommendation, it names every failed Direct Fix condition in the Fallback reason inventory. Do not offer Direct Fix when the disclosed batch and current preflight differ.
+
 ### Confirmation Gate
 
-The user must explicitly confirm the final classification table before dossier generation or reply posting. Confirmation equivalents:
+The user must explicitly confirm the final classification table before dossier generation or reply posting. An affirmative response confirms the classification; Direct Fix authorization is evaluated separately by the Consent State Matrix below.
+
+Confirmation equivalents:
 
 - "ok"
 - "yes"
@@ -163,7 +183,9 @@ The user must explicitly confirm the final classification table before dossier g
 - "confirmed"
 - Any affirmative response
 
-Final-table confirmation and Direct Fix route selection are separate decisions. Generic consent such as `proceed` does not select Direct Fix. It confirms the table and the normal route only. Direct Fix requires the user to explicitly choose that route after seeing the final classification table. Record that explicit route choice before using the Direct Fix branch.
+A prior Direct Fix preference remains pending and is not authorization. Carry it forward and restate the pending Direct Fix preference on the final-table surface with the completed route disclosure. When that restatement is present, an affirmative final-table confirmation reconfirms the pending preference and authorizes Direct Fix once. This does not require the user to repeat a magic route keyword or provide a second `Direct Fix` keyword.
+
+Without a pending prior Direct Fix preference, generic consent such as `proceed` confirms classification only, even when the final table discloses Direct Fix. Ask for an explicit Direct Fix selection after disclosure. Silent consent never authorizes Direct Fix.
 
 If the user does not explicitly confirm, ask, based on the final table's A/B counts:
 - **Code changes needed (A > 0)**: "Shall I proceed with dossier generation based on this final table?"
@@ -172,20 +194,34 @@ If the user does not explicitly confirm, ask, based on the final table's A/B cou
 
 The validation gates in `dossier-output.md` enforce that Step 4 confirmation was obtained before dossier generation is allowed.
 
+### Consent State Matrix
+
+Use these states exactly. `classification-only`, `invalidated`, and `missing-contract` authorize no Direct Fix execution or handoff. They produce zero edit, commit, push, reply POST, and read-back side effects. Treat any malformed or unrecognized consent input as `missing-contract`.
+
+| Prior preference | Final disclosure | User response | Result |
+|------------------|------------------|---------------|--------|
+| `none` | `disclosed` | `generic-affirmative` | `classification-only` |
+| `pending-direct-fix` | `disclosed-and-restated` | `generic-affirmative` | `direct-fix-once` |
+| `any` | `undisclosed` | `generic-affirmative` | `classification-only` |
+| `any` | `undisclosed` | `silent` | `classification-only` |
+| `any` | `disclosed` | `explicit-direct-fix` | `direct-fix-once` |
+| `confirmed-direct-fix` | `materially-changed` | `any` | `invalidated` |
+| `confirmed-direct-fix` | `topology-mismatch` | `any` | `invalidated` |
+
+`direct-fix-once` authorizes only the disclosed final-table batch. Any final-table content, topology, or scope change invalidates prior confirmation and requires a fresh disclosure and reconfirmation before any Direct Fix side effect. A mismatch between disclosed topology and artifact topology is a material change: block preflight, list the mismatch in the fallback reason inventory, and route to Review Dossier only after valid confirmation for that updated surface.
+
 ### Post-Confirmation Routing (Decision Gate)
 
-After user explicitly confirms the final table, check what kind of work is needed **before** generating the dossier. Direct Fix is available only when the user explicitly selected it after the final classification table and the Section A batch is eligible at 1-5 tasks.
-
-Generic consent such as `proceed` does not select Direct Fix. Direct Fix requires an explicit route choice after the final classification table.
+After the user confirms the final table, evaluate the Consent State Matrix and check what kind of work is needed **before** generating the dossier. Direct Fix is available only for `direct-fix-once` and an eligible Section A batch matching the disclosed route. No second plan-approval step follows valid informed Direct Fix confirmation.
 
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|
-| Simple low-risk code change, Direct Fix explicitly chosen after the final table | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `execution.md` §Direct Fix Brief Handoff after brief verification. For an eligible 1-5 task batch, no second plan-approval step is required. Do not generate the full dossier. |
+| Eligible Direct Fix batch with `direct-fix-once` consent | > 0 | any | Proceed to Step 4a (pre-write scan) → Dossier Accuracy Grill Gate → Direct Fix Brief → `execution.md` §Direct Fix Brief Handoff after brief verification. No second plan-approval step is required. Do not generate the full dossier. |
 | Code changes needed by default, or direct-fix criteria fail | > 0 | any | Proceed to Step 4a (pre-write scan) → Step 4b (Dossier Accuracy Grill Gate) → Step 4c (dossier) → Step 4e (reply task contract) → Step 5 (handoff) |
 | Replies only, no code changes | = 0 | > 0 | **Skip dossier.** State: "No code changes are needed. N comments need replies. I will post replies now and verify them by read-back." Then send replies per Direct Reply-Only Posting and Reply Policy (`dossier-output.md`). |
 | Nothing actionable | = 0 | = 0 | **Skip dossier.** State: "All comments require no action. Nothing to do." End. |
 
-**Direct-fix criteria**: every Section A item must be single-file, low-risk, mechanically specified, dependency-free, conflict-free, and complete enough to execute without plan synthesis. The user must explicitly choose direct fix after seeing the final table. Small PR fast-path consent does not count as direct-fix consent.
+**Direct-fix criteria**: use `dossier-output.md` §Direct Fix Brief for the exact complexity certificate, topology, caps, deterministic order, and fallback rules. Small PR fast-path consent does not count as Direct Fix consent.
 
 If the Direct Fix preflight finds any failed eligibility condition, list every failed condition before routing to Review Dossier. Do not silently downgrade the route or omit failed conditions from the fallback record.
 
