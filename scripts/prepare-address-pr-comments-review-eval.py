@@ -20,7 +20,7 @@ import os
 import re
 import sys
 import uuid
-from typing import NoReturn
+from typing import NoReturn, TypeAlias
 
 
 # ---------------------------------------------------------------------------
@@ -32,9 +32,12 @@ TRANSCRIPT_FORMAT = "session-read-v2"
 ADAPTER_CONTRACT = "task-explore-v1"
 
 ALLOWED_TOOL_NAMES: set[str] = {
+    "bash",
     "read",
     "grep",
     "glob",
+    "list_mcp_resources",
+    "list_mcp_resource_templates",
     "lsp_diagnostics",
     "lsp_symbols",
     "lsp_goto_definition",
@@ -348,6 +351,13 @@ _FORBIDDEN_SUBSTRINGS: list[str] = [
 _EN_EXPECTED: dict[str, tuple[list[str], list[str]]] = {
     "complex-dossier": (["review-dossier"], ["review-dossier"]),
     "direct-fix-fallback": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-pr1431": (["direct-fix"], ["direct-fix-brief"]),
+    "direct-fix-mixed": (["direct-fix"], ["direct-fix-brief"]),
+    "direct-fix-chain-four": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-two-chains": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-branch": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-merge": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-hard-blocker": (["review-dossier"], ["review-dossier"]),
     "interrupted-recovery": (["review-dossier"], ["review-dossier"]),
     "neutral-handoff": (
         sorted(["direct-fix", "no-action", "reply-only", "review-dossier"]),
@@ -357,9 +367,19 @@ _EN_EXPECTED: dict[str, tuple[list[str], list[str]]] = {
 
 _EN03_ORDER = ["edit", "verify", "commit", "remote-reachability", "reply", "read-back"]
 _EN_CRITERION_IDS = [f"EN-0{i}" for i in range(1, 8)]
-_EXPECTED_DIRECT_FIX_POLICY = {
+DirectFixPolicyValue: TypeAlias = int | str | bool | list[str]
+
+_EXPECTED_DIRECT_FIX_POLICY: dict[str, DirectFixPolicyValue] = {
     "min_tasks": 1,
     "max_tasks": 5,
+    "max_ordered_chains": 1,
+    "max_ordered_chain_tasks": 3,
+    "mixed_batches_allowed": True,
+    "serial_execution_required": True,
+    "eligible_complexity_classes": ["mechanical", "local-behavior"],
+    "verification_companions_share_task": True,
+    "informed_route_confirmation_required": True,
+    "prior_direct_fix_preference_carried_forward": True,
     "summary_format": "N/5",
     "explicit_selection_required": True,
     "per_task_commit": True,
@@ -456,7 +476,9 @@ def _check_en05(handoff_complete: bool) -> tuple[str, str]:
     return ("PASS", "ok")
 
 
-def _check_en06(direct_fix_policy: dict[str, int | str | bool]) -> tuple[str, str]:
+def _check_en06(
+    direct_fix_policy: dict[str, DirectFixPolicyValue],
+) -> tuple[str, str]:
     if direct_fix_policy != _EXPECTED_DIRECT_FIX_POLICY:
         return ("FAIL", "policy-mismatch")
     return ("PASS", "ok")
@@ -513,7 +535,7 @@ def _do_score(args: argparse.Namespace) -> None:
         recovery: dict = response_obj.get("recovery", {})
         runtime_specific_terms: list = response_obj.get("runtime_specific_terms", [])
         handoff_complete = response_obj.get("handoff_complete")
-        direct_fix_policy: dict[str, int | str | bool] = response_obj.get(
+        direct_fix_policy: dict[str, DirectFixPolicyValue] = response_obj.get(
             "direct_fix_policy", {}
         )
         handoff_prompt_counts: dict[str, int] = response_obj.get(

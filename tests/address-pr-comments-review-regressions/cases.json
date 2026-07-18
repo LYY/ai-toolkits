@@ -1,1 +1,635 @@
-{"schema_version":1,"case_ids_sha256":"4ef4d8e8c3449a9d0b7720daeb30f01ac9387c9d5c2f817bce637794828d3993","cases":[{"case_id":"route-review-dossier","driver":"contract","fixture_path":"fixtures/route-review-dossier.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["check-address-pr-comments-review-contract.sh"],"stdin_base64":"","env":{"TARGET_WORKTREE_ROOT":".","PR_BRANCH":"feat/test","PR_NUMBER":"42","SKILL_MODE":"review-dossier"},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["rubric-v1","Section A","Section B","overview-table"]},{"case_id":"route-direct-fix","driver":"contract","fixture_path":"fixtures/route-direct-fix.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["check-address-pr-comments-review-contract.sh"],"stdin_base64":"","env":{"TARGET_WORKTREE_ROOT":".","PR_BRANCH":"feat/direct","PR_NUMBER":"43","SKILL_MODE":"direct-fix"},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["rubric-v1","direct-fix brief","Section A","commit SHA"]},{"case_id":"route-reply-only","driver":"contract","fixture_path":"fixtures/route-reply-only.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["check-address-pr-comments-review-contract.sh"],"stdin_base64":"","env":{"TARGET_WORKTREE_ROOT":".","PR_BRANCH":"feat/reply","PR_NUMBER":"44","SKILL_MODE":"reply-only"},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["rubric-v1","Section B","reply","read-back"]},{"case_id":"route-no-action","driver":"contract","fixture_path":"fixtures/route-no-action.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["check-address-pr-comments-review-contract.sh"],"stdin_base64":"","env":{"TARGET_WORKTREE_ROOT":".","PR_BRANCH":"feat/noop","PR_NUMBER":"45","SKILL_MODE":"no-action"},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["rubric-v1","Section C","zero actionable","overview-table"]},{"case_id":"checkout-mismatch","driver":"helper","fixture_path":"fixtures/checkout-mismatch.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","create","--artifact","/tmp/test-artifact.md","--kind","review-dossier","--artifact-id","uuid-1","--operation-id","uuid-2","--generation-head","0000000000000000000000000000000000000000","--source-base64","dGVzdA==","--expected-absent"],"stdin_base64":"","env":{},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["schema_version","operation","status"]},{"case_id":"stale-evidence","driver":"helper","fixture_path":"fixtures/stale-evidence.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/tmp/test-stale.md","--artifact-id","uuid-s1","--expected-operation-id","uuid-s2","--expected-state","pending","--to-state","blocked","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--reason-json","{\"reason\":\"stale\"}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","Artifact not found"]},{"case_id":"dirty-target","driver":"helper","fixture_path":"fixtures/dirty-target.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","create","--artifact","/tmp/test-dirty.md","--kind","review-dossier","--artifact-id","uuid-d1","--operation-id","uuid-d2","--generation-head","1111111111111111111111111111111111111111","--source-base64","dGVzdDI="],"stdin_base64":"","env":{},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["schema_version","operation","status"]},{"case_id":"index-nonempty","driver":"helper","fixture_path":"fixtures/index-nonempty.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","record","--artifact","/tmp/test-index.md","--artifact-id","uuid-i1","--operation-id","uuid-i2","--record-id","uuid-i3","--expected-state","pending","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--record-kind","task-status","--record-json","{\"task_id\":\"t1\",\"status\":\"pending\"}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","not found"]},{"case_id":"lifecycle-legal","driver":"helper","fixture_path":"fixtures/lifecycle-legal.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/tmp/test-lifecycle.md","--artifact-id","uuid-l1","--expected-operation-id","uuid-l2","--expected-state","pending","--to-state","in-progress","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--reason-json","{\"reason\":\"start\"}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","not found"]},{"case_id":"lifecycle-illegal","driver":"helper","fixture_path":"fixtures/lifecycle-illegal.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/tmp/test-illegal.md","--artifact-id","uuid-ill1","--expected-operation-id","uuid-ill2","--expected-state","verified-complete","--to-state","in-progress","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--reason-json","{\"reason\":\"bad\"}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["illegal-transition","verified-complete","in-progress"]},{"case_id":"lifecycle-status-write-failure","driver":"helper","fixture_path":"fixtures/lifecycle-status-write-failure.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/readonly/test.md","--artifact-id","uuid-w1","--expected-operation-id","uuid-w2","--expected-state","pending","--to-state","blocked","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--reason-json","{\"reason\":\"test-write\"}"],"stdin_base64":"","env":{},"expected_exit":4,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error"]},{"case_id":"lifecycle-lock-cas","driver":"helper","fixture_path":"fixtures/lifecycle-lock-cas.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/tmp/test-cas.md","--artifact-id","uuid-c1","--expected-operation-id","uuid-c2","--expected-state","pending","--to-state","in-progress","--expected-sha256","ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","--reason-json","{\"reason\":\"cas-test\"}"],"stdin_base64":"","env":{},"expected_exit":3,"expected_stdout":"","expected_diagnostic":"","sentinels":["cas-mismatch","SHA mismatch"]},{"case_id":"commit-parent-path","driver":"helper","fixture_path":"fixtures/commit-parent-path.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","create","--artifact","/tmp/test-commit.md","--kind","direct-fix","--artifact-id","uuid-cp1","--operation-id","uuid-cp2","--generation-head","2222222222222222222222222222222222222222","--source-base64","dGVzdDM="],"stdin_base64":"","env":{},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["schema_version","operation","status"]},{"case_id":"commit-fork-remote","driver":"helper","fixture_path":"fixtures/commit-fork-remote.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","create","--artifact","/tmp/test-fork.md","--kind","review-dossier","--artifact-id","uuid-f1","--operation-id","uuid-f2","--generation-head","3333333333333333333333333333333333333333","--source-base64","dGVzdDQ="],"stdin_base64":"","env":{},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["schema_version","operation","status"]},{"case_id":"commit-push-resume","driver":"helper","fixture_path":"fixtures/commit-push-resume.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/tmp/test-resume.md","--artifact-id","uuid-r1","--expected-operation-id","uuid-r2","--expected-state","pending","--to-state","in-progress","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--reason-json","{\"reason\":\"resume\"}","--started-head","4444444444444444444444444444444444444444"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","not found"]},{"case_id":"reply-preexisting","driver":"helper","fixture_path":"fixtures/reply-preexisting.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","record","--artifact","/tmp/test-reply.md","--artifact-id","uuid-rp1","--operation-id","uuid-rp2","--record-id","uuid-rp3","--expected-state","in-progress","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--record-kind","reply","--record-json","{\"comment_id\":\"c1\",\"status\":\"posted\"}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","not found"]},{"case_id":"reply-marker-conflict","driver":"helper","fixture_path":"fixtures/reply-marker-conflict.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","record","--artifact","/tmp/test-marker.md","--artifact-id","uuid-m1","--operation-id","uuid-m2","--record-id","uuid-m3","--expected-state","pending","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--record-kind","reply-disposition","--record-json","{\"comment_id\":\"c2\"}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","not found"]},{"case_id":"reply-ambiguous","driver":"helper","fixture_path":"fixtures/reply-ambiguous.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","transition","--artifact","/tmp/test-ambig.md","--artifact-id","uuid-a1","--expected-operation-id","uuid-a2","--expected-state","blocked","--to-state","verified-complete","--expected-sha256","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","--reason-json","{\"reason\":\"resolved\"}","--evidence-json","{\"record_ids\":[\"r1\",\"r2\"]}"],"stdin_base64":"","env":{},"expected_exit":2,"expected_stdout":"","expected_diagnostic":"","sentinels":["io-error","not found"]},{"case_id":"cleanup-matrix","driver":"helper","fixture_path":"fixtures/cleanup-matrix.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","create","--artifact","/tmp/test-cleanup.md","--kind","review-dossier","--artifact-id","uuid-cm1","--operation-id","uuid-cm2","--generation-head","5555555555555555555555555555555555555555","--source-base64","dGVzdDU="],"stdin_base64":"","env":{},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["schema_version","operation","status"]},{"case_id":"cleanup-recovery","driver":"helper","fixture_path":"fixtures/cleanup-recovery.fixture","fixture_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","argv":["python3","artifact_ops.py","create","--artifact","/tmp/test-crecov.md","--kind","direct-fix","--artifact-id","uuid-cr1","--operation-id","uuid-cr2","--generation-head","6666666666666666666666666666666666666666","--source-base64","dGVzdDY="],"stdin_base64":"","env":{},"expected_exit":0,"expected_stdout":"","expected_diagnostic":"","sentinels":["schema_version","operation","status"]}]}
+{
+  "schema_version": 1,
+  "case_ids_sha256": "4ef4d8e8c3449a9d0b7720daeb30f01ac9387c9d5c2f817bce637794828d3993",
+  "cases": [
+    {
+      "case_id": "route-review-dossier",
+      "driver": "contract",
+      "fixture_path": "fixtures/route-review-dossier.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "check-address-pr-comments-review-contract.sh"
+      ],
+      "stdin_base64": "",
+      "env": {
+        "TARGET_WORKTREE_ROOT": ".",
+        "PR_BRANCH": "feat/test",
+        "PR_NUMBER": "42",
+        "SKILL_MODE": "review-dossier"
+      },
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": []
+    },
+    {
+      "case_id": "route-direct-fix",
+      "driver": "contract",
+      "fixture_path": "fixtures/route-direct-fix.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "check-address-pr-comments-review-contract.sh"
+      ],
+      "stdin_base64": "",
+      "env": {
+        "TARGET_WORKTREE_ROOT": ".",
+        "PR_BRANCH": "feat/direct",
+        "PR_NUMBER": "43",
+        "SKILL_MODE": "direct-fix"
+      },
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": []
+    },
+    {
+      "case_id": "route-reply-only",
+      "driver": "contract",
+      "fixture_path": "fixtures/route-reply-only.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "check-address-pr-comments-review-contract.sh"
+      ],
+      "stdin_base64": "",
+      "env": {
+        "TARGET_WORKTREE_ROOT": ".",
+        "PR_BRANCH": "feat/reply",
+        "PR_NUMBER": "44",
+        "SKILL_MODE": "reply-only"
+      },
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": []
+    },
+    {
+      "case_id": "route-no-action",
+      "driver": "contract",
+      "fixture_path": "fixtures/route-no-action.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "check-address-pr-comments-review-contract.sh"
+      ],
+      "stdin_base64": "",
+      "env": {
+        "TARGET_WORKTREE_ROOT": ".",
+        "PR_BRANCH": "feat/noop",
+        "PR_NUMBER": "45",
+        "SKILL_MODE": "no-action"
+      },
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": []
+    },
+    {
+      "case_id": "checkout-mismatch",
+      "driver": "helper",
+      "fixture_path": "fixtures/checkout-mismatch.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "create",
+        "--artifact",
+        "/tmp/test-artifact.md",
+        "--kind",
+        "review-dossier",
+        "--artifact-id",
+        "uuid-1",
+        "--operation-id",
+        "uuid-2",
+        "--generation-head",
+        "0000000000000000000000000000000000000000",
+        "--source-base64",
+        "dGVzdA==",
+        "--expected-absent"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "schema_version",
+        "operation",
+        "status"
+      ]
+    },
+    {
+      "case_id": "stale-evidence",
+      "driver": "helper",
+      "fixture_path": "fixtures/stale-evidence.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/tmp/test-stale.md",
+        "--artifact-id",
+        "uuid-s1",
+        "--expected-operation-id",
+        "uuid-s2",
+        "--expected-state",
+        "pending",
+        "--to-state",
+        "blocked",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--reason-json",
+        "{\"reason\":\"stale\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "dirty-target",
+      "driver": "helper",
+      "fixture_path": "fixtures/dirty-target.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "create",
+        "--artifact",
+        "/tmp/test-dirty.md",
+        "--kind",
+        "review-dossier",
+        "--artifact-id",
+        "uuid-d1",
+        "--operation-id",
+        "uuid-d2",
+        "--generation-head",
+        "1111111111111111111111111111111111111111",
+        "--source-base64",
+        "dGVzdDI="
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "schema_version",
+        "operation",
+        "status"
+      ]
+    },
+    {
+      "case_id": "index-nonempty",
+      "driver": "helper",
+      "fixture_path": "fixtures/index-nonempty.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "record",
+        "--artifact",
+        "/tmp/test-index.md",
+        "--artifact-id",
+        "uuid-i1",
+        "--operation-id",
+        "uuid-i2",
+        "--record-id",
+        "uuid-i3",
+        "--expected-state",
+        "pending",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--record-kind",
+        "task-status",
+        "--record-json",
+        "{\"task_id\":\"t1\",\"status\":\"pending\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "lifecycle-legal",
+      "driver": "helper",
+      "fixture_path": "fixtures/lifecycle-legal.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/tmp/test-lifecycle.md",
+        "--artifact-id",
+        "uuid-l1",
+        "--expected-operation-id",
+        "uuid-l2",
+        "--expected-state",
+        "pending",
+        "--to-state",
+        "in-progress",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--reason-json",
+        "{\"reason\":\"start\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "lifecycle-illegal",
+      "driver": "helper",
+      "fixture_path": "fixtures/lifecycle-illegal.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/tmp/test-illegal.md",
+        "--artifact-id",
+        "uuid-ill1",
+        "--expected-operation-id",
+        "uuid-ill2",
+        "--expected-state",
+        "verified-complete",
+        "--to-state",
+        "in-progress",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--reason-json",
+        "{\"reason\":\"bad\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 2,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "invalid choice",
+        "verified-complete",
+        "in-progress"
+      ]
+    },
+    {
+      "case_id": "lifecycle-status-write-failure",
+      "driver": "helper",
+      "fixture_path": "fixtures/lifecycle-status-write-failure.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/readonly/test.md",
+        "--artifact-id",
+        "uuid-w1",
+        "--expected-operation-id",
+        "uuid-w2",
+        "--expected-state",
+        "pending",
+        "--to-state",
+        "blocked",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--reason-json",
+        "{\"reason\":\"test-write\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error"
+      ]
+    },
+    {
+      "case_id": "lifecycle-lock-cas",
+      "driver": "helper",
+      "fixture_path": "fixtures/lifecycle-lock-cas.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/tmp/test-cas.md",
+        "--artifact-id",
+        "uuid-c1",
+        "--expected-operation-id",
+        "uuid-c2",
+        "--expected-state",
+        "pending",
+        "--to-state",
+        "in-progress",
+        "--expected-sha256",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "--reason-json",
+        "{\"reason\":\"cas-test\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "commit-parent-path",
+      "driver": "helper",
+      "fixture_path": "fixtures/commit-parent-path.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "create",
+        "--artifact",
+        "/tmp/test-commit.md",
+        "--kind",
+        "direct-fix",
+        "--artifact-id",
+        "uuid-cp1",
+        "--operation-id",
+        "uuid-cp2",
+        "--generation-head",
+        "2222222222222222222222222222222222222222",
+        "--source-base64",
+        "dGVzdDM="
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "schema_version",
+        "operation",
+        "status"
+      ]
+    },
+    {
+      "case_id": "commit-fork-remote",
+      "driver": "helper",
+      "fixture_path": "fixtures/commit-fork-remote.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "create",
+        "--artifact",
+        "/tmp/test-fork.md",
+        "--kind",
+        "review-dossier",
+        "--artifact-id",
+        "uuid-f1",
+        "--operation-id",
+        "uuid-f2",
+        "--generation-head",
+        "3333333333333333333333333333333333333333",
+        "--source-base64",
+        "dGVzdDQ="
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "schema_version",
+        "operation",
+        "status"
+      ]
+    },
+    {
+      "case_id": "commit-push-resume",
+      "driver": "helper",
+      "fixture_path": "fixtures/commit-push-resume.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/tmp/test-resume.md",
+        "--artifact-id",
+        "uuid-r1",
+        "--expected-operation-id",
+        "uuid-r2",
+        "--expected-state",
+        "pending",
+        "--to-state",
+        "in-progress",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--reason-json",
+        "{\"reason\":\"resume\"}",
+        "--started-head",
+        "4444444444444444444444444444444444444444"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "reply-preexisting",
+      "driver": "helper",
+      "fixture_path": "fixtures/reply-preexisting.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "record",
+        "--artifact",
+        "/tmp/test-reply.md",
+        "--artifact-id",
+        "uuid-rp1",
+        "--operation-id",
+        "uuid-rp2",
+        "--record-id",
+        "uuid-rp3",
+        "--expected-state",
+        "in-progress",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--record-kind",
+        "reply",
+        "--record-json",
+        "{\"comment_id\":\"c1\",\"status\":\"posted\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "reply-marker-conflict",
+      "driver": "helper",
+      "fixture_path": "fixtures/reply-marker-conflict.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "record",
+        "--artifact",
+        "/tmp/test-marker.md",
+        "--artifact-id",
+        "uuid-m1",
+        "--operation-id",
+        "uuid-m2",
+        "--record-id",
+        "uuid-m3",
+        "--expected-state",
+        "pending",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--record-kind",
+        "reply-disposition",
+        "--record-json",
+        "{\"comment_id\":\"c2\"}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 4,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "io-error",
+        "Artifact not found"
+      ]
+    },
+    {
+      "case_id": "reply-ambiguous",
+      "driver": "helper",
+      "fixture_path": "fixtures/reply-ambiguous.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "transition",
+        "--artifact",
+        "/tmp/test-ambig.md",
+        "--artifact-id",
+        "uuid-a1",
+        "--expected-operation-id",
+        "uuid-a2",
+        "--expected-state",
+        "blocked",
+        "--to-state",
+        "verified-complete",
+        "--expected-sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--reason-json",
+        "{\"reason\":\"resolved\"}",
+        "--evidence-json",
+        "{\"record_ids\":[\"r1\",\"r2\"]}"
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 2,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "illegal-transition",
+        "verified-complete"
+      ]
+    },
+    {
+      "case_id": "cleanup-matrix",
+      "driver": "helper",
+      "fixture_path": "fixtures/cleanup-matrix.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "create",
+        "--artifact",
+        "/tmp/test-cleanup.md",
+        "--kind",
+        "review-dossier",
+        "--artifact-id",
+        "uuid-cm1",
+        "--operation-id",
+        "uuid-cm2",
+        "--generation-head",
+        "5555555555555555555555555555555555555555",
+        "--source-base64",
+        "dGVzdDU="
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "schema_version",
+        "operation",
+        "status"
+      ]
+    },
+    {
+      "case_id": "cleanup-recovery",
+      "driver": "helper",
+      "fixture_path": "fixtures/cleanup-recovery.fixture",
+      "fixture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "argv": [
+        "python3",
+        "artifact_ops.py",
+        "create",
+        "--artifact",
+        "/tmp/test-crecov.md",
+        "--kind",
+        "direct-fix",
+        "--artifact-id",
+        "uuid-cr1",
+        "--operation-id",
+        "uuid-cr2",
+        "--generation-head",
+        "6666666666666666666666666666666666666666",
+        "--source-base64",
+        "dGVzdDY="
+      ],
+      "stdin_base64": "",
+      "env": {},
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_diagnostic": "",
+      "sentinels": [
+        "schema_version",
+        "operation",
+        "status"
+      ]
+    }
+  ]
+}

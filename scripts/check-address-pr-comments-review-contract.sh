@@ -287,8 +287,9 @@ check_platform_alias && {
 
 # --- 8. Check cross-references by running check-cross-refs.sh ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+CROSS_REF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 if [ -x "$SCRIPT_DIR/check-cross-refs.sh" ]; then
-    if ! bash "$SCRIPT_DIR/check-cross-refs.sh" "$REPO_ROOT" >/dev/null 2>&1; then
+    if ! bash "$SCRIPT_DIR/check-cross-refs.sh" "$CROSS_REF_ROOT" >/dev/null 2>&1; then
         echo "APR007: cross-reference check failed" >&2
         errors=1
     fi

@@ -105,6 +105,14 @@ def _make_valid_response_json(case_id: str = "complex-dossier") -> dict:
         "direct_fix_policy": {
             "min_tasks": 1,
             "max_tasks": 5,
+            "max_ordered_chains": 1,
+            "max_ordered_chain_tasks": 3,
+            "mixed_batches_allowed": True,
+            "serial_execution_required": True,
+            "eligible_complexity_classes": ["mechanical", "local-behavior"],
+            "verification_companions_share_task": True,
+            "informed_route_confirmation_required": True,
+            "prior_direct_fix_preference_carried_forward": True,
             "summary_format": "N/5",
             "explicit_selection_required": True,
             "per_task_commit": True,
@@ -256,6 +264,50 @@ class TestPrepareReceiptCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"stderr={result.stderr}")
         data = json.loads(result.stdout)
         self.assertEqual(data["tool_events_sha256"], _sha256_hex(b"[]\n"))
+
+    def test_receipt_accepts_native_explore_discovery_tools(self) -> None:
+        tools = ["bash", "list_mcp_resources", "list_mcp_resource_templates"]
+        transcript = _make_transcript("Hello.", "Response.", tools=tools)
+        tx_path = self.tmp / "transcript.txt"
+        tx_path.write_text(transcript)
+        out_path = self.tmp / "receipt.json"
+
+        result = run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--receipt",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--ordinal",
+                "1",
+                "--description",
+                "test",
+                "--task-id",
+                "task-1",
+                "--session-id",
+                "ses-1",
+                "--prompt",
+                str(self.tmp / "dummy.txt"),
+                "--response",
+                str(self.tmp / "dummy.txt"),
+                "--transcript",
+                str(tx_path),
+                "--output",
+                str(out_path),
+            ],
+        )
+        self.assertEqual(result.returncode, 0, f"stderr={result.stderr}")
+        expected_events = [
+            {"ordinal": ordinal, "name": name}
+            for ordinal, name in enumerate(tools, start=1)
+        ]
+        data = json.loads(result.stdout)
+        self.assertEqual(
+            data["tool_events_sha256"],
+            _sha256_hex(_canonical_json_bytes(expected_events)),
+        )
 
     # -- failure: unknown tool -------------------------------------------------
 
@@ -520,15 +572,11 @@ class TestPrepareScoreCLI(unittest.TestCase):
         self.assertEqual(en02["status"], "FAIL")
         self.assertEqual(en02["reason_code"], "route-mismatch")
 
-    def test_score_en06_policy_mismatch_is_independent(self) -> None:
-        """max_tasks above five fails only EN-06."""
-        resp = _make_valid_response_json()
-        resp["direct_fix_policy"]["max_tasks"] = 6
-        resp_path = self.tmp / "response.json"
-        resp_path.write_bytes(_canonical_json_bytes(resp))
-        out_path = self.tmp / "score.json"
-
-        result = run_script(
+    def test_score_en06_policy_mutations_are_independent(self) -> None:
+        baseline_path = self.tmp / "baseline_response.json"
+        baseline_path.write_bytes(_canonical_json_bytes(_make_valid_response_json()))
+        baseline_out_path = self.tmp / "baseline_score.json"
+        baseline_result = run_script(
             _PREPARE_SCRIPT,
             [
                 "--score",
@@ -537,19 +585,109 @@ class TestPrepareScoreCLI(unittest.TestCase):
                 "--case-id",
                 "complex-dossier",
                 "--response",
-                str(resp_path),
+                str(baseline_path),
                 "--output",
-                str(out_path),
+                str(baseline_out_path),
             ],
         )
-        self.assertEqual(result.returncode, 0)
-        data = json.loads(result.stdout)
-        self.assertFalse(data["all_pass"])
-        for verdict in data["verdicts"]:
-            expected_status = "FAIL" if verdict["criterion_id"] == "EN-06" else "PASS"
-            self.assertEqual(verdict["status"], expected_status)
-        en06 = next(v for v in data["verdicts"] if v["criterion_id"] == "EN-06")
-        self.assertEqual(en06["reason_code"], "policy-mismatch")
+        self.assertEqual(baseline_result.returncode, 0)
+        self.assertTrue(json.loads(baseline_result.stdout)["all_pass"])
+
+        mutations = {
+            "max_tasks": 6,
+            "max_ordered_chains": 2,
+            "max_ordered_chain_tasks": 4,
+            "mixed_batches_allowed": False,
+            "serial_execution_required": False,
+            "eligible_complexity_classes": ["local-behavior", "mechanical"],
+            "verification_companions_share_task": False,
+            "informed_route_confirmation_required": False,
+            "prior_direct_fix_preference_carried_forward": False,
+        }
+        for field, mutated_value in mutations.items():
+            with self.subTest(field=field):
+                response = _make_valid_response_json()
+                response["direct_fix_policy"][field] = mutated_value
+                response_path = self.tmp / f"{field}_response.json"
+                response_path.write_bytes(_canonical_json_bytes(response))
+                output_path = self.tmp / f"{field}_score.json"
+
+                result = run_script(
+                    _PREPARE_SCRIPT,
+                    [
+                        "--score",
+                        "--phase",
+                        "green",
+                        "--case-id",
+                        "complex-dossier",
+                        "--response",
+                        str(response_path),
+                        "--output",
+                        str(output_path),
+                    ],
+                )
+                self.assertEqual(result.returncode, 0)
+                data = json.loads(result.stdout)
+                self.assertFalse(data["all_pass"])
+                for verdict in data["verdicts"]:
+                    expected_status = (
+                        "FAIL" if verdict["criterion_id"] == "EN-06" else "PASS"
+                    )
+                    self.assertEqual(verdict["status"], expected_status)
+                en06 = next(
+                    verdict
+                    for verdict in data["verdicts"]
+                    if verdict["criterion_id"] == "EN-06"
+                )
+                self.assertEqual(en06["reason_code"], "policy-mismatch")
+
+    def test_score_en02_t4_case_route_mismatches_are_independent(self) -> None:
+        cases = {
+            "direct-fix-pr1431": ("review-dossier", "direct-fix-brief"),
+            "direct-fix-mixed": ("review-dossier", "direct-fix-brief"),
+            "direct-fix-chain-four": ("direct-fix", "review-dossier"),
+            "direct-fix-two-chains": ("direct-fix", "review-dossier"),
+            "direct-fix-branch": ("direct-fix", "review-dossier"),
+            "direct-fix-merge": ("direct-fix", "review-dossier"),
+            "direct-fix-hard-blocker": ("direct-fix", "review-dossier"),
+        }
+        for case_id, (wrong_route, artifact) in cases.items():
+            with self.subTest(case_id=case_id):
+                response = _make_valid_response_json()
+                response["routes"] = [wrong_route]
+                response["persisted_artifacts"] = [artifact]
+                response_path = self.tmp / f"{case_id}_response.json"
+                response_path.write_bytes(_canonical_json_bytes(response))
+                output_path = self.tmp / f"{case_id}_score.json"
+
+                result = run_script(
+                    _PREPARE_SCRIPT,
+                    [
+                        "--score",
+                        "--phase",
+                        "green",
+                        "--case-id",
+                        case_id,
+                        "--response",
+                        str(response_path),
+                        "--output",
+                        str(output_path),
+                    ],
+                )
+                self.assertEqual(result.returncode, 0)
+                data = json.loads(result.stdout)
+                self.assertFalse(data["all_pass"])
+                for verdict in data["verdicts"]:
+                    expected_status = (
+                        "FAIL" if verdict["criterion_id"] == "EN-02" else "PASS"
+                    )
+                    self.assertEqual(verdict["status"], expected_status)
+                en02 = next(
+                    verdict
+                    for verdict in data["verdicts"]
+                    if verdict["criterion_id"] == "EN-02"
+                )
+                self.assertEqual(en02["reason_code"], "route-mismatch")
 
     def test_score_en07_handoff_count_mismatch_is_independent(self) -> None:
         """Two Review Dossier prompts fail only EN-07."""
@@ -660,18 +798,26 @@ class TestPrepareScoreCLI(unittest.TestCase):
         self.assertEqual(len(data["verdicts"]), 7)
         self.assertEqual({v["reason_code"] for v in data["verdicts"]}, {"parse-error"})
 
-    def test_score_matrix_all_four_cases(self) -> None:
-        """All 4 case IDs produce valid score output."""
+    def test_score_matrix_all_cases(self) -> None:
         for case_id in [
             "complex-dossier",
             "direct-fix-fallback",
+            "direct-fix-pr1431",
+            "direct-fix-mixed",
+            "direct-fix-chain-four",
+            "direct-fix-two-chains",
+            "direct-fix-branch",
+            "direct-fix-merge",
+            "direct-fix-hard-blocker",
             "interrupted-recovery",
             "neutral-handoff",
         ]:
             with self.subTest(case_id=case_id):
                 resp = _make_valid_response_json(case_id)
-                # neutral-handoff needs correct routes/artifacts
-                if case_id == "neutral-handoff":
+                if case_id in {"direct-fix-pr1431", "direct-fix-mixed"}:
+                    resp["routes"] = ["direct-fix"]
+                    resp["persisted_artifacts"] = ["direct-fix-brief"]
+                elif case_id == "neutral-handoff":
                     resp["routes"] = sorted(
                         ["direct-fix", "no-action", "reply-only", "review-dossier"]
                     )
@@ -1601,6 +1747,61 @@ class TestQuorumEdgeCases(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing required field", result.stderr)
+
+
+class TestEvalFixtureManifest(unittest.TestCase):
+    def test_hard_blocker_prompt_requires_canonical_recovery_encoding(self) -> None:
+        prompt = (_FIXTURES / "prompts" / "direct-fix-hard-blocker.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            '`persisted_artifacts` must be exactly `["review-dossier"]`', prompt
+        )
+        self.assertIn("every `recovery` boolean must be `true`", prompt)
+
+    def test_cases_and_rubric_hashes_match_committed_eval_files(self) -> None:
+        manifest = json.loads((_FIXTURES / "cases.json").read_text(encoding="utf-8"))
+        expected_routes = {
+            "complex-dossier": (["review-dossier"], ["review-dossier"]),
+            "direct-fix-chain-four": (["review-dossier"], ["review-dossier"]),
+            "direct-fix-fallback": (["review-dossier"], ["review-dossier"]),
+            "direct-fix-hard-blocker": (["review-dossier"], ["review-dossier"]),
+            "direct-fix-merge": (["review-dossier"], ["review-dossier"]),
+            "direct-fix-mixed": (["direct-fix"], ["direct-fix-brief"]),
+            "direct-fix-pr1431": (["direct-fix"], ["direct-fix-brief"]),
+            "direct-fix-two-chains": (["review-dossier"], ["review-dossier"]),
+            "direct-fix-branch": (["review-dossier"], ["review-dossier"]),
+            "interrupted-recovery": (["review-dossier"], ["review-dossier"]),
+            "neutral-handoff": (
+                ["direct-fix", "no-action", "reply-only", "review-dossier"],
+                ["direct-fix-brief", "review-dossier"],
+            ),
+        }
+
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(
+            [case["case_id"] for case in manifest["cases"]],
+            sorted(expected_routes),
+        )
+        self.assertEqual(
+            manifest["rubric_sha256"],
+            _sha256_hex((_FIXTURES / "rubric.md").read_bytes()),
+        )
+        for case in manifest["cases"]:
+            with self.subTest(case_id=case["case_id"]):
+                prompt_path = _FIXTURES / case["prompt_path"]
+                self.assertTrue(prompt_path.is_file())
+                self.assertEqual(
+                    case["prompt_sha256"], _sha256_hex(prompt_path.read_bytes())
+                )
+                routes, artifacts = expected_routes[case["case_id"]]
+                self.assertEqual(case["expected"]["routes"], routes)
+                self.assertEqual(case["expected"]["persisted_artifacts"], artifacts)
+                self.assertEqual(
+                    case["expected"]["direct_fix_policy"],
+                    _make_valid_response_json()["direct_fix_policy"],
+                )
 
 
 if __name__ == "__main__":
