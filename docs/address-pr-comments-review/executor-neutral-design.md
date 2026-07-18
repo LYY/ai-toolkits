@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design. Implementation has not started.
+Approved design. Runtime implementation is documented in the skill references and covered by contract tests.
 
 ## Objective
 
@@ -79,7 +79,7 @@ Artifact types (two persisted, two terminal):
 | Artifact | Condition | Consumer action |
 |----------|-----------|-----------------|
 | Review Dossier | Code work is complex, cross-file, dependent, or otherwise unsuitable for direct execution | Execute ordered tasks under the full execution contract; persisted artifact |
-| Direct Fix Brief | Confirmed one through five independent, low-risk, mechanically specified tasks meet every fast-path gate | Execute the exact bounded change serially; persisted artifact |
+| Direct Fix Brief | Confirmed one through five Section A tasks meet every fast-path gate: `mechanical` or `local-behavior` complexity, complete typed certificate, at most one simple two-to-three-node chain, remaining independent singletons, and implementation/verification companions grouped per task | Execute exact bounded batch in deterministic dependency order, always serially, with one distinct task-specific commit SHA, reply, and read-back evidence; persisted artifact |
 | Reply Only | No code changes are needed, but confirmed replies remain | Direct POST to each reply endpoint, then GET/LIST read-back verification; no artifact written |
 | No Action | Nothing remains actionable | Terminal no-write; record completion only |
 
@@ -107,7 +107,7 @@ Responsibilities:
 1. Verify repository, branch, checkout root, and relevant HEAD state.
 2. Stop on unresolved checkout mismatch or stale evidence.
 3. Execute only actions authorized by the artifact.
-4. Respect dependency ordering and scope guardrails.
+4. Respect Direct Fix dependency ordering, topology limits, and scope guardrails.
 5. Run targeted verification before any success claim or review reply.
 6. Commit only when requested by the operator.
 7. Include the resulting commit SHA in replies that require one (Section A mandatory order).
@@ -137,6 +137,12 @@ edit → verify → commit → push → remote-reachability → reply → read-b
 
 This order is mandatory for every Section A artifact. Reordering or skipping steps invalidates the reply contract.
 
+### Direct Fix Batch Topology and Ordering
+
+Direct Fix eligibility uses one bounded Section A graph. It contains one through five tasks, at most one ordered component, and at most three nodes in that component. The ordered component must be a simple directed path of two or three nodes, with no branch, merge, cycle, second chain, or cross-component dependency. Every other task is an independent singleton. Pure independent, pure ordered, and mixed batches are valid when all other gates pass. Task identity uses positive unique `task-N` IDs; dependency `task-X -> task-N` means `task-X` is the prerequisite. Implementation and direct test/spec/fixture companions share one task, while separate production responsibilities and shared production symbols/hunks do not.
+
+The executor derives one deterministic topological order before editing: dependency edges first, final-table concern order among simultaneously ready nodes, then numeric task ID as tie-break when table order is unavailable. It executes that order serially. Direct Fix authorization includes one distinct task-specific commit SHA per task. A topology, certificate, or preflight mismatch blocks the artifact before edits.
+
 ### Dirty-Target Blocking
 
 Before applying any change, the Execution Handoff must verify that the target files are clean (no uncommitted modifications unrelated to the current artifact).
@@ -163,7 +169,7 @@ Artifact cleanup is governed by the following rules:
 2. Detect PR and collect review comments.
 3. Build evidence, classify, and cross-reference the full comment set.
 4. Present the overview and resolve blocking decisions.
-5. Obtain explicit confirmation where required.
+5. Present the final classification table with recommended route, batch shape, total and chain caps, complexity classes, implementation and verification paths, serial execution, fallback reason inventory, and the absence of a second plan approval. A prior Direct Fix preference is carried forward and restated, but remains pending rather than authorization. Generic `proceed` without that pending restated preference confirms classification only; an explicit Direct Fix selection after disclosure, or an affirmative final-table confirmation after valid restatement, authorizes Direct Fix once. Any table content, topology, or scope update invalidates prior confirmation.
 6. Route to one of four outcomes: Review Dossier, Direct Fix Brief, Reply Only, or No Action.
 7. For persisted artifacts: generate the artifact, run completeness checks, and present exactly one applicable handoff prompt. Review Dossier is plan-first and waits for explicit approval before editing. Direct Fix is direct execution after explicit selection and needs no second plan approval.
 8. Executor validates checkout identity before acting.
@@ -182,6 +188,10 @@ Artifact cleanup is governed by the following rules:
 | Commit unreachable from remote | Section A replies must not include a commit SHA |
 | Reply POST result is unclear | Read back first; retry only after proving the reply is absent |
 | Execution is interrupted | Re-read artifact, current HEAD, and existing replies; skip only items already proven complete |
+| Direct Fix cap, complexity, certificate, or topology fails | Route to Review Dossier and report every failed eligibility condition; do not edit or emit a Direct Fix handoff |
+| Direct Fix route is not disclosed, or generic `proceed` has no pending restated preference | Confirm classification only; produce zero Direct Fix edit, commit, push, reply POST, and read-back side effects |
+| Final table content, topology, or scope changes after confirmation | Invalidate prior confirmation; require informed reconfirmation before any Direct Fix side effect |
+| Direct Fix preflight disagrees with artifact topology or deterministic order | Block before edits and preserve the artifact with the mismatch evidence |
 | Some tasks remain blocked | Preserve artifact and report exact blocked items and required decisions; a Direct Fix batch stops on the first failure while completed task evidence remains recorded |
 | Cleanup requested before verified-complete | Refuse cleanup unless `--force` with two confirmations |
 
