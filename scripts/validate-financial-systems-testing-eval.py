@@ -1,0 +1,673 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+from typing import NoReturn, cast
+
+
+MANIFEST_SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+CRITERIA = frozenset(
+    {
+        "FSE-01",
+        "FSE-02",
+        "FSE-03",
+        "FSE-04",
+        "FSE-05",
+        "FSE-06",
+        "FSE-07",
+        "FSE-08",
+    }
+)
+CASE_IDS = frozenset(
+    {
+        "money-rounding-source-missing",
+        "ledger-transfer-conservation",
+        "trade-partial-fill-cancel-race",
+        "payment-timeout-unknown-outcome",
+        "wallet-freeze-reversal",
+        "risk-liquidation-price-source",
+        "credit-decision-replay",
+        "settlement-partial-dvp-calendar",
+        "reconciliation-break-correction",
+        "reference-data-effective-date",
+        "generic-crud-tests",
+        "generic-concurrency-test",
+        "security-only-payment-api",
+        "compliance-only-request",
+    }
+)
+POSITIVE_GROUPS = frozenset(
+    {
+        "money-ledger",
+        "transaction-lifecycle",
+        "risk-settlement",
+        "resilience-reference",
+    }
+)
+NEGATIVE_GROUPS = frozenset({"generic", "security", "compliance"})
+MANIFEST_FIELDS = frozenset(
+    {
+        "case_id",
+        "prompt_path",
+        "prompt_sha256",
+        "expected_route",
+        "applicable_references",
+        "blocking_criteria",
+        "branch_group",
+    }
+)
+RECEIPT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "phase",
+        "case_id",
+        "producer_session_id",
+        "producer_scheduler_handle_namespace",
+        "producer_scheduler_handle",
+        "producer_message_id",
+        "producer_capture_sha256",
+        "grader_session_id",
+        "grader_scheduler_handle_namespace",
+        "grader_scheduler_handle",
+        "grader_message_id",
+        "grader_capture_sha256",
+        "grader_output_sha256",
+        "prompt_sha256",
+        "response_sha256",
+        "rubric",
+        "evidence",
+    }
+)
+PROVENANCE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "phase",
+        "bindings",
+    }
+)
+PROVENANCE_BINDING_FIELDS = frozenset(
+    {
+        "case_id",
+        "grader_session_id",
+        "grader_scheduler_handle_namespace",
+        "grader_scheduler_handle",
+        "grader_message_id",
+        "grader_capture_sha256",
+        "grader_output_sha256",
+        "response_sha256",
+    }
+)
+CAPTURE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "phase",
+        "case_id",
+        "role",
+        "session_id",
+        "scheduler_handle_namespace",
+        "scheduler_handle",
+        "message_id",
+        "raw_sha256",
+        "prompt_sha256",
+        "response_sha256",
+    }
+)
+GRADER_OUTPUT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "phase",
+        "case_id",
+        "prompt_sha256",
+        "response_sha256",
+        "rubric",
+        "evidence",
+    }
+)
+JsonObject = dict[str, object]
+
+
+class ContractError(Exception):
+    pass
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
+
+
+def canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def load_json_object(path: Path, label: str) -> JsonObject:
+    try:
+        value = cast(object, json.loads(path.read_text(encoding="utf-8")))
+    except OSError as error:
+        raise ContractError(f"cannot read {label}: {error}") from error
+    except json.JSONDecodeError as error:
+        raise ContractError(f"invalid JSON {label}: {error}") from error
+    if not isinstance(value, dict):
+        raise ContractError(f"{label} must be a JSON object")
+    return cast(JsonObject, value)
+
+
+def required_string(value: JsonObject, key: str, label: str) -> str:
+    result = value.get(key)
+    if not isinstance(result, str) or not result:
+        raise ContractError(f"{label} field {key} must be a non-empty string")
+    return result
+
+
+def required_strings(value: JsonObject, key: str, label: str) -> list[str]:
+    result = value.get(key)
+    if not isinstance(result, list):
+        raise ContractError(f"{label} field {key} must be a string list")
+    items = cast(list[object], result)
+    if not all(isinstance(item, str) and item for item in items):
+        raise ContractError(f"{label} field {key} must be a string list")
+    return [cast(str, item) for item in items]
+
+
+def require_sha256(value: str, label: str) -> None:
+    if len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
+        raise ContractError(f"{label} must be 64 lowercase hex characters")
+
+
+def validate_manifest(manifest_path: Path) -> list[JsonObject]:
+    manifest = load_json_object(manifest_path, "manifest")
+    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        raise ContractError("manifest schema_version must be 1")
+    raw_cases = manifest.get("cases")
+    if not isinstance(raw_cases, list):
+        raise ContractError("manifest cases must be an array")
+    cases: list[JsonObject] = []
+    seen_ids: set[str] = set()
+    for raw_case in cast(list[object], raw_cases):
+        if not isinstance(raw_case, dict):
+            raise ContractError("manifest case must be an object")
+        case = cast(JsonObject, raw_case)
+        missing_fields = MANIFEST_FIELDS.difference(case)
+        if missing_fields:
+            raise ContractError(
+                f"manifest case missing fields: {sorted(missing_fields)}"
+            )
+        case_id = required_string(case, "case_id", "manifest case")
+        if case_id in seen_ids:
+            raise ContractError(f"duplicate case_id: {case_id}")
+        seen_ids.add(case_id)
+        prompt_path = Path(required_string(case, "prompt_path", case_id))
+        if prompt_path.is_absolute() or ".." in prompt_path.parts:
+            raise ContractError(f"invalid prompt_path: {case_id}")
+        prompt_sha256 = required_string(case, "prompt_sha256", case_id)
+        require_sha256(prompt_sha256, f"prompt_sha256 for {case_id}")
+        prompt_file = manifest_path.parent / prompt_path
+        if not prompt_file.is_file():
+            raise ContractError(f"prompt missing: {case_id}")
+        if sha256_file(prompt_file) != prompt_sha256:
+            raise ContractError(f"prompt_sha256 mismatch: {case_id}")
+        _ = required_string(case, "expected_route", case_id)
+        _ = required_strings(case, "applicable_references", case_id)
+        criteria = required_strings(case, "blocking_criteria", case_id)
+        if (
+            not criteria
+            or set(criteria).difference(CRITERIA)
+            or len(criteria) != len(set(criteria))
+        ):
+            raise ContractError(f"invalid blocking_criteria: {case_id}")
+        group = required_string(case, "branch_group", case_id)
+        if group not in POSITIVE_GROUPS | NEGATIVE_GROUPS:
+            raise ContractError(f"invalid branch_group: {case_id}")
+        cases.append(case)
+    if seen_ids != set(CASE_IDS):
+        missing = sorted(CASE_IDS.difference(seen_ids))
+        unexpected = sorted(seen_ids.difference(CASE_IDS))
+        raise ContractError(
+            f"case_id set mismatch: missing={missing} unexpected={unexpected}"
+        )
+    return cases
+
+
+def validate_capture(
+    receipt: JsonObject,
+    case: JsonObject,
+    phase: str,
+    receipt_path: Path,
+    role: str,
+    raw_sha256: str,
+) -> None:
+    capture_path = receipt_path.parent / f"{case['case_id']}.{role}.capture.json"
+    label = capture_path.name
+    if not capture_path.is_file():
+        raise ContractError(f"{role} capture missing: {receipt_path.name}")
+    capture_sha256 = required_string(
+        receipt, f"{role}_capture_sha256", receipt_path.name
+    )
+    require_sha256(capture_sha256, f"{role} capture SHA-256: {receipt_path.name}")
+    if sha256_file(capture_path) != capture_sha256:
+        raise ContractError(f"{role} capture SHA-256 mismatch: {receipt_path.name}")
+    capture = load_json_object(capture_path, f"{role} capture {label}")
+    if set(capture) != set(CAPTURE_FIELDS):
+        raise ContractError(f"{role} capture fields mismatch: {receipt_path.name}")
+    if capture.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError(
+            f"{role} capture schema_version mismatch: {receipt_path.name}"
+        )
+    for field, expected in (
+        ("run_id", receipt["run_id"]),
+        ("phase", phase),
+        ("case_id", case["case_id"]),
+        ("role", role),
+        ("raw_sha256", raw_sha256),
+        ("prompt_sha256", receipt["prompt_sha256"]),
+        ("response_sha256", receipt["response_sha256"]),
+    ):
+        if capture.get(field) != expected:
+            raise ContractError(f"{role} capture {field} mismatch: {receipt_path.name}")
+    for capture_field, receipt_field in (
+        ("session_id", f"{role}_session_id"),
+        ("scheduler_handle_namespace", f"{role}_scheduler_handle_namespace"),
+        ("scheduler_handle", f"{role}_scheduler_handle"),
+        ("message_id", f"{role}_message_id"),
+    ):
+        if capture.get(capture_field) != receipt[receipt_field]:
+            raise ContractError(
+                f"{role} capture {capture_field} mismatch: {receipt_path.name}"
+            )
+
+
+def validate_receipt(
+    receipt: JsonObject,
+    case: JsonObject,
+    phase: str,
+    receipt_path: Path,
+    provenance: JsonObject,
+    provenance_run_id: str,
+) -> None:
+    label = receipt_path.name
+    if set(receipt) != set(RECEIPT_FIELDS):
+        raise ContractError(f"receipt fields mismatch: {label}")
+    if receipt.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError(f"receipt schema_version mismatch: {label}")
+    for field in (
+        "run_id",
+        "phase",
+        "case_id",
+        "producer_session_id",
+        "producer_scheduler_handle_namespace",
+        "producer_scheduler_handle",
+        "producer_message_id",
+        "producer_capture_sha256",
+        "grader_session_id",
+        "grader_scheduler_handle_namespace",
+        "grader_scheduler_handle",
+        "grader_message_id",
+        "grader_capture_sha256",
+        "grader_output_sha256",
+        "prompt_sha256",
+        "response_sha256",
+    ):
+        _ = required_string(receipt, field, label)
+    if receipt["phase"] != phase:
+        raise ContractError(f"receipt phase mismatch: {label}")
+    if receipt["case_id"] != case["case_id"]:
+        raise ContractError(f"receipt case_id mismatch: {label}")
+    prompt_sha256 = required_string(receipt, "prompt_sha256", label)
+    response_sha256 = required_string(receipt, "response_sha256", label)
+    grader_output_sha256 = required_string(receipt, "grader_output_sha256", label)
+    for field in (
+        "producer_capture_sha256",
+        "grader_capture_sha256",
+        "grader_output_sha256",
+        "prompt_sha256",
+        "response_sha256",
+    ):
+        require_sha256(
+            required_string(receipt, field, label), f"receipt {field}: {label}"
+        )
+    if prompt_sha256 != case["prompt_sha256"]:
+        raise ContractError(f"receipt prompt_sha256 mismatch: {label}")
+    if receipt["run_id"] != provenance_run_id:
+        raise ContractError(f"grader provenance run_id mismatch: {label}")
+    for field in (
+        "grader_session_id",
+        "grader_scheduler_handle_namespace",
+        "grader_scheduler_handle",
+        "grader_message_id",
+        "grader_capture_sha256",
+        "grader_output_sha256",
+        "response_sha256",
+    ):
+        if receipt[field] != provenance[field]:
+            raise ContractError(f"provenance {field} mismatch: {label}")
+    if receipt["producer_session_id"] == receipt["grader_session_id"]:
+        raise ContractError(f"grader_session_id must differ: {label}")
+    if receipt["producer_scheduler_handle"] == receipt["grader_scheduler_handle"]:
+        raise ContractError(f"grader_scheduler_handle must differ: {label}")
+    if receipt["producer_message_id"] == receipt["grader_message_id"]:
+        raise ContractError(f"grader_message_id must differ: {label}")
+    response_path = receipt_path.parent / f"{case['case_id']}.response.md"
+    if not response_path.is_file():
+        raise ContractError(f"raw response missing: {label}")
+    if sha256_file(response_path) != response_sha256:
+        raise ContractError(f"response_sha256 mismatch: {label}")
+    rubric = receipt.get("rubric")
+    if not isinstance(rubric, dict):
+        raise ContractError(f"receipt rubric must be an object: {label}")
+    rubric_values = cast(JsonObject, rubric)
+    criteria = set(required_strings(case, "blocking_criteria", label))
+    if set(rubric_values) != criteria:
+        raise ContractError(f"rubric keys mismatch: {label}")
+    if not all(isinstance(result, bool) for result in rubric_values.values()):
+        raise ContractError(f"rubric values must be boolean: {label}")
+    evidence = receipt.get("evidence")
+    if not isinstance(evidence, dict):
+        raise ContractError(f"receipt evidence must be an object: {label}")
+    evidence_values = cast(JsonObject, evidence)
+    false_criteria = {
+        criterion for criterion, result in rubric_values.items() if result is False
+    }
+    if set(evidence_values) != false_criteria:
+        raise ContractError(f"evidence keys mismatch: {label}")
+    if not all(isinstance(item, str) and item for item in evidence_values.values()):
+        raise ContractError(f"evidence values must be non-empty strings: {label}")
+    grader_path = receipt_path.parent / f"{case['case_id']}.grader.json"
+    if not grader_path.is_file():
+        raise ContractError(f"raw grader output missing: {label}")
+    if sha256_file(grader_path) != grader_output_sha256:
+        raise ContractError(f"grader_output_sha256 mismatch: {label}")
+    grader_output = load_json_object(grader_path, f"grader output {grader_path.name}")
+    if set(grader_output) != set(GRADER_OUTPUT_FIELDS):
+        raise ContractError(f"grader output fields mismatch: {label}")
+    if grader_output.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError(f"grader output schema_version mismatch: {label}")
+    for field, expected in (
+        ("run_id", receipt["run_id"]),
+        ("phase", phase),
+        ("case_id", case["case_id"]),
+        ("prompt_sha256", prompt_sha256),
+        ("response_sha256", response_sha256),
+    ):
+        if grader_output.get(field) != expected:
+            raise ContractError(f"grader output {field} mismatch: {label}")
+    if (
+        grader_output.get("rubric") != rubric_values
+        or grader_output.get("evidence") != evidence_values
+    ):
+        raise ContractError(f"grader output verdict mismatch: {label}")
+    validate_capture(receipt, case, phase, receipt_path, "producer", response_sha256)
+    validate_capture(receipt, case, phase, receipt_path, "grader", grader_output_sha256)
+
+
+def load_provenance(
+    receipts_path: Path, case_by_id: dict[str, JsonObject], phase: str
+) -> tuple[str, dict[str, JsonObject]]:
+    provenance_path = receipts_path / "grader-provenance.json"
+    if not provenance_path.is_file():
+        raise ContractError("grader provenance missing")
+    provenance = load_json_object(provenance_path, "grader provenance")
+    if set(provenance) != set(PROVENANCE_FIELDS):
+        raise ContractError("grader provenance fields mismatch")
+    if provenance.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError("grader provenance schema_version mismatch")
+    if provenance.get("phase") != phase:
+        raise ContractError("grader provenance phase mismatch")
+    run_id = required_string(provenance, "run_id", "grader provenance")
+    raw_bindings = provenance.get("bindings")
+    if not isinstance(raw_bindings, list):
+        raise ContractError("grader provenance bindings must be an array")
+    bindings: dict[str, JsonObject] = {}
+    for raw_binding in cast(list[object], raw_bindings):
+        if not isinstance(raw_binding, dict):
+            raise ContractError("grader provenance binding must be an object")
+        binding = cast(JsonObject, raw_binding)
+        if set(binding) != set(PROVENANCE_BINDING_FIELDS):
+            raise ContractError("grader provenance binding fields mismatch")
+        case_id = required_string(binding, "case_id", "grader provenance binding")
+        if case_id in bindings:
+            raise ContractError(f"duplicate grader provenance case_id: {case_id}")
+        if case_id not in case_by_id:
+            raise ContractError(f"grader provenance case_id not in manifest: {case_id}")
+        for field in (
+            "grader_session_id",
+            "grader_scheduler_handle_namespace",
+            "grader_scheduler_handle",
+            "grader_message_id",
+            "grader_capture_sha256",
+            "grader_output_sha256",
+            "response_sha256",
+        ):
+            _ = required_string(binding, field, f"grader provenance {case_id}")
+        require_sha256(
+            required_string(binding, "grader_capture_sha256", case_id),
+            f"grader provenance grader_capture_sha256: {case_id}",
+        )
+        require_sha256(
+            required_string(binding, "grader_output_sha256", case_id),
+            f"grader provenance grader_output_sha256: {case_id}",
+        )
+        require_sha256(
+            required_string(binding, "response_sha256", case_id),
+            f"grader provenance response_sha256: {case_id}",
+        )
+        bindings[case_id] = binding
+    if set(bindings) != set(case_by_id):
+        raise ContractError("grader provenance case set mismatch")
+    return run_id, bindings
+
+
+def load_receipts(
+    receipts_path: Path, cases: list[JsonObject], phase: str
+) -> dict[str, JsonObject]:
+    if not receipts_path.is_dir():
+        raise ContractError(f"receipts directory not found: {receipts_path}")
+    case_by_id = {
+        required_string(case, "case_id", "manifest case"): case for case in cases
+    }
+    provenance_run_id, provenance_by_case = load_provenance(
+        receipts_path, case_by_id, phase
+    )
+    receipts: dict[str, JsonObject] = {}
+    seen_identity: set[tuple[str, str]] = set()
+    for receipt_path in sorted(receipts_path.glob("*.receipt.json")):
+        receipt = load_json_object(receipt_path, f"receipt {receipt_path.name}")
+        case_id = required_string(receipt, "case_id", receipt_path.name)
+        receipt_phase = required_string(receipt, "phase", receipt_path.name)
+        identity = (receipt_phase, case_id)
+        if identity in seen_identity:
+            raise ContractError(
+                f"duplicate receipt case/phase: {case_id}/{receipt_phase}"
+            )
+        seen_identity.add(identity)
+        case = case_by_id.get(case_id)
+        if case is None:
+            raise ContractError(f"receipt case_id not in manifest: {case_id}")
+        validate_receipt(
+            receipt,
+            case,
+            phase,
+            receipt_path,
+            provenance_by_case[case_id],
+            provenance_run_id,
+        )
+        receipts[case_id] = receipt
+    if set(receipts) != set(case_by_id):
+        raise ContractError("receipt set mismatch")
+    return receipts
+
+
+def validate_phase(
+    phase: str, cases: list[JsonObject], receipts: dict[str, JsonObject]
+) -> None:
+    if phase == "green":
+        for case in cases:
+            case_id = required_string(case, "case_id", "manifest case")
+            rubric = cast(JsonObject, receipts[case_id]["rubric"])
+            for criterion, passed in rubric.items():
+                if passed is False:
+                    raise ContractError(
+                        f"GREEN receipt failed blocking criterion {criterion}: {case_id}"
+                    )
+        return
+    for group in POSITIVE_GROUPS:
+        group_cases = [
+            case
+            for case in cases
+            if required_string(case, "branch_group", "manifest case") == group
+        ]
+        if not any(
+            cast(
+                JsonObject,
+                receipts[required_string(case, "case_id", "manifest case")]["rubric"],
+            ).get(criterion)
+            is False
+            for case in group_cases
+            for criterion in ("FSE-02", "FSE-03", "FSE-04")
+        ):
+            raise ContractError(f"RED missing branch-level miss: {group}")
+    negative_receipts = [
+        receipts[required_string(case, "case_id", "manifest case")]
+        for case in cases
+        if required_string(case, "branch_group", "manifest case") in NEGATIVE_GROUPS
+    ]
+    if not any(
+        cast(JsonObject, receipt["rubric"]).get(criterion) is False
+        for receipt in negative_receipts
+        for criterion in ("FSE-01", "FSE-07")
+    ):
+        raise ContractError("RED missing branch-level miss: negative-routes")
+
+
+def results_text(
+    manifest_path: Path,
+    cases: list[JsonObject],
+    receipts_by_phase: dict[str, dict[str, JsonObject]],
+) -> str:
+    lines = [
+        "# Financial Systems Testing Evaluation Results",
+        "",
+        "## Frozen Inputs",
+        "",
+        "| Input | SHA-256 |",
+        "|---|---|",
+        f"| `cases.json` | `{sha256_file(manifest_path)}` |",
+        f"| `tests/financial-systems-testing-eval/rubric.md` | `{sha256_file(manifest_path.parent / 'rubric.md')}` |",
+    ]
+    for case in cases:
+        case_id = required_string(case, "case_id", "manifest case")
+        lines.append(
+            f"| `tests/financial-systems-testing-eval/{case['prompt_path']}` | `{case['prompt_sha256']}` |"
+        )
+    for phase, heading, pending in (
+        ("red", "RED Baseline", "Pending until T1 RED validation is recorded."),
+        ("green", "GREEN Evaluation", "Pending until T6."),
+    ):
+        lines.extend(["", f"## {heading}", ""])
+        receipts = receipts_by_phase.get(phase)
+        if receipts is None:
+            lines.append(pending)
+            continue
+        lines.extend(
+            [
+                "| Case ID | Group | Producer session | Grader session | Prompt SHA-256 | Response SHA-256 | Rubric verdicts |",
+                "|---|---|---|---|---|---|---|",
+            ]
+        )
+        for case in cases:
+            case_id = required_string(case, "case_id", "manifest case")
+            receipt = receipts[case_id]
+            rubric = cast(JsonObject, receipt["rubric"])
+            verdicts = ", ".join(
+                f"{criterion}={str(passed).lower()}"
+                for criterion, passed in rubric.items()
+            )
+            lines.append(
+                f"| `{case_id}` | `{case['branch_group']}` | "
+                + f"`{receipt['producer_session_id']}` | "
+                + f"`{receipt['grader_session_id']}` | "
+                + f"`{receipt['prompt_sha256']}` | "
+                + f"`{receipt['response_sha256']}` | {verdicts} |"
+            )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def parse_args(argv: list[str] | None) -> tuple[Path, Path, dict[str, Path]]:
+    parser = argparse.ArgumentParser()
+    _ = parser.add_argument("--phase", choices=("red", "green"))
+    _ = parser.add_argument("--manifest", required=True)
+    _ = parser.add_argument("--receipts")
+    _ = parser.add_argument("--red-receipts")
+    _ = parser.add_argument("--green-receipts")
+    _ = parser.add_argument("--results", required=True)
+    args = parser.parse_args(argv)
+    phase = cast(str | None, args.phase)
+    receipts = cast(str | None, args.receipts)
+    red_receipts = cast(str | None, args.red_receipts)
+    green_receipts = cast(str | None, args.green_receipts)
+    if phase is not None:
+        if receipts is None or red_receipts is not None or green_receipts is not None:
+            parser.error(
+                "--phase requires --receipts and excludes phase-specific paths"
+            )
+        receipts_by_phase = {phase: Path(receipts)}
+    else:
+        if receipts is not None:
+            parser.error("--receipts requires --phase")
+        if red_receipts is None and green_receipts is None:
+            parser.error("at least one phase-specific receipts path is required")
+        receipts_by_phase = {}
+        if red_receipts is not None:
+            receipts_by_phase["red"] = Path(red_receipts)
+        if green_receipts is not None:
+            receipts_by_phase["green"] = Path(green_receipts)
+    return (
+        Path(cast(str, args.manifest)),
+        Path(cast(str, args.results)),
+        receipts_by_phase,
+    )
+
+
+def fail(error: ContractError) -> NoReturn:
+    _ = sys.stderr.write(f"{error}\n")
+    raise SystemExit(2)
+
+
+def main(argv: list[str] | None = None) -> int:
+    manifest_path, results_path, receipt_paths = parse_args(argv)
+    try:
+        cases = validate_manifest(manifest_path)
+        receipts_by_phase: dict[str, dict[str, JsonObject]] = {}
+        for phase, receipts_path in receipt_paths.items():
+            receipts = load_receipts(receipts_path, cases, phase)
+            validate_phase(phase, cases, receipts)
+            receipts_by_phase[phase] = receipts
+        content = results_text(manifest_path, cases, receipts_by_phase)
+        _ = results_path.write_text(content, encoding="utf-8")
+    except ContractError as error:
+        fail(error)
+    output = {
+        "cases": len(cases),
+        "manifest_sha256": sha256_file(manifest_path),
+        "phase": next(iter(receipt_paths)) if len(receipt_paths) == 1 else "combined",
+        "results_sha256": sha256_bytes(content.encode("utf-8")),
+    }
+    print(canonical_json(output))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
