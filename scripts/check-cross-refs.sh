@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [ "$#" -gt 1 ]; then
+    printf 'usage: %s [repo-root]\n' "$0" >&2
+    exit 2
+fi
+
+if [ "$#" -eq 1 ]; then
+    REPO_ROOT="$(cd "$1" && pwd -P)"
+else
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+fi
 errors=0
 
 red()  { printf '\033[31m%s\033[0m\n' "$*"; }

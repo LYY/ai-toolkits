@@ -102,6 +102,16 @@ Find comments that are causally or logically connected across different files or
    - `should_be_grouped`: Tasks that should be addressed in the same commit
 3. Plan mode uses this metadata to order tasks and group related changes
 
+For Direct Fix eligibility only, also emit an auditable topology record after deduplication:
+
+- directed dependency edges using canonical `task-X -> task-N` prerequisite direction
+- connected components, including singleton and ordered-component membership
+- ordered-chain count and ordered-chain length measured in nodes
+- shared production symbol/hunk conflicts across tasks
+- deterministic execution order that respects dependency edges, then final-table concern order among ready nodes, then numeric task ID when table order is unavailable
+
+This Direct Fix topology record does not replace Review Dossier relations. Review Dossier continues to carry `fixes_needed_before`, `may_become_unnecessary`, and `should_be_grouped`, and its executor may use its general dependency resolution and grouping rules.
+
 ### Related vs Duplicate Boundary
 
 Two comments are related, not duplicates, when:

@@ -120,6 +120,18 @@ def _validate_manifest(manifest: dict) -> list[str]:
         if not isinstance(case.get("sentinels"), list):
             errors.append(f"Case '{cid}': sentinels must be a list")
 
+        fixture_path = case.get("fixture_path")
+        fixture_sha256 = case.get("fixture_sha256")
+        if not isinstance(fixture_path, str) or not isinstance(fixture_sha256, str):
+            continue
+        fixture = (REGRESSIONS_DIR / fixture_path).resolve()
+        if fixture.parent != (REGRESSIONS_DIR / fixture_path).parent.resolve():
+            errors.append(f"Case '{cid}': fixture_path escapes regressions directory")
+        elif not fixture.is_file():
+            errors.append(f"Case '{cid}': fixture not found: {fixture_path}")
+        elif _file_sha256(str(fixture)) != fixture_sha256:
+            errors.append(f"Case '{cid}': fixture_sha256 mismatch")
+
     # Validate case_ids_sha256
     expected_ids_path = REGRESSIONS_DIR / "case-ids.txt"
     if expected_ids_path.exists():
@@ -182,6 +194,54 @@ def _find_executable(argv0: str, case: dict) -> str | None:
     return None
 
 
+def _resolve_argument(value: str) -> str:
+    if os.path.isabs(value):
+        return value
+
+    script_dirs = (
+        REGRESSIONS_DIR,
+        SCRIPT_DIR.parent / "skills" / "address-pr-comments-review" / "scripts",
+        SCRIPT_DIR.parent / "scripts",
+    )
+    for script_dir in script_dirs:
+        candidate = script_dir / value
+        if candidate.is_file():
+            return str(candidate)
+    return value
+
+
+def _resolve_artifact_path(value: str, case_dir: Path) -> str:
+    if value.startswith("/readonly/"):
+        artifact_dir = case_dir / "readonly"
+        artifact_dir.mkdir(exist_ok=True)
+        artifact_dir.chmod(0o500)
+    else:
+        artifact_dir = case_dir / "artifacts"
+
+    artifact_dir.mkdir(exist_ok=True)
+    return str(artifact_dir / Path(value).name)
+
+
+def _resolve_case_argv(case: dict, case_dir: Path) -> list[str] | None:
+    argv = case["argv"]
+    exe = _find_executable(argv[0], case)
+    if exe is None:
+        return None
+
+    argv_resolved = [exe]
+    artifact_path_next = False
+    for value in argv[1:]:
+        if artifact_path_next:
+            argv_resolved.append(_resolve_artifact_path(value, case_dir))
+            artifact_path_next = False
+        else:
+            argv_resolved.append(_resolve_argument(value))
+            artifact_path_next = value == "--artifact"
+    if case["driver"] == "contract":
+        argv_resolved.append(str(SCRIPT_DIR.parent))
+    return argv_resolved
+
+
 def _run_case(case: dict, case_dir: Path) -> dict:
     """Execute a single regression case. Returns result dict."""
     case_id = case["case_id"]
@@ -194,8 +254,8 @@ def _run_case(case: dict, case_dir: Path) -> dict:
     sentinels = case.get("sentinels", [])
 
     # Resolve executable
-    exe = _find_executable(argv[0], case)
-    if exe is None:
+    argv_resolved = _resolve_case_argv(case, case_dir)
+    if argv_resolved is None:
         return {
             "case_id": case_id,
             "status": "skip",
@@ -204,8 +264,6 @@ def _run_case(case: dict, case_dir: Path) -> dict:
             "expected_exit": expected_exit,
             "passed": False,
         }
-
-    argv_resolved = [exe] + argv[1:]
 
     # Prepare stdin
     stdin_bytes = b""

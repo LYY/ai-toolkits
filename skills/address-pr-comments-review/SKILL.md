@@ -31,7 +31,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 2a | Build evidence ledger for actionable comments | `references/classify.md` | 420 |
 | 2b | Classify each comment from evidence, not suggestion text | `references/classify.md` | 420 |
 | 2c | Detect duplicates; preserve separate source/root/kind reply targets | `references/cross-reference.md` §Duplicate Detection | 200 |
-| 3 | Present overview table, discuss 🔴 items, get confirmation | `references/interaction.md` | 200 |
+| 3 | Present overview table, disclose route, and apply informed consent | `references/interaction.md` §Consent State Matrix | 240 |
 | 4a | Pre-write cross-reference scan (9 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
 | 4c | Generate dossier with canonical route fields in Sections A/B | `references/dossier-output.md` §Dossier Structure + §Reply Target Schema | 240 |
@@ -44,7 +44,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 
 **Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion. This compresses interaction only; it does not by itself authorize direct code execution.
 
-**Direct-Fix Fast Path** (simple low-risk Section A): after Step 3 confirmation and Step 4a scan, the user may explicitly choose Direct Fix after seeing the final classification table. The batch is bounded to one through five independent Section A tasks. Every task must be unambiguous, low-risk, single-file, dependency-free, conflict-free, and complete enough for execution and reply read-back. Run the Dossier Accuracy Grill Gate first. If all eligibility checks pass, write a Direct Fix Brief instead of the full dossier. No second plan-approval step is required for an eligible batch. If any eligibility condition fails, name every failed condition and route to Review Dossier.
+**Direct-Fix Fast Path**: use `references/interaction.md` §Consent State Matrix for informed route confirmation, `references/dossier-output.md` §Direct Fix Brief for eligibility and artifact rules, and `references/execution.md` §Direct Fix Brief Handoff for execution semantics. Keep this entry as navigation; those references own the detailed policy.
 
 **Reply-only path** (Section A = 0, Section B > 0): after Step 0 has bound the current checkout and Step 3 confirms replies only, load `dossier-output.md`. Read §Reply Target Schema, §Reply Posting and Reconciliation Contract, §Reply Endpoints, and §Reply Policy. Skip Dossier Structure, Sections A/B/C, Validation Gates, and Handoff. Require `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint` for every target. POST once through the exact endpoint, then verify by route-specific GET/LIST read-back. Missing or inconsistent route data blocks before POST; uncertain results are read back and never blindly retried.
 
@@ -84,10 +84,10 @@ Load only the file needed for the current step. No file assumes you've read prev
 [3] Interactive Table (references/interaction.md)
   │  ├─ 🔴 items discussed & resolved  ← BLOCKING GATE
   │  ├─ Silent consent for non-🔴 items
-  │  └─ User explicitly confirms table; `proceed` does not select Direct Fix
+  │  └─ Final surface discloses route; Consent State Matrix decides authorization
   │
   ├── Post-Confirmation Routing (references/interaction.md §Post-Confirmation Routing)
-  │     ├─ A > 0 (Direct Fix explicitly selected, eligible 1-5 batch) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → execution.md §Direct Fix Brief Handoff
+  │     ├─ A > 0 (informed Direct Fix consent + eligible batch) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → execution.md §Direct Fix Brief Handoff
   │     ├─ A > 0 (default/complex code changes) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4c] Dossier → Reply task contract → [5]
   │     ├─ A = 0, B > 0 (replies) ─► POST/send replies → read-back verify replies → done
   │     └─ A = 0, B = 0 (nothing)  ─► done
@@ -101,7 +101,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 [4c] Dossier → ~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/
   │
 [4d] Direct Fix Brief → ~/.local/state/ai-toolkits/pr-comments/<owner>__<repo>/pr-<N>/direct-fix-<TIMESTAMP>.md
-  │  └─ contains exact edit, guardrails, verification, reply endpoint, commit SHA requirement, read-back verification
+  │  └─ validated artifact contract owned by dossier-output.md §Direct Fix Brief
   │
 [4e] Replies (references/dossier-output.md §Reply Policy)
   │  └─ Execution plan MUST include reply task(s) after code/test/commit work and before read-back verification
@@ -109,7 +109,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 [5] Handoff → execution.md §Dossier Handoff or §Direct Fix Brief Handoff
 ```
 
-Direct Fix execution is serial and fail-stop. A failed checkout validation, verification, commit, push, remote-reachability check, reply, or read-back blocks the whole batch. Preserve completed task evidence and leave later tasks unresolved. Review Dossier remains plan-first and waits for explicit user approval before editing. See `references/interaction.md` for route selection, `references/dossier-output.md` for eligibility and fail-stop artifact rules, and `references/execution.md` for the exclusive handoffs.
+Direct Fix consent, eligibility, and execution details live in their owning references. See `references/interaction.md` §Consent State Matrix for route authorization, `references/dossier-output.md` §Direct Fix Brief for eligibility and artifact rules, and `references/execution.md` §Direct Fix Brief Handoff for execution. Review Dossier remains plan-first and waits for explicit user approval before editing.
 
 **Do NOT act as the executor yourself.** User drives Phase 2 & 3.
 

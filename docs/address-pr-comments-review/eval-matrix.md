@@ -146,7 +146,7 @@
 | 11 | `default local-state artifact path` | Artifact storage decoupling | Writing disposable artifacts into repo state or `.omo` by default |
 | 12 | `generated-plan reply tasks for Section A/B` | Task 4 handoff design | Dropping Section B reply task items from generated plan |
 | 13 | `reply-only posting and read-back` | Reply-only workflow regression | Generating needless plan or skipping post reply read-back |
-| 14 | `direct-fix fast path` | PR #2166, simple proto field rename | Forcing a full dossier for bounded low-risk work, or bypassing reply/read-back duties |
+| 14 | `direct-fix-pr1431 implementation-plus-verification companion` | PR #1431, implementation plus corresponding spec and focused test | Splitting one concern across tasks, using one-file eligibility, or bypassing informed confirmation and reply/read-back duties |
 | 15 | `dossier accuracy grill gate` | Simple-path and ambiguous-dossier regression | Writing a dossier or brief while unresolved implementation, scope, test, or reply ambiguity remains |
 | 16 | `direct fix brief retaining PR reply fields` | Direct-fix handoff regression | Losing source/root route fields, endpoint, full commit SHA body requirement, or read-back verification |
 | 17 | `artifact_dir override no ignore edit` | Artifact storage decoupling | Mutating root/global ignore files or treating repo-local override as default-safe |
@@ -157,6 +157,9 @@
 | 22 | `cleanup-all default state root` | Cleanup-all workflow | Requiring per-repo cleanup or touching non-default artifact paths |
 | 23 | `cleanup-all dry-run` | Cleanup-all safety | Deleting files during a dry run |
 | 24 | `cleanup-all older-than` | Cleanup-all retention | Deleting fresh artifacts when age filtering is requested |
+| 31 | `direct-fix-mixed-topology` | Direct Fix topology boundary | Rejecting legal mixed singleton plus one-chain batches, hiding topology, or executing them in parallel |
+| 32 | `direct-fix-invalid-complexity` | Direct Fix complexity boundary | Accepting hard blockers, invalid certificates, or unclear verification in Direct Fix |
+| 33 | `direct-fix-invalid-topology` | Direct Fix topology failure cases | Accepting over-cap, nonlinear, duplicate, external, or shared-symbol graphs |
 
 ---
 
@@ -252,20 +255,20 @@
 
 ---
 
-### 14. direct-fix fast path
+### 14. direct-fix-pr1431 implementation-plus-verification companion
 
-**Description:** A confirmed Section A item is a simple, low-risk change: one code-change task, one file, no conflicts, no dependencies, no cross-file pattern, exact edit known, and all canonical reply target fields complete. The agent may skip the full dossier path only after explicit user confirmation and a successful dossier accuracy grill gate.
+**Description:** PR #1431 contains one root concern with one local behavioral outcome: a controller implementation path, its directly corresponding spec path, and one exact focused test. The implementation and verification paths belong to one `local-behavior` task, not separate tasks. The task has a complete typed complexity certificate, exact change, canonical reply fields, and no hard blockers. The agent may select Direct Fix only after the final table discloses the route and consequences, then receives valid informed confirmation.
 
-**Origin:** PR #2166 (`peatio/hub`). Copilot asked to rename `HasInvestCompletedResponse.exists` to `has_invest_completed` in `protos/peatio/coffer/v1/welfare/eligibility/eligibility.proto`, preserving field number `1` and not manually editing generated `.pb.go` files.
+**Origin:** PR #1431. The implementation path and corresponding spec path are direct companions for one behavior, with a focused test as verification. This replaces the old one-file shortcut and guards against splitting one concern into multiple Direct Fix tasks.
 
 | Dimension | Expected Value |
 |-----------|---------------|
-| expected classification | `valid` Section A. The issue is a concrete field-name clarity fix. |
-| expected reply posture | Code change, targeted validation, commit, body-only reply through the target's exact endpoint, full task-specific 40-character commit SHA in fixed or partially addressed body text, and route-specific read-back verification. |
-| expected overview-table | One Section A item, no conflicts, no duplicates, no 🔴 discussion items. |
-| expected dossier escalation | Optional direct-fix fast path. If the user chooses direct fix, generate a Direct Fix Brief instead of the full Prometheus dossier. If the user does not choose direct fix, use the normal dossier/Prometheus path. |
+| expected classification | `valid` Section A. One `local-behavior` task owns one root concern, one behavioral outcome, and one implementation locus. |
+| expected reply posture | Code change, focused implementation-plus-spec/test validation, commit, body-only reply through the target's exact endpoint, full task-specific 40-character commit SHA in fixed or partially addressed body text, and route-specific read-back verification. |
+| expected overview-table | One Section A task, batch shape `1/5`, ordered chains `0/1`, maximum chain length none, complexity `local-behavior`, implementation and verification paths disclosed, serial execution and fallback reason inventory disclosed, no conflicts or duplicates, and no 🔴 discussion items. |
+| expected dossier escalation | Direct Fix Brief is allowed only after informed final-table confirmation. With no prior Direct Fix preference, generic `proceed` confirms classification only and does not authorize Direct Fix. A valid explicit Direct Fix selection after disclosure is sufficient; a declined or ambiguous route uses the normal Review Dossier path. |
 
-**Failure pattern guarded:** Treating every Section A item as requiring a full Prometheus plan even when the task is mechanically clear, or treating direct-fix as code-only work and dropping reply/read-back requirements.
+**Failure pattern guarded:** Splitting implementation and direct verification companions into separate tasks, treating one file as the eligibility rule, or treating Direct Fix as code-only work and dropping informed confirmation or reply/read-back requirements.
 
 ---
 
@@ -503,6 +506,51 @@
 
 ---
 
+### 31. direct-fix-mixed-topology
+
+**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, and one implementation locus, implementation and direct verification companions share a task, every typed complexity certificate passes, and no hard blocker remains.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | All Section A tasks are eligible after individual complexity, certificate, identity, and topology checks. |
+| expected reply posture | Each task keeps its own distinct commit SHA, canonical reply target, full fixed or partially addressed SHA requirement, and route-specific read-back. |
+| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, implementation/verification paths, and fallback reason inventory. |
+| expected dossier escalation | Direct Fix is allowed only after valid informed final-table confirmation. Generic `proceed` without a pending restated preference confirms classification only. |
+
+**Failure pattern guarded:** Rejecting legal mixed batches because they are not all independent, executing an ordered chain in parallel, exceeding the one-chain or three-node limit, or hiding topology and execution consequences before confirmation.
+
+---
+
+### 32. direct-fix-invalid-complexity
+
+**Description:** A Section A task has a closed-list hard blocker such as `architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, or `retry-or-recovery`; alternatively its complexity class or typed certificate is missing, invalid, duplicated, reordered, malformed, or has empty evidence. Verification may also be unclear.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Section A remains actionable, but Direct Fix eligibility fails closed and every failed eligibility condition is named. |
+| expected reply posture | No Direct Fix edit, commit, push, reply POST, or read-back side effect occurs. The eventual Review Dossier preserves required reply work. |
+| expected overview-table | The table records the rejected Direct Fix route, complexity class, hard-blocker or certificate evidence, verification failure, and fallback reason inventory. |
+| expected dossier escalation | Route to Review Dossier. A generic `proceed` confirms classification only, regardless of any stale Direct Fix preference. |
+
+**Failure pattern guarded:** Treating a file count, familiar file type, or generic low-risk label as sufficient, accepting an incomplete or untyped certificate, or allowing a hard-blocked task into Direct Fix.
+
+---
+
+### 33. direct-fix-invalid-topology
+
+**Description:** A proposed batch violates Direct Fix topology through six Section A tasks, a four-node chain, two ordered chains, a branch, a merge, a cycle, duplicate task IDs or edges, a self-edge, an external dependency target, a Section B dependency, or a shared production symbol/hunk. The batch may otherwise contain mechanically clear tasks.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Direct Fix eligibility fails closed, and every failed topology or identity condition is named. |
+| expected reply posture | No Direct Fix edit, commit, push, reply POST, or read-back side effect occurs. Review Dossier remains available for valid ordered work. |
+| expected overview-table | The table discloses the actual task graph, failed cap or graph condition, deterministic-order impact, and fallback route before any execution confirmation. |
+| expected dossier escalation | Route to Review Dossier. Any prior Direct Fix confirmation is invalidated by a topology update and cannot authorize the changed batch. |
+
+**Failure pattern guarded:** Treating a nonlinear graph as one chain, silently dropping dependencies, accepting a second chain, extending a chain beyond three nodes, or executing before topology preflight.
+
+---
+
 ## QA Check Tokens
 
 The following tokens MUST appear in this file for automated QA:
@@ -520,7 +568,10 @@ The following tokens MUST appear in this file for automated QA:
 - `default local-state artifact path`
 - `generated-plan reply tasks for Section A/B`
 - `reply-only posting and read-back`
-- `direct-fix fast path`
+- `direct-fix-pr1431 implementation-plus-verification companion`
+- `direct-fix-mixed-topology`
+- `direct-fix-invalid-complexity`
+- `direct-fix-invalid-topology`
 - `dossier accuracy grill gate`
 - `direct fix brief retaining PR reply fields`
 - `inline root 101 threaded_inline`

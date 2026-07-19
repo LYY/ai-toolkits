@@ -18,7 +18,7 @@ skills/address-pr-comments-review/
 docs/address-pr-comments-review/
 ├── architecture.md           ← 本文件：维护者架构概览
 ├── executor-neutral-design.md ← 执行器中立设计方案（已批准）
-└── eval-matrix.md            ← 40-sample behavioral eval（20 RED + 20 GREEN）
+└── eval-matrix.md            ← 40-sample behavioral eval（20 RED + 20 GREEN）与 Direct Fix topology cases
 ```
 
 ## 设计原则
@@ -98,7 +98,7 @@ Threaded payload rejects `commit_id`, `path`, `line`, `side`, and `in_reply_to`.
 
 The dossier owns downstream reply-task requirements. Section A items require implementation tasks plus reply tasks. Section B items require reply tasks even when no code changes are needed. The execution contract must preserve those reply tasks instead of treating the artifact as a code-only brief.
 
-The direct-fix route owns bounded Section A shortcuts. It permits one through five independent, low-risk, mechanically specified tasks, requires explicit user choice after the final classification table, gives each task its own canonical route fields, commit and full reply/read-back requirements, and stops the batch on the first failure. Fixed and partially addressed replies include the full task-specific commit SHA in their body. Clear local runtime behavior fixes remain eligible. Complex or ambiguous Section A work remains on the dossier path by default.
+The direct-fix route owns bounded Section A shortcuts. It permits one through five tasks only when each task is `mechanical` or `local-behavior`, has one deduplicated root concern, one behavioral outcome, and one production implementation locus, carries a complete typed complexity certificate, and meets the topology limits: total Section A hard cap `5`, ordered-chain count cap `1`, ordered-chain hard cap `3`, with all remaining nodes as independent singletons. Implementation and direct test/spec/fixture companions stay in one task; file count or file type alone does not decide eligibility. The final classification table must disclose the recommended route, batch shape, caps, complexity classes, implementation and verification paths, serial execution, fallback reason inventory, and no second plan approval. A prior Direct Fix preference remains pending rather than authorization and is carried forward and restated; affirmative final-table confirmation then authorizes Direct Fix once. Without that pending preference, generic `proceed` confirms classification only and requires explicit Direct Fix selection after disclosure. Any table content, topology, or scope update invalidates prior confirmation. Each task gets canonical route fields, one distinct task-specific commit SHA, and full reply/read-back requirements; the batch stops on the first failure. Clear local runtime behavior fixes remain eligible when unambiguous. Complex, blocked, or ambiguous Section A work remains on the dossier path by default.
 
 The reply-only route owns direct sending. When the confirmed outcome has Section B items and no Section A work, the route selects the canonical endpoint from each target's source/root/kind/mode fields, sends a body-only reply, and performs route-specific read-back instead of creating a work plan. A timeout or malformed POST result still requires read-back; zero or multiple exact matches remain blocked, with no second POST. No artifact is persisted.
 
@@ -112,8 +112,8 @@ Artifact cleanup follows the Execution Handoff lifecycle. Cleanup is only permit
 |------|-----------|-------------|
 | `classify.md` | source detection, intent, conclusion taxonomy, edge cases, evidence requirements, section mapping | cross-reference (duplicate/conflict/relation), interaction flow |
 | `cross-reference.md` | duplicate/conflict/relation detection, cross-file escalation | individual classification, reply templates |
-| `interaction.md` | overview table format, silent consent, 🔴 discussion flow, scaling, zero-actionable fast path, route selection (Review Dossier / Direct Fix Brief / Reply Only / No Action) | comment classification, dossier/brief structure, artifact lifecycle |
-| `dossier-output.md` | dossier structure (A/B/C), Direct Fix Brief, canonical reply target fields, deterministic endpoints, body-only payload, route-specific read-back, fail-closed reconciliation, reply policy + gate, 7-check validation, Cross-File Pattern template, downstream reply task requirements, Section A commit order reference | classification rules, interaction flow, current checkout binding |
+| `interaction.md` | overview table format, informed final-table route disclosure and consent matrix, 🔴 discussion flow, scaling, zero-actionable fast path, route selection (Review Dossier / Direct Fix Brief / Reply Only / No Action) | comment classification, dossier/brief structure, artifact lifecycle |
+| `dossier-output.md` | dossier structure (A/B/C), Direct Fix Brief eligibility certificate and topology summary, canonical reply target fields, deterministic endpoints, body-only payload, route-specific read-back, fail-closed reconciliation, reply policy + gate, 7-check validation, Cross-File Pattern template, downstream reply task requirements, Section A commit order reference | classification rules, interaction flow, current checkout binding |
 | `execution.md` | checkout binding, `list_comments.py` usage, GitHub CLI prerequisites, default local-state artifact paths, `artifact_dir` override, handoff format, cleanup commands, artifact lifecycle (pending/in-progress/blocked/verified-complete), Section A mandatory commit order, dirty-target blocking, `--force` + two-confirmation cleanup | reply API commands (owned by dossier-output.md), classification rules (owned by classify.md) |
 
 ## Artifact Lifecycle
@@ -135,4 +135,4 @@ pending ──→ in-progress ──→ verified-complete ──→ cleanup elig
 
 ## Eval Matrix
 
-[eval-matrix.md](./eval-matrix.md) 包含 40 个回归场景（20 RED + 20 GREEN，覆盖 4 个行为类别 × 每个类别 5 sessions），用于验证 skill 的行为正确性。新增 executor-neutral routing、artifact lifecycle、Section A commit order、dirty-target blocking、cleanup `--force` 语义覆盖从 Step 0 到下游执行与清理的边界。
+[eval-matrix.md](./eval-matrix.md) 定义维护者可回归审查的场景，并由 40 个样本（20 RED + 20 GREEN，覆盖 4 个行为类别 × 每个类别 5 sessions）验证 skill 行为。矩阵包含 PR #1431 implementation-plus-verification companion、合法 mixed topology，以及非法 complexity/topology cases；executor-neutral routing、artifact lifecycle、Section A commit order、dirty-target blocking、cleanup `--force` 语义覆盖从 Step 0 到下游执行与清理的边界。
