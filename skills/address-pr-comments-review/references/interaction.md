@@ -211,7 +211,7 @@ A prior Direct Fix preference remains pending and is not authorization. Carry it
 Without a pending prior Direct Fix preference, generic consent such as `proceed` confirms classification only, even when the final table discloses Direct Fix. Ask for an explicit Direct Fix selection after disclosure. Silent consent never authorizes Direct Fix.
 
 If the user does not explicitly confirm, ask, based on the final table's A/B counts:
-- **Code changes needed (A > 0)**: "Which route should I use for this final table: `Direct Fix` or `Review Dossier`?"
+- **Code changes needed (A > 0)**: If Direct Fix preflight is eligible, ask: "Select `Direct Fix` or `Review Dossier` for this final table." If preflight is not eligible, ask: "Shall I proceed with `Review Dossier` based on this final table? Fallback reason inventory: <enumerate every failed Direct Fix eligibility condition>."
 - **Replies only (A = 0, B > 0)**: "Shall I post replies based on this final table and verify them by read-back?"
 - **Nothing actionable (A = 0, B = 0)**: no confirmation needed — Post-Confirmation Routing will end.
 
