@@ -551,6 +551,34 @@
 
 ---
 
+### 34. direct-fix route prompt progression
+
+**Description:** The transcript must show the complete user-visible progression from Step 3 classification confirmation through final route disclosure and route selection. The scenario covers generic `proceed`, prior Direct Fix preference state, explicit route choices, and a single otherwise eligible `local-behavior` task whose only Direct Fix blocker is `authorization`. Static checks may confirm wording and table structure, but they do not prove this behavior. Transcript evaluation is mandatory.
+
+**Origin:** Route Confirmation Contract and Consent State Matrix in `skills/address-pr-comments-review/references/interaction.md`, including the distinction between classification confirmation, route authorization, and Direct Fix eligibility failure.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Step 3 classification is confirmed before route selection. The transcript must preserve the distinction between no route authorization and a failed Direct Fix eligibility condition. |
+| expected reply posture | No edit, commit, push, reply POST, or read-back is authorized by Step 3 `proceed` or by a generic affirmative without a pending restated Direct Fix preference. Explicit Direct Fix authorizes only the disclosed eligible batch; explicit Review Dossier authorizes no Direct Fix side effect. |
+| expected overview-table | Final disclosure is user-visible and includes the selected or recommended route, batch shape, complexity, implementation and verification paths, serial execution, plan-approval consequence, and fallback reason inventory. |
+| expected dossier escalation | An eligible single `local-behavior` task with only the `authorization` blocker recommends Review Dossier and records fallback reason inventory exactly `authorization`; it must not invent a second failed condition. |
+
+#### Transcript Evidence Table
+
+| # | Input or state | Matrix / routing source | Expected user-visible outcome |
+|---|----------------|-------------------------|-------------------------------|
+| 1 | Step 3 response: `proceed` | Stage 3: Classification-Only Confirmation | Confirms classifications and silent consent only. Agent runs eligibility preflight, then shows final table and route disclosure. No route is promised and no side effect is authorized. |
+| 2 | Final disclosure, no prior preference, generic affirmative | Consent State Matrix: `none` + `disclosed` + `generic-affirmative` -> `classification-only`; Stage 4 route contract | Remains `classification-only` with no selected route and `Fallback reason inventory: none`; asks user to explicitly choose `Direct Fix` or `Review Dossier`. This is no route authorization, not an eligibility failure. |
+| 3 | Prior Direct Fix preference, final disclosure restated, generic affirmative | Consent State Matrix: `pending-direct-fix` + `disclosed-and-restated` + `generic-affirmative` -> `direct-fix-once` | Reconfirms the disclosed batch and authorizes Direct Fix once, without requiring a second `Direct Fix` keyword. |
+| 4 | Final disclosure, explicit `Direct Fix` | Consent State Matrix: `any` + `disclosed` + `explicit-direct-fix` -> `direct-fix-once`; Post-Confirmation Routing eligible-batch row | Selects Direct Fix for the disclosed batch, then permits pre-write scan, grill gate, Direct Fix Brief, and serial execution without a second plan approval. |
+| 5 | Final disclosure, explicit `Review Dossier` | Stage 4: Disclosure and Route Selection: `any` + `disclosed` + `explicit-review-dossier` -> Select Review Dossier; Post-Confirmation Routing default/failure row | Selects Review Dossier and grants no Direct Fix authority. The plan-first dossier handoff remains the route, even if the batch is otherwise eligible. |
+| 6 | Single `local-behavior` task passes all checks except hard blocker `authorization` | Direct Fix invalid-complexity boundary plus Post-Confirmation Routing direct-fix-criteria-fail row | Recommends Review Dossier. Fallback reason inventory is exactly `authorization`, with no second invented failure. Transcript must show no Direct Fix side effect. |
+
+**Failure pattern guarded:** Treating Step 3 `proceed` as route authorization, treating generic final consent as Direct Fix authorization without a pending restated preference, collapsing explicit Review Dossier into Direct Fix, or disguising an authorization eligibility failure as missing route consent. Static source checks are insufficient; the evaluator must inspect a transcript containing all six rows and their resulting user-visible route/state.
+
+---
+
 ## QA Check Tokens
 
 The following tokens MUST appear in this file for automated QA:
@@ -572,6 +600,7 @@ The following tokens MUST appear in this file for automated QA:
 - `direct-fix-mixed-topology`
 - `direct-fix-invalid-complexity`
 - `direct-fix-invalid-topology`
+- `direct-fix route prompt progression`
 - `dossier accuracy grill gate`
 - `direct fix brief retaining PR reply fields`
 - `inline root 101 threaded_inline`
