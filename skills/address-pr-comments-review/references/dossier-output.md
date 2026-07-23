@@ -911,7 +911,6 @@ All conditions must be true for the batch and for each Section A task:
 - Verification is exact and clear enough for direct execution. Unclear verification is ineligible.
 - Each task has an exact change, implementation paths, verification companion paths, production symbols/hunks, dependency IDs, guardrails, verification target, commit message, task-specific commit SHA slot, and complete reply target data: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`.
 - Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
-- The user explicitly selected Direct Fix after the final classification table.
 
 Before Dossier fallback, the summary lists every failed eligibility condition. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
 
