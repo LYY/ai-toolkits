@@ -272,8 +272,7 @@ check_required_markers "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-status:start -->:::<!-- artifact-execution-status:end -->' \
     '<!-- artifact-execution-inventory:start -->:::<!-- artifact-execution-inventory:end -->' || errors=1
 
-if grep -qF '<!-- route-confirmation-contract:' "$INTERACTION_MD" 2>/dev/null || \
-    grep -qF 'Route Confirmation Contract' "$SKILL_MD" 2>/dev/null; then
+if grep -qF 'Consent State Matrix' "$INTERACTION_MD" 2>/dev/null; then
     check_required_markers "$INTERACTION_MD" "interaction.md" \
         '<!-- route-confirmation-contract:start -->:::<!-- route-confirmation-contract:end -->' || errors=1
 fi
@@ -285,8 +284,7 @@ check_marker_order "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-inventory:start -->' \
     '<!-- artifact-execution-inventory:end -->' || errors=1
 
-if grep -qF '<!-- route-confirmation-contract:' "$INTERACTION_MD" 2>/dev/null || \
-    grep -qF 'Route Confirmation Contract' "$SKILL_MD" 2>/dev/null; then
+if grep -qF 'Consent State Matrix' "$INTERACTION_MD" 2>/dev/null; then
     check_marker_order "$INTERACTION_MD" "interaction.md" \
         '<!-- route-confirmation-contract:start -->' \
         '<!-- route-confirmation-contract:end -->' || errors=1
