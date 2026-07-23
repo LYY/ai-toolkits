@@ -31,7 +31,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 | 2a | Build evidence ledger for actionable comments | `references/classify.md` | 420 |
 | 2b | Classify each comment from evidence, not suggestion text | `references/classify.md` | 420 |
 | 2c | Detect duplicates; preserve separate source/root/kind reply targets | `references/cross-reference.md` §Duplicate Detection | 200 |
-| 3 | Present overview table, disclose route, and apply informed consent | `references/interaction.md` §Consent State Matrix | 240 |
+| 3 | Confirm classifications and silent consent, then present route disclosure for selection | `references/interaction.md` §Route Confirmation Contract | 240 |
 | 4a | Pre-write cross-reference scan (9 checks) | `references/dossier-output.md` §Validation Gates | 100 |
 | 4b | Dossier Accuracy Grill Gate before writing final artifact | `references/dossier-output.md` §Dossier Accuracy Grill Gate | 80 |
 | 4c | Generate dossier with canonical route fields in Sections A/B | `references/dossier-output.md` §Dossier Structure + §Reply Target Schema | 240 |
@@ -42,7 +42,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 | cleanup | Clean current PR artifacts | `references/execution.md` §Artifact Cleanup | 80 |
 | cleanup-all | Clean all default artifacts | `references/execution.md` §Artifact Cleanup | 80 |
 
-**Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table, skip individual discussion. This compresses interaction only; it does not by itself authorize direct code execution.
+**Small PR fast-path** (≤5 raw comments, no conflicts after Step 2): user can say "proceed" after Step 3 table to skip individual discussion. Follow `references/interaction.md` §Route Confirmation Contract for its authority and next surface.
 
 **Direct-Fix Fast Path**: use `references/interaction.md` §Consent State Matrix for informed route confirmation, `references/dossier-output.md` §Direct Fix Brief for eligibility and artifact rules, and `references/execution.md` §Direct Fix Brief Handoff for execution semantics. Keep this entry as navigation; those references own the detailed policy.
 
@@ -84,7 +84,7 @@ Load only the file needed for the current step. No file assumes you've read prev
 [3] Interactive Table (references/interaction.md)
   │  ├─ 🔴 items discussed & resolved  ← BLOCKING GATE
   │  ├─ Silent consent for non-🔴 items
-  │  └─ Final surface discloses route; Consent State Matrix decides authorization
+  │  └─ Route-confirmation flow: references/interaction.md §Route Confirmation Contract
   │
   ├── Post-Confirmation Routing (references/interaction.md §Post-Confirmation Routing)
   │     ├─ A > 0 (informed Direct Fix consent + eligible batch) ─► [4a] Pre-Write Scan → [4b] Grill Gate → [4d] Direct Fix Brief → execution.md §Direct Fix Brief Handoff

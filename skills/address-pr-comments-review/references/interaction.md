@@ -170,6 +170,29 @@ Fallback reason inventory: <none, or every failed Direct Fix eligibility conditi
 
 This disclosure is route-specific. For a Direct Fix recommendation, it states the exact candidate batch and direct-execution consequences. For a Review Dossier recommendation, it names every failed Direct Fix condition in the Fallback reason inventory. Do not offer Direct Fix when the disclosed batch and current preflight differ.
 
+<!-- route-confirmation-contract:start -->
+## Route Confirmation Contract
+
+### Stage 3: Classification-Only Confirmation
+
+At Step 3, a generic affirmative such as `proceed` confirms classifications and silent consent only. It authorizes the agent to run the Direct Fix eligibility preflight, then present the Step 4 final table and completed route disclosure. It does not select a route, create an artifact, or authorize an edit, commit, push, reply POST, or reply read-back.
+
+Do not promise either route before preflight completes and the final-table disclosure is shown. Direct Fix eligibility remains owned by `dossier-output.md` §Direct Fix Brief; this contract only controls when route selection becomes valid.
+
+### Stage 4: Disclosure and Route Selection
+
+After preflight, expose the final table and route disclosure. Apply these transitions without changing the Consent State Matrix:
+
+| Preference state | Final disclosure and response | Route-selection result |
+|------------------|-------------------------------|------------------------|
+| `none` | `disclosed` + `generic-affirmative` | `classification-only`; ask the user to explicitly select `Direct Fix` or `Review Dossier`. |
+| `pending-direct-fix` | `disclosed-and-restated` + `generic-affirmative` | `direct-fix-once` for the disclosed batch. |
+| `any` | `disclosed` + `explicit-direct-fix` | Select Direct Fix; the Consent State Matrix supplies `direct-fix-once` for the disclosed batch. |
+| `any` | `disclosed` + `explicit-review-dossier` | Select Review Dossier; this grants no Direct Fix authority. |
+
+If preflight finds failed Direct Fix eligibility conditions, enumerate every failed condition in the Fallback reason inventory before offering the Review Dossier route. If preflight finds the batch eligible but Direct Fix is still unconfirmed, do not fabricate an eligibility failure or silently choose either route: keep `Fallback reason inventory: none` and ask for the explicit route selection.
+<!-- route-confirmation-contract:end -->
+
 ### Confirmation Gate
 
 The user must explicitly confirm the final classification table before dossier generation or reply posting. An affirmative response confirms the classification; Direct Fix authorization is evaluated separately by the Consent State Matrix below.
