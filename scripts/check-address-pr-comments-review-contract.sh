@@ -272,12 +272,25 @@ check_required_markers "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-status:start -->:::<!-- artifact-execution-status:end -->' \
     '<!-- artifact-execution-inventory:start -->:::<!-- artifact-execution-inventory:end -->' || errors=1
 
+if grep -qF '<!-- route-confirmation-contract:' "$INTERACTION_MD" 2>/dev/null || \
+    grep -qF 'Route Confirmation Contract' "$SKILL_MD" 2>/dev/null; then
+    check_required_markers "$INTERACTION_MD" "interaction.md" \
+        '<!-- route-confirmation-contract:start -->:::<!-- route-confirmation-contract:end -->' || errors=1
+fi
+
 # --- 6. Check marker order ---
 check_marker_order "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-status:start -->' \
     '<!-- artifact-execution-status:end -->' \
     '<!-- artifact-execution-inventory:start -->' \
     '<!-- artifact-execution-inventory:end -->' || errors=1
+
+if grep -qF '<!-- route-confirmation-contract:' "$INTERACTION_MD" 2>/dev/null || \
+    grep -qF 'Route Confirmation Contract' "$SKILL_MD" 2>/dev/null; then
+    check_marker_order "$INTERACTION_MD" "interaction.md" \
+        '<!-- route-confirmation-contract:start -->' \
+        '<!-- route-confirmation-contract:end -->' || errors=1
+fi
 
 # --- 7. Check old-name alias (platform.md reference) — should FAIL RED ---
 check_platform_alias && {
