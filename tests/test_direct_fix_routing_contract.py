@@ -1602,6 +1602,19 @@ class TestDirectFixExecutionContract(RuntimeContractTestCase):
         self.assertTextIn("failed prerequisite ID", safe_local)
         self.assertTextIn("Independent ready tasks continue serially", safe_local)
 
+    def test_scheduler_exhaustion_with_required_blocked_tasks_blocks_artifact(
+        self,
+    ) -> None:
+        scheduler = extract_markdown_section(
+            self.failure_scope(), "Direct Fix Scheduler and Lifecycle"
+        )
+
+        self.assertTextIn(
+            "When the scheduler is exhausted and required blocked tasks remain, "
+            + "transition the artifact to `blocked`.",
+            scheduler,
+        )
+
     def test_global_failure_blocks_before_later_task_side_effects(
         self,
     ) -> None:
