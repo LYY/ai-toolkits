@@ -116,7 +116,7 @@ def _make_valid_response_json(case_id: str = "complex-dossier") -> dict:
             "summary_format": "N/5",
             "explicit_selection_required": True,
             "per_task_commit": True,
-            "serial_fail_stop": True,
+            "serial_fail_stop": False,
             "report_all_failures": True,
             "local_runtime_behavior_eligible_when_clear": True,
         },
@@ -599,6 +599,7 @@ class TestPrepareScoreCLI(unittest.TestCase):
             "max_ordered_chain_tasks": 4,
             "mixed_batches_allowed": False,
             "serial_execution_required": False,
+            "serial_fail_stop": True,
             "eligible_complexity_classes": ["local-behavior", "mechanical"],
             "verification_companions_share_task": False,
             "informed_route_confirmation_required": False,
@@ -640,6 +641,31 @@ class TestPrepareScoreCLI(unittest.TestCase):
                     if verdict["criterion_id"] == "EN-06"
                 )
                 self.assertEqual(en06["reason_code"], "policy-mismatch")
+
+    def test_score_en06_accepts_safe_checkpoint_continuation(self) -> None:
+        response = _make_valid_response_json()
+        response["direct_fix_policy"]["serial_fail_stop"] = False
+        response_path = self.tmp / "safe_checkpoint_response.json"
+        response_path.write_bytes(_canonical_json_bytes(response))
+        output_path = self.tmp / "safe_checkpoint_score.json"
+
+        result = run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--score",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--response",
+                str(response_path),
+                "--output",
+                str(output_path),
+            ],
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(json.loads(result.stdout)["all_pass"])
 
     def test_score_en02_t4_case_route_mismatches_are_independent(self) -> None:
         cases = {
@@ -1750,6 +1776,30 @@ class TestQuorumEdgeCases(unittest.TestCase):
 
 
 class TestEvalFixtureManifest(unittest.TestCase):
+    def test_direct_fix_policy_fixtures_require_safe_checkpoint_continuation(
+        self,
+    ) -> None:
+        rubric = (_FIXTURES / "rubric.md").read_text(encoding="utf-8")
+        self.assertIn("serial_fail_stop=false", rubric)
+        self.assertNotIn("serial_fail_stop=true", rubric)
+        self.assertIn("proven safe checkpoint", rubric)
+        self.assertIn("transitive dependents", rubric)
+        self.assertIn("independent ready tasks continue serially", rubric)
+        self.assertIn("global, unsafe, or unreconciled", rubric)
+        self.assertIn("another POST", rubric)
+
+        manifest = json.loads((_FIXTURES / "cases.json").read_text(encoding="utf-8"))
+        for case in manifest["cases"]:
+            with self.subTest(case_id=case["case_id"]):
+                prompt = (_FIXTURES / case["prompt_path"]).read_text(encoding="utf-8")
+                self.assertIn('"serial_fail_stop":false', prompt)
+                self.assertNotIn('"serial_fail_stop":true', prompt)
+                self.assertIn("proven safe checkpoint", prompt)
+                self.assertIn("transitive dependents", prompt)
+                self.assertIn("independent ready tasks continue serially", prompt)
+                self.assertIn("global, unsafe, or unreconciled", prompt)
+                self.assertIn("another POST", prompt)
+
     def test_hard_blocker_prompt_requires_canonical_recovery_encoding(self) -> None:
         prompt = (_FIXTURES / "prompts" / "direct-fix-hard-blocker.md").read_text(
             encoding="utf-8"

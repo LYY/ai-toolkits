@@ -383,7 +383,7 @@ _EXPECTED_DIRECT_FIX_POLICY: dict[str, DirectFixPolicyValue] = {
     "summary_format": "N/5",
     "explicit_selection_required": True,
     "per_task_commit": True,
-    "serial_fail_stop": True,
+    "serial_fail_stop": False,
     "report_all_failures": True,
     "local_runtime_behavior_eligible_when_clear": True,
 }
