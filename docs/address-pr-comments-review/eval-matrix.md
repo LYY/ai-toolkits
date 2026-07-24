@@ -151,7 +151,7 @@
 | 16 | `direct fix brief retaining PR reply fields` | Direct-fix handoff regression | Losing source/root route fields, endpoint, full commit SHA body requirement, or read-back verification |
 | 17 | `artifact_dir override no ignore edit` | Artifact storage decoupling | Mutating root/global ignore files or treating repo-local override as default-safe |
 | 18 | `Review Dossier plan-first exclusive handoff` | Review Dossier handoff routing | Emitting a Direct Fix prompt, a second handoff, or allowing edits before explicit approval |
-| 19 | `exclusive Dossier and Direct Fix handoff` | Exclusive handoff routing | Using a direct prompt for a Dossier, a plan-first prompt for Direct Fix, or requiring a second plan approval |
+| 19 | `exclusive Dossier and Direct Fix handoff` | Exclusive handoff routing | Using a direct prompt for a Dossier, a plan-first prompt for Direct Fix, requiring a second plan approval, or omitting the Direct Fix failure-scope policy |
 | 20 | `cleanup current PR artifacts` | Cleanup workflow | Deleting without preview/confirmation or missing empty parent cleanup |
 | 21 | `cleanup skips repo-local override` | Cleanup safety | Deleting repo-local artifacts that were created through explicit override |
 | 22 | `cleanup-all default state root` | Cleanup-all workflow | Requiring per-repo cleanup or touching non-default artifact paths |
@@ -334,12 +334,12 @@
 
 ### 19. exclusive Dossier and Direct Fix handoff
 
-**Description:** Handoff mode is determined by artifact type. Review Dossier emits one plan-first prompt and waits for explicit approval before editing. Direct Fix Brief emits one direct execution prompt after explicit Direct Fix selection and does not add a second plan-approval prompt.
+**Description:** Handoff mode is determined by artifact type. Review Dossier emits one plan-first prompt and waits for explicit approval before editing. Direct Fix Brief emits one direct execution prompt after explicit Direct Fix selection and does not add a second plan-approval prompt. Direct Fix execution follows the [Direct Fix Failure Scope Matrix](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-failure-scope-matrix), including dependency-aware continuation after safe task-local failure and immediate stops for unsafe, global, or unreconciled-write failure.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | Classification is unchanged. |
-| expected reply posture | Both exclusive prompts preserve Section A and Section B reply tasks, commit SHA requirements, and read-back verification. Direct Fix additionally preserves the bounded `N/5` summary, per-task commit, and serial fail-stop policy. |
+| expected reply posture | Both exclusive prompts preserve Section A and Section B reply tasks, commit SHA requirements, and read-back verification. Direct Fix additionally preserves the bounded `N/5` summary, per-task commit, deterministic dependency order, serial execution, and failure-scope policy. |
 | expected overview-table | Final routing identifies the artifact path. |
 | expected dossier escalation | Review Dossier remains plan-first. Direct Fix remains direct execution after explicit selection. Neither artifact emits the other artifact's handoff or requires a second plan approval. |
 
@@ -508,13 +508,13 @@
 
 ### 31. direct-fix-mixed-topology
 
-**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, and one implementation locus, implementation and direct verification companions share a task, every typed complexity certificate passes, and no hard blocker remains.
+**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, and one implementation locus, implementation and direct verification companions share a task, every typed complexity certificate passes, and no hard blocker remains. The failure-path variant uses `task-1 -> task-2` plus independent singleton `task-3`: a proven-safe `task-1` failure blocks `task-2`, `task-3` continues serially, and the final artifact is `blocked` after scheduler exhaustion.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | All Section A tasks are eligible after individual complexity, certificate, identity, and topology checks. |
 | expected reply posture | Each task keeps its own distinct commit SHA, canonical reply target, full fixed or partially addressed SHA requirement, and route-specific read-back. |
-| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, implementation/verification paths, and fallback reason inventory. |
+| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, implementation/verification paths, fallback reason inventory, and the failure-path result: `task-1` failed, `task-2` is dependency-blocked, `task-3` continued, and the final artifact is `blocked` after scheduler exhaustion. |
 | expected dossier escalation | Direct Fix is allowed only after valid informed final-table confirmation. Generic `proceed` without a pending restated preference confirms classification only. |
 
 **Failure pattern guarded:** Rejecting legal mixed batches because they are not all independent, executing an ordered chain in parallel, exceeding the one-chain or three-node limit, or hiding topology and execution consequences before confirmation.
@@ -551,6 +551,34 @@
 
 ---
 
+### 34. direct-fix route prompt progression
+
+**Description:** The transcript must show the complete user-visible progression from Step 3 classification confirmation through final route disclosure and route selection. The scenario covers generic `proceed`, prior Direct Fix preference state, explicit route choices, and a single otherwise eligible `local-behavior` task whose only Direct Fix blocker is `authorization`. Static checks may confirm wording and table structure, but they do not prove this behavior. Transcript evaluation is mandatory.
+
+**Origin:** Route Confirmation Contract and Consent State Matrix in `skills/address-pr-comments-review/references/interaction.md`, including the distinction between classification confirmation, route authorization, and Direct Fix eligibility failure.
+
+| Dimension | Expected Value |
+|-----------|---------------|
+| expected classification | Step 3 classification is confirmed before route selection. The transcript must preserve the distinction between no route authorization and a failed Direct Fix eligibility condition. |
+| expected reply posture | No edit, commit, push, reply POST, or read-back is authorized by Step 3 `proceed` or by a generic affirmative without a pending restated Direct Fix preference. Explicit Direct Fix authorizes only the disclosed eligible batch; explicit Review Dossier authorizes no Direct Fix side effect. |
+| expected overview-table | Final disclosure is user-visible and includes the selected or recommended route, batch shape, complexity, implementation and verification paths, serial execution, plan-approval consequence, and fallback reason inventory. |
+| expected dossier escalation | An eligible single `local-behavior` task with only the `authorization` blocker recommends Review Dossier and records fallback reason inventory exactly `authorization`; it must not invent a second failed condition. |
+
+#### Transcript Evidence Table
+
+| # | Input or state | Matrix / routing source | Expected user-visible outcome |
+|---|----------------|-------------------------|-------------------------------|
+| 1 | Step 3 response: `proceed` | Stage 3: Classification-Only Confirmation | Confirms classifications and silent consent only. Agent runs eligibility preflight, then shows final table and route disclosure. No route is promised and no side effect is authorized. |
+| 2 | Final disclosure, no prior preference, generic affirmative | Consent State Matrix: `none` + `disclosed` + `generic-affirmative` -> `classification-only`; Stage 4 route contract | Remains `classification-only` with no selected route and `Fallback reason inventory: none`; asks user to explicitly choose `Direct Fix` or `Review Dossier`. This is no route authorization, not an eligibility failure. |
+| 3 | Prior Direct Fix preference, final disclosure restated, generic affirmative | Consent State Matrix: `pending-direct-fix` + `disclosed-and-restated` + `generic-affirmative` -> `direct-fix-once` | Reconfirms the disclosed batch and authorizes Direct Fix once, without requiring a second `Direct Fix` keyword. |
+| 4 | Final disclosure, explicit `Direct Fix` | Consent State Matrix: `any` + `disclosed` + `explicit-direct-fix` -> `direct-fix-once`; Post-Confirmation Routing eligible-batch row | Selects Direct Fix for the disclosed batch, then permits pre-write scan, grill gate, Direct Fix Brief, and serial execution without a second plan approval. |
+| 5 | Final disclosure, explicit `Review Dossier` | Stage 4: Disclosure and Route Selection: `any` + `disclosed` + `explicit-review-dossier` -> Select Review Dossier; Post-Confirmation Routing default/failure row | Selects Review Dossier and grants no Direct Fix authority. The plan-first dossier handoff remains the route, even if the batch is otherwise eligible. |
+| 6 | Single `local-behavior` task passes all checks except hard blocker `authorization` | Direct Fix invalid-complexity boundary plus Post-Confirmation Routing direct-fix-criteria-fail row | Recommends Review Dossier. Fallback reason inventory is exactly `authorization`, with no second invented failure. Transcript must show no Direct Fix side effect. |
+
+**Failure pattern guarded:** Treating Step 3 `proceed` as route authorization, treating generic final consent as Direct Fix authorization without a pending restated preference, collapsing explicit Review Dossier into Direct Fix, or disguising an authorization eligibility failure as missing route consent. Static source checks are insufficient; the evaluator must inspect a transcript containing all six rows and their resulting user-visible route/state.
+
+---
+
 ## QA Check Tokens
 
 The following tokens MUST appear in this file for automated QA:
@@ -572,6 +600,7 @@ The following tokens MUST appear in this file for automated QA:
 - `direct-fix-mixed-topology`
 - `direct-fix-invalid-complexity`
 - `direct-fix-invalid-topology`
+- `direct-fix route prompt progression`
 - `dossier accuracy grill gate`
 - `direct fix brief retaining PR reply fields`
 - `inline root 101 threaded_inline`

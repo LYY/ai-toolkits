@@ -26,7 +26,7 @@ npx skills add LYY/ai-toolkits -g -y
 - **跨仓库支持**: `--repo owner/name` 支持在任意目录下操作远程 PR
 - **worktree-aware checkout 绑定**: 默认使用当前 Git root，只有 submodule、detached HEAD、PR 分支不匹配等风险场景才停下确认；后续本地读取和 git 命令都绑定同一个目标根目录
 - **generic artifacts**: 分类结果和 reply tasks 写入 local state directory，输出任意 executor 可消费的交接产物；Review Dossier 与 Direct Fix Brief 各自只提供一个适用的 handoff
-- **direct reply**: 无代码变更的 inline、review-level 或 top-level 回复按 comment kind 选择 root `/replies` 或 issue timeline endpoint，POST body 仅含 `body`，再按 route-specific read-back 验证；Direct Fix 最多包含 5 个 Section A task，至多一条不超过 3 个节点的有序链，其余必须是独立 singleton，且通过 complexity certificate 和 informed final-table confirmation；实现与直接验证 companion 保持在同一 task 内，执行始终 serial、每 task 独立 commit，失败即停止批次
+- **direct reply**: 无代码变更的 inline、review-level 或 top-level 回复按 comment kind 选择 root `/replies` 或 issue timeline endpoint，POST body 仅含 `body`，再按 route-specific read-back 验证；Direct Fix 最多包含 5 个 Section A task，至多一条不超过 3 个节点的有序链，其余必须是独立 singleton，且通过 complexity certificate 和 informed final-table confirmation；实现与直接验证 companion 保持在同一 task 内，执行始终 serial、每 task 独立 commit。失败范围遵循 [Direct Fix Failure Scope Matrix](./skills/address-pr-comments-review/references/dossier-output.md#direct-fix-failure-scope-matrix)：安全检查点失败只阻断当前 task 及传递依赖，独立就绪 task 继续串行；只有 scheduler 耗尽且仍有必需阻断工作时 artifact 才变为 `blocked`。无安全检查点、全局或不安全失败、未协调外部写入立即阻断，未启动无关 task 保持 `pending`，且不产生后续副作用。POST 最多一次，超时或 malformed 结果必须先 read back，只有恰好一个匹配才可协调成功。
 - **cleanup gates**: 删除前预览并确认，支持单 PR 和批量清理
 - **accuracy gate**: 写入产物前，只对未决的实现、范围、验证或回复问题做一问一答确认，避免带着歧义交接
 - **去重与冲突检测**: 多个 reviewer 对同一行代码的评论自动合并，冲突建议标记讨论

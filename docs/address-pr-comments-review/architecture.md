@@ -54,15 +54,15 @@ docs/address-pr-comments-review/
 
 **职责**:
 - Checkout 身份验证与绑定
-- Artifact lifecycle 管理（pending → in-progress → blocked → verified-complete）
+- Artifact lifecycle 管理（pending/in-progress → blocked；validated recovery 后 blocked → in-progress；verified-complete terminal）
 - Section A 强制提交顺序（每个任务 edit → verify → commit → push → remote-reachability → reply → read-back）
 - Dirty-target blocking（目标文件有未提交修改时阻止执行）
-- Scope check、变更应用、验证、可选 commit
+- Scope check、变更应用、验证、Section A commit、push 与 remote reachability
 - Reply 发送与 POST/read-back 验证
 - Cleanup（`--force` + 二次确认）
 - Execution summary 生成
 
-**完成条件**: execution summary 记录所有 applied/skipped/blocked 项，artifact 处于 `verified-complete` 状态。
+**完成条件**: execution summary 记录所有 applied/skipped/blocked 项；每个 Section A task 均已完成 edit → verify → commit → push → remote-reachability → reply → read-back，并记录 distinct modification SHA；artifact 处于 `verified-complete` 状态。
 
 ## Workflow Ownership
 
@@ -78,7 +78,7 @@ After Step 0, local reads and git commands are interpreted relative to `TARGET_W
 - 持久化 artifact（Review Dossier、Direct Fix Brief）的生成与完整性验证
 
 **Execution Handoff Module** 拥有 artifact lifecycle：
-- 四种状态转换：pending → in-progress → blocked → verified-complete
+- 合法状态转换：pending → in-progress → verified-complete；pending/in-progress → blocked；blocked → in-progress 仅允许 validated recovery
 - 只有 `verified-complete` 状态允许 cleanup
 - `--force` 覆盖需二次确认
 - Reply Only 和 No Action 是终端路由，不产生 artifact，不经过 lifecycle
@@ -98,7 +98,13 @@ Threaded payload rejects `commit_id`, `path`, `line`, `side`, and `in_reply_to`.
 
 The dossier owns downstream reply-task requirements. Section A items require implementation tasks plus reply tasks. Section B items require reply tasks even when no code changes are needed. The execution contract must preserve those reply tasks instead of treating the artifact as a code-only brief.
 
-The direct-fix route owns bounded Section A shortcuts. It permits one through five tasks only when each task is `mechanical` or `local-behavior`, has one deduplicated root concern, one behavioral outcome, and one production implementation locus, carries a complete typed complexity certificate, and meets the topology limits: total Section A hard cap `5`, ordered-chain count cap `1`, ordered-chain hard cap `3`, with all remaining nodes as independent singletons. Implementation and direct test/spec/fixture companions stay in one task; file count or file type alone does not decide eligibility. The final classification table must disclose the recommended route, batch shape, caps, complexity classes, implementation and verification paths, serial execution, fallback reason inventory, and no second plan approval. A prior Direct Fix preference remains pending rather than authorization and is carried forward and restated; affirmative final-table confirmation then authorizes Direct Fix once. Without that pending preference, generic `proceed` confirms classification only and requires explicit Direct Fix selection after disclosure. Any table content, topology, or scope update invalidates prior confirmation. Each task gets canonical route fields, one distinct task-specific commit SHA, and full reply/read-back requirements; the batch stops on the first failure. Clear local runtime behavior fixes remain eligible when unambiguous. Complex, blocked, or ambiguous Section A work remains on the dossier path by default.
+The direct-fix route owns bounded Section A shortcuts. It permits one through five tasks only when each task is `mechanical` or `local-behavior`, has one deduplicated root concern, one behavioral outcome, and one production implementation locus, carries a complete typed complexity certificate, and meets the topology limits: total Section A hard cap `5`, ordered-chain count cap `1`, ordered-chain hard cap `3`, with all remaining nodes as independent singletons. Implementation and direct test/spec/fixture companions stay in one task; file count or file type alone does not decide eligibility. The final classification table must disclose the recommended route, batch shape, caps, complexity classes, implementation and verification paths, serial execution, fallback reason inventory, and no second plan approval. A prior Direct Fix preference remains pending rather than authorization and is carried forward and restated; affirmative final-table confirmation then authorizes Direct Fix once. Without that pending preference, generic `proceed` confirms classification only and requires explicit Direct Fix selection after disclosure. Any table content, topology, or scope update invalidates prior confirmation. Each task gets canonical route fields, one distinct task-specific commit SHA, and full reply/read-back requirements. Failure handling follows the [Direct Fix Failure Scope Matrix](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-failure-scope-matrix). Clear local runtime behavior fixes remain eligible when unambiguous. Complex, blocked, or ambiguous Section A work remains on the dossier path by default.
+
+### Direct Fix Failure Scope
+
+The runtime matrix is authoritative; this section summarizes its maintainer-facing consequences. A terminal task-local failure at a proven safe checkpoint marks the current task `blocked`, marks transitive dependents `blocked` with the failed prerequisite ID, and lets independent ready tasks continue in deterministic serial order. The artifact becomes `blocked` only after the scheduler is exhausted and required blocked work remains. For example, if `task-1` fails safely, dependent `task-2` is blocked, independent singleton `task-3` continues, and the final artifact is blocked after no more ready work remains.
+
+An unsafe checkpoint, global checkout/certificate/topology/order failure, or unreconciled external write blocks the artifact immediately. No later task side effect is allowed; unrelated not-started tasks remain deterministically `pending`. An uncertain POST or read-back result is reconciled through the canonical route-specific read-back exactly once. Exactly one match reconciles the write; zero, multiple, malformed, or incomplete matches keep the artifact blocked and never authorize another POST.
 
 The reply-only route owns direct sending. When the confirmed outcome has Section B items and no Section A work, the route selects the canonical endpoint from each target's source/root/kind/mode fields, sends a body-only reply, and performs route-specific read-back instead of creating a work plan. A timeout or malformed POST result still requires read-back; zero or multiple exact matches remain blocked, with no second POST. No artifact is persisted.
 
@@ -120,18 +126,18 @@ Artifact cleanup follows the Execution Handoff lifecycle. Cleanup is only permit
 
 ```
 pending ──→ in-progress ──→ verified-complete ──→ cleanup eligible
-                │
-                └──→ blocked ──→ return to Review Analysis (regenerate with fresh evidence)
+   │              │
+   └──────────────→ blocked ──→ in-progress (validated recovery only)
 ```
 
-每个持久化 artifact（Review Dossier、Direct Fix Brief）遵循此单向状态转换。状态说明：
+每个持久化 artifact（Review Dossier、Direct Fix Brief）遵循 canonical state machine。`blocked` 不是自动继续：只有重新验证当前 Context、task-start checkpoint（HEAD、scope、hashes、preimages）、未协调外部写入，并在 Direct Fix 中执行 `lease-recover` 的 canonical read-back 后，才能回到 `in-progress`。恢复只从首个 dependency-ready pending task 继续；无法证明安全时保持 `blocked`，也可基于新证据再生 artifact。
 
 | 状态 | 含义 |
 |------|------|
 | `pending` | artifact 已生成并通过完整性检查，等待执行 |
 | `in-progress` | 第一个授权的变更已应用到 bound checkout |
-| `blocked` | 执行无法继续（stale evidence、checkout mismatch、dirty target、验证失败等），artifact 保留等待最终解决或再生 |
-| `verified-complete` | 所有变更、验证、reply、read-back 均完成 |
+| `blocked` | Direct Fix 在 scheduler 耗尽后仍有依赖阻断，或任一路由触发全局、不安全检查点、未协调写入等立即停止边界；artifact 保留等待 validated recovery 或基于新证据再生 |
+| `verified-complete` | 所有 Section A 变更均已 commit、push、确认 remote-reachable、reply、read-back，并记录 distinct modification SHA；Section B 仅完成 reply/read-back |
 
 ## Eval Matrix
 

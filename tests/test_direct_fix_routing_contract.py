@@ -125,6 +125,18 @@ def extract_markdown_section(markdown: str, heading: str) -> str:
     return markdown[content_start:end].strip()
 
 
+def extract_markdown_table_action(markdown: str, scope: str) -> str:
+    pattern = re.compile(
+        rf"^\| {re.escape(scope)} \| (?P<action>[^|\n]*) \|$", re.MULTILINE
+    )
+    matches = list(pattern.finditer(markdown))
+    if len(matches) != 1:
+        raise AssertionError(
+            f"expected one table row for {scope!r}, found {len(matches)}"
+        )
+    return matches[0].group("action").strip()
+
+
 def read_runtime_section(relative_path: pathlib.Path, heading: str) -> str:
     path = (_REPO_ROOT / relative_path).resolve()
     if path.parent != (_REPO_ROOT / relative_path.parent).resolve():
@@ -1552,6 +1564,9 @@ class TestDirectFixExecutionContract(RuntimeContractTestCase):
     def direct_fix(self) -> str:
         return read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
 
+    def failure_scope(self) -> str:
+        return read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Failure Scope Matrix")
+
     def test_tasks_execute_serially_in_full_sequence(self) -> None:
         normalized = self.direct_fix().lower().replace("→", "->")
         self.assertTextIn("serial", normalized)
@@ -1565,23 +1580,118 @@ class TestDirectFixExecutionContract(RuntimeContractTestCase):
             self.direct_fix(), r"(?i)(?:own|distinct) (?:task-specific )?commit sha"
         )
 
-    def test_any_execution_failure_stops_the_batch(self) -> None:
-        self.assertContractRegex(
-            self.direct_fix(),
-            r"(?i)(?:any|first) .*failure.*stops? (?:the whole )?batch",
+    def test_direct_fix_uses_existing_four_artifact_states(self) -> None:
+        lifecycle = read_runtime_section(_DOSSIER_OUTPUT, "Artifact Lifecycle")
+        states = extract_markdown_section(lifecycle, "States")
+
+        self.assertEqual(
+            set(re.findall(r"^\| `([^`]+)` \|", states, re.MULTILINE)),
+            {"pending", "in-progress", "blocked", "verified-complete"},
         )
 
-    def test_batch_failure_preserves_completed_task_evidence(self) -> None:
-        self.assertContractRegex(
-            self.direct_fix(),
-            r"(?i)(?:completed task )?evidence (?:remains|is preserved)",
+    def test_task_local_failure_blocks_dependency_closure_and_runs_independent_work(
+        self,
+    ) -> None:
+        safe_local = extract_markdown_table_action(
+            self.failure_scope(),
+            "Terminal task-local failure at a proven safe checkpoint",
         )
 
-    def test_batch_failure_leaves_later_tasks_unresolved(self) -> None:
-        self.assertContractRegex(
-            self.direct_fix(),
-            r"(?i)(?:later|remaining) tasks? (?:remain|are left) unresolved",
+        self.assertTextIn("Mark the current task `blocked`", safe_local)
+        self.assertTextIn("Mark transitive dependents `blocked`", safe_local)
+        self.assertTextIn("failed prerequisite ID", safe_local)
+        self.assertTextIn("Independent ready tasks continue serially", safe_local)
+
+    def test_scheduler_exhaustion_with_required_blocked_tasks_blocks_artifact(
+        self,
+    ) -> None:
+        scheduler = extract_markdown_section(
+            self.failure_scope(), "Direct Fix Scheduler and Lifecycle"
         )
+
+        self.assertTextIn(
+            "When the scheduler is exhausted and required blocked tasks remain, "
+            + "transition the artifact to `blocked`.",
+            scheduler,
+        )
+
+    def test_global_failure_blocks_before_later_task_side_effects(
+        self,
+    ) -> None:
+        global_failure = extract_markdown_table_action(
+            self.failure_scope(),
+            "Global checkout, certificate, topology, or order failure",
+        )
+
+        self.assertTextIn(
+            "artifact immediately blocked before task effects", global_failure
+        )
+        self.assertTextIn("current task or validation-phase reason", global_failure)
+        self.assertTextIn("dependency-affected tasks `blocked`", global_failure)
+        self.assertTextIn(
+            "unrelated not-started tasks deterministically `pending`", global_failure
+        )
+        self.assertTextIn("permit no later task side effects", global_failure)
+
+    def test_unsafe_checkpoint_blocks_before_later_task_side_effects(
+        self,
+    ) -> None:
+        unsafe_checkpoint = extract_markdown_table_action(
+            self.failure_scope(),
+            "Terminal task-local failure without a safe checkpoint",
+        )
+
+        self.assertTextIn("artifact immediately blocked", unsafe_checkpoint)
+        self.assertTextIn("current task reason", unsafe_checkpoint)
+        self.assertTextIn("dependency-affected tasks `blocked`", unsafe_checkpoint)
+        self.assertTextIn(
+            "unrelated not-started tasks deterministically remain `pending`",
+            unsafe_checkpoint,
+        )
+        self.assertTextIn("permit no later task side effects", unsafe_checkpoint)
+
+    def test_safe_checkpoint_requires_clean_worktree_revalidation(self) -> None:
+        safe_checkpoint = extract_markdown_section(
+            self.failure_scope(), "Proven Safe Checkpoint"
+        )
+
+        self.assertTextIn(
+            "task-start HEAD, expected-path cleanliness/hashes, and prior external-write dispositions",
+            safe_checkpoint,
+        )
+        self.assertTextIn(
+            "revalidate checkout identity, scope, hashes, zero uncommitted task changes",
+            safe_checkpoint,
+        )
+        self.assertTextIn("fully reconciled writes", safe_checkpoint)
+
+    def test_recovery_selects_first_dependency_ready_pending_task(self) -> None:
+        dossier = (_REPO_ROOT / _DOSSIER_OUTPUT).read_text(encoding="utf-8")
+        lease_recover = extract_markdown_section(dossier, "lease-recover")
+
+        self.assertTextIn("repeat Context validation", lease_recover)
+        self.assertTextIn("repeat Direct Fix checkpoint validation", lease_recover)
+        self.assertTextIn(
+            "Resume only after every prior target is fully reconciled.", lease_recover
+        )
+        self.assertTextIn("fully reconciled and the checkpoint is safe", lease_recover)
+        self.assertTextIn(
+            "Resume from the first dependency-ready pending task", lease_recover
+        )
+
+    def test_unreconciled_write_blocks_continuation_without_repost(self) -> None:
+        unreconciled_write = extract_markdown_table_action(
+            self.failure_scope(), "Uncertain POST or read-back failure"
+        )
+
+        self.assertTextIn(
+            "Zero, multiple, malformed, or incomplete read-back is an unreconciled external write",
+            unreconciled_write,
+        )
+        self.assertTextIn("makes the checkpoint unsafe", unreconciled_write)
+        self.assertTextIn("artifact immediately blocked", unreconciled_write)
+        self.assertTextIn("permits zero later side effects", unreconciled_write)
+        self.assertTextIn("never authorizes another POST or resume", unreconciled_write)
 
 
 class TestRouteSelectionContract(RuntimeContractTestCase):
@@ -1721,6 +1831,39 @@ class TestRouteSelectionContract(RuntimeContractTestCase):
         self.assertContractRegex(self.routing(), r"(?i)no second plan[- ]approval")
 
 
+class TestDirectFixNavigationContract(RuntimeContractTestCase):
+    def test_skill_navigation_separates_stage_3_from_stage_4(self) -> None:
+        skill = (_REPO_ROOT / _SKILL).read_text(encoding="utf-8")
+
+        self.assertContractRegex(
+            skill,
+            r"(?im)^\| 3 \|[^\n]*classification[^\n]*preflight[^\n]*\|",
+        )
+        self.assertContractRegex(
+            skill,
+            r"(?im)^\| 4 \|[^\n]*final table[^\n]*disclosure[^\n]*"
+            + r"route selection[^\n]*\|",
+        )
+
+    def test_direct_fix_fast_path_uses_route_contract_before_consent_matrix(
+        self,
+    ) -> None:
+        skill = (_REPO_ROOT / _SKILL).read_text(encoding="utf-8")
+        fast_path = re.search(
+            r"^\*\*Direct-Fix Fast Path\*\*:(?P<content>.+)$",
+            skill,
+            re.MULTILINE,
+        )
+
+        self.assertIsNotNone(fast_path)
+        assert fast_path is not None
+        route_contract = fast_path.group("content").find("Route Confirmation Contract")
+        consent_matrix = fast_path.group("content").find("Consent State Matrix")
+        self.assertGreaterEqual(route_contract, 0)
+        self.assertGreaterEqual(consent_matrix, 0)
+        self.assertLess(route_contract, consent_matrix)
+
+
 class TestExclusiveHandoffContract(RuntimeContractTestCase):
     def test_dossier_has_exactly_one_plan_first_prompt(self) -> None:
         section = read_runtime_section(_EXECUTION, "Dossier Handoff")
@@ -1761,8 +1904,12 @@ class TestExclusiveHandoffContract(RuntimeContractTestCase):
             r"checkout[^\n]*edit\s*->\s*verify\s*->\s*commit\s*->\s*push\s*->\s*remote-reachability\s*->\s*reply\s*->\s*read-back",
         )
         self.assertContractRegex(section, r"(?i)POST at most once")
-        self.assertContractRegex(
+        self.assertContractNotRegex(
             section, r"(?i)stop the whole batch on the first failed"
+        )
+        self.assertContractRegex(
+            section,
+            r"(?is)safe checkpoint.*dependency.*blocked.*independent.*continue.*serial",
         )
 
     def test_skill_keeps_consent_and_handoff_details_in_references(self) -> None:
