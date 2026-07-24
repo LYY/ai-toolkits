@@ -79,7 +79,7 @@ Artifact types (two persisted, two terminal):
 | Artifact | Condition | Consumer action |
 |----------|-----------|-----------------|
 | Review Dossier | Code work is complex, cross-file, dependent, or otherwise unsuitable for direct execution | Execute ordered tasks under the full execution contract; persisted artifact |
-| Direct Fix Brief | Confirmed one through five Section A tasks meet every fast-path gate: `mechanical` or `local-behavior` complexity, complete typed certificate, at most one simple two-to-three-node chain, remaining independent singletons, and implementation/verification companions grouped per task | Execute exact bounded batch in deterministic dependency order, always serially, with one distinct task-specific commit SHA, reply, and read-back evidence; persisted artifact |
+| Direct Fix Brief | Confirmed one through five Section A tasks meet every fast-path gate: `mechanical` or `local-behavior` complexity, complete typed certificate, at most one simple two-to-three-node chain, remaining independent singletons, and implementation/verification companions grouped per task | Execute exact bounded batch in deterministic dependency order, always serially, with one distinct task-specific commit SHA, reply, and read-back evidence; apply the [Direct Fix Failure Scope Matrix](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-failure-scope-matrix) for continuation and immediate-stop boundaries; persisted artifact |
 | Reply Only | No code changes are needed, but confirmed replies remain | Direct POST to each reply endpoint, then GET/LIST read-back verification; no artifact written |
 | No Action | Nothing remains actionable | Terminal no-write; record completion only |
 
@@ -93,10 +93,10 @@ Every persisted artifact (Review Dossier, Direct Fix Brief) transitions through 
 |-------|---------|---------|
 | `pending` | Artifact generated and passed completeness gate | Ready for execution; no work has begun |
 | `in-progress` | First authorized change applied to the bound checkout | Work is underway; artifact may be partially complete |
-| `blocked` | Execution cannot proceed (stale evidence, checkout mismatch, dependency unresolved, verification failure) | Execution stops; artifact preserved for handoff or evidence regeneration |
-| `verified-complete` | All required changes applied, verified, committed (if requested), replies posted, and read-back passes | Artifact is done; eligible for cleanup |
+| `blocked` | Execution cannot proceed (stale evidence, checkout mismatch, dependency unresolved, verification failure) | Execution stops; artifact preserved for validated recovery or evidence regeneration |
+| `verified-complete` | All required Section A changes applied, verified, and committed with their modification SHA, replies posted, and read-back passes; Section B remains reply-only | Artifact is done; eligible for cleanup |
 
-Transitions are one-way (pending → in-progress → verified-complete). An artifact in `blocked` returns to Review Analysis for regeneration with fresh evidence.
+Legal transitions are `pending → in-progress → verified-complete`, `pending/in-progress → blocked`, and `blocked → in-progress` only through validated recovery. A blocked artifact is never continued automatically: recovery revalidates current Context, task-start checkpoint (HEAD, scope, hashes, and preimages), and prior external-write reconciliation; Direct Fix interruption recovery uses `lease-recover`. Recovery resumes only from the first dependency-ready pending task after the checkpoint is proven safe. If validation fails, keep the artifact `blocked` or regenerate it with fresh evidence.
 
 ### Execution Handoff Module
 
@@ -109,19 +109,19 @@ Responsibilities:
 3. Execute only actions authorized by the artifact.
 4. Respect Direct Fix dependency ordering, topology limits, and scope guardrails.
 5. Run targeted verification before any success claim or review reply.
-6. Commit only when requested by the operator.
-7. Include the resulting commit SHA in replies that require one (Section A mandatory order).
+6. Commit every Section A task in both Review Dossier and Direct Fix artifacts; Section B has no code-change commit phase.
+7. Include each Section A task's distinct modification commit SHA in every reply; Section B remains reply-only.
 8. Post each required reply through the correct endpoint.
 9. Verify every posted reply through GET or LIST read-back.
 10. Clean artifacts only after verified completion.
 
-Output: an execution summary containing applied, skipped, and blocked items; verification results; commit SHA or no-commit reason; reply identifiers; read-back evidence; unresolved work; and cleanup disposition.
+Output: an execution summary containing applied, skipped, and blocked items; verification results; distinct modification commit SHA(s) for every Section A task; reply identifiers; read-back evidence; unresolved work; and cleanup disposition. Section B and terminal routes have no code-change commit phase.
 
-The module contains no agent names, runtime commands, plan file conventions, or runtime-specific recovery semantics.
+The module contains no agent names, runtime commands, plan file conventions, or implementation-specific recovery mechanics; it summarizes the canonical recovery gates below.
 
 ### Section A Mandatory Commit Order
 
-When a Review Dossier or Direct Fix Brief contains Section A items, each Section A task follows the fixed execution order. Direct Fix tasks run serially.
+When a Review Dossier or Direct Fix Brief contains Section A items, each Section A task follows the fixed execution order and requires a distinct modification commit SHA before reply. Direct Fix tasks run serially. Section B is reply-only and follows its separate reply → read-back order.
 
 ```
 edit → verify → commit → push → remote-reachability → reply → read-back
@@ -129,19 +129,25 @@ edit → verify → commit → push → remote-reachability → reply → read-b
 
 1. **edit**: Apply authorized code changes to the bound checkout.
 2. **verify**: Run the artifact's targeted verification commands. Do not proceed if verification fails.
-3. **commit**: Commit the task only if requested by the operator. If no commit is requested, Section A replies must use a no-commit annotation instead of a commit SHA.
-4. **push**: Push the task commit when a remote commit SHA is required.
-5. **remote-reachability**: Confirm the task commit is reachable from the remote. If not pushed, Section A replies must not include a SHA.
-6. **reply**: Post each reply through the correct endpoint with the task-specific commit SHA or no-commit annotation.
+3. **commit**: Commit every Section A task and record its distinct modification commit SHA. No no-commit annotation is valid for Section A.
+4. **push**: Push every Section A task commit because remote reachability is mandatory before reply.
+5. **remote-reachability**: Confirm each Section A task's distinct SHA is reachable; otherwise block the task and do not reply.
+6. **reply**: Post each Section A reply only with its reachable task-specific modification commit SHA. Never use a no-commit annotation for Section A.
 7. **read-back**: Verify every posted reply via GET or LIST. Skip only items already proven posted.
 
-This order is mandatory for every Section A artifact. Reordering or skipping steps invalidates the reply contract.
+This order is mandatory for every Section A artifact. Reordering or skipping steps invalidates the reply contract. Both Review Dossier and Direct Fix always execute the commit, push, and remote-reachability phases. Section B and Reply Only use reply → read-back without code-change phases.
 
 ### Direct Fix Batch Topology and Ordering
 
 Direct Fix eligibility uses one bounded Section A graph. It contains one through five tasks, at most one ordered component, and at most three nodes in that component. The ordered component must be a simple directed path of two or three nodes, with no branch, merge, cycle, second chain, or cross-component dependency. Every other task is an independent singleton. Pure independent, pure ordered, and mixed batches are valid when all other gates pass. Task identity uses positive unique `task-N` IDs; dependency `task-X -> task-N` means `task-X` is the prerequisite. Implementation and direct test/spec/fixture companions share one task, while separate production responsibilities and shared production symbols/hunks do not.
 
 The executor derives one deterministic topological order before editing: dependency edges first, final-table concern order among simultaneously ready nodes, then numeric task ID as tie-break when table order is unavailable. It executes that order serially. Direct Fix authorization includes one distinct task-specific commit SHA per task. A topology, certificate, or preflight mismatch blocks the artifact before edits.
+
+### Direct Fix Failure Scope
+
+The [Direct Fix Failure Scope Matrix](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-failure-scope-matrix) is the runtime source of truth. At a proven safe checkpoint, a terminal task-local failure blocks the current task and transitive dependents, while independent ready work continues serially in deterministic order. For a mixed batch, if `task-1` fails safely, dependent `task-2` is blocked, independent singleton `task-3` continues, and the artifact becomes `blocked` only after the scheduler is exhausted.
+
+Global checkout, certificate, topology, or order failure, an unsafe checkpoint, and an unreconciled external write block immediately. No later task side effects occur; unrelated not-started tasks remain deterministically `pending`. An uncertain POST or read-back is read back through its canonical route exactly once. Exactly one match reconciles the write. Zero, multiple, malformed, or incomplete matches leave the artifact blocked and prohibit another POST or resume until external state is resolved.
 
 ### Dirty-Target Blocking
 
@@ -150,7 +156,7 @@ Before applying any change, the Execution Handoff must verify that the target fi
 - If any target file is dirty, execution stops immediately.
 - The artifact transitions to `blocked`.
 - The blocked reason references the dirty file paths.
-- Execution may resume only after the operator resolves the dirty state or regenerates the artifact against fresh checkout state.
+- Execution may resume only after the operator resolves the dirty state and validated recovery rechecks Context, checkpoint, and write reconciliation, or after regenerating the artifact against fresh checkout state.
 
 ### Cleanup Semantics
 
@@ -173,7 +179,7 @@ Artifact cleanup is governed by the following rules:
 6. Route to one of four outcomes: Review Dossier, Direct Fix Brief, Reply Only, or No Action.
 7. For persisted artifacts: generate the artifact, run completeness checks, and present exactly one applicable handoff prompt. Review Dossier is plan-first and waits for explicit approval before editing. Direct Fix is direct execution after explicit selection and needs no second plan approval.
 8. Executor validates checkout identity before acting.
-9. Executor applies authorized work, verifies it, and commits only if requested.
+9. Executor applies authorized work and verifies it. Every Section A task in Review Dossier and Direct Fix is committed, pushed, and given a distinct modification SHA before reply.
 10. Executor posts required replies and verifies them by read-back.
 11. Executor cleans artifacts only after every required action is verified.
 
@@ -185,14 +191,16 @@ Artifact cleanup is governed by the following rules:
 | Evidence no longer matches current code | Return affected items to Review Analysis |
 | Target files are dirty | Stop immediately; transition artifact to `blocked` with dirty path details |
 | Verification fails | Do not commit, claim success, post a fixed reply, or clean artifacts |
-| Commit unreachable from remote | Section A replies must not include a commit SHA |
-| Reply POST result is unclear | Read back first; retry only after proving the reply is absent |
-| Execution is interrupted | Re-read artifact, current HEAD, and existing replies; skip only items already proven complete |
+| Commit unreachable from remote | Block the Section A task and post no reply until its distinct modification commit SHA is remotely reachable |
+| Reply POST result is unclear | Read back first; exactly one match reconciles the write, while zero, multiple, malformed, or incomplete matches block the artifact and prohibit a second POST |
+| Execution is interrupted | Run validated recovery: revalidate Context, task-start checkpoint, scope/hashes/preimages, and prior writes; use Direct Fix `lease-recover` read-back exactly once per prior target; resume only from the first dependency-ready pending task after full reconciliation, otherwise keep the artifact `blocked` |
 | Direct Fix cap, complexity, certificate, or topology fails | Route to Review Dossier and report every failed eligibility condition; do not edit or emit a Direct Fix handoff |
 | Direct Fix route is not disclosed, or generic `proceed` has no pending restated preference | Confirm classification only; produce zero Direct Fix edit, commit, push, reply POST, and read-back side effects |
 | Final table content, topology, or scope changes after confirmation | Invalidate prior confirmation; require informed reconfirmation before any Direct Fix side effect |
 | Direct Fix preflight disagrees with artifact topology or deterministic order | Block before edits and preserve the artifact with the mismatch evidence |
-| Some tasks remain blocked | Preserve artifact and report exact blocked items and required decisions; a Direct Fix batch stops on the first failure while completed task evidence remains recorded |
+| Terminal task-local failure at a proven safe checkpoint | Block the current task and transitive dependents with failed prerequisite IDs; continue independent ready tasks serially, then block the artifact only if required work remains after scheduler exhaustion |
+| Global, unsafe, or unreconciled-write failure | Block the artifact immediately, preserve completed evidence, leave unrelated not-started tasks `pending`, and permit no later task side effects |
+| Some tasks remain blocked | Preserve artifact and report exact blocked items and required decisions; completed task evidence remains recorded |
 | Cleanup requested before verified-complete | Refuse cleanup unless `--force` with two confirmations |
 
 ## File Migration
@@ -285,7 +293,7 @@ Class 4 — Lifecycle and cleanup (5 samples):
 ### GREEN scenarios (20 samples)
 
 Class 1 — Artifact type routing (5 samples):
-- Review Dossier preserves ordered code, verification, optional commit, reply, and read-back obligations.
+- Review Dossier preserves ordered code, verification, required commit, modification SHA, reply, and read-back obligations.
 - Direct Fix Brief preserves exact scope, validation, commit SHA reply, and read-back gates.
 - Reply Only performs no code or commit work and verifies every reply.
 - No Action produces no write operations.
@@ -299,17 +307,17 @@ Class 2 — Execution contract completeness (5 samples):
 - Interrupted execution resumes from current code and read-back evidence without duplicate writes.
 
 Class 3 — Reply and read-back (5 samples):
-- Every Section A reply includes commit SHA (or explicit no-commit annotation).
+- Every Section A reply in Review Dossier and Direct Fix includes its distinct modification commit SHA; Section B replies remain reply-only with no code-change commit.
 - Every posted reply is verified by GET/LIST read-back.
 - Reply Only posts directly and verifies via read-back.
 - Duplicate authors each receive individual replies.
 - Read-back evidence is recorded in the execution summary.
 
 Class 4 — Lifecycle and cleanup (5 samples):
-- Artifact transitions follow one-way path: pending → in-progress → blocked → regenerated, or pending → in-progress → verified-complete.
+- Artifact transitions follow legal paths: pending → in-progress → verified-complete; pending/in-progress → blocked; blocked → in-progress only after validated recovery, or regeneration with fresh evidence.
 - Cleanup occurs only after verified-complete, or with `--force` and two confirmations.
 - Cleanup removes the artifact directory and empty parent.
-- `blocked` state preserves artifact for handoff or regeneration.
+- `blocked` state preserves artifact for validated recovery or regeneration; it never authorizes unsafe continuation.
 - Execution summary records final artifact state and cleanup disposition.
 
 Run each behavior-shaping scenario in multiple fresh contexts. Judge obligations and outcomes, not exact wording.
@@ -342,7 +350,7 @@ Run each behavior-shaping scenario in multiple fresh contexts. Judge obligations
 | File rename breaks navigation | Update all references and run cross-reference checks |
 | Reply behavior regresses | Preserve endpoint, SHA, duplicate, and read-back scenarios as blocking tests |
 | Token scan passes while behavior fails | Require both forbidden-term scan and fresh-context GREEN scenarios |
-| Artifact lifecycle is ambiguous | Define fixed one-way state transitions with explicit trigger conditions |
+| Artifact lifecycle is ambiguous | Define fixed legal transitions, validated blocked recovery, and explicit trigger conditions |
 | Dirty-target check is skipped | Make dirty-target blocking a mandatory pre-execution gate |
 
 ## Implementation Sequence

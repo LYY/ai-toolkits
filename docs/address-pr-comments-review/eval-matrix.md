@@ -151,7 +151,7 @@
 | 16 | `direct fix brief retaining PR reply fields` | Direct-fix handoff regression | Losing source/root route fields, endpoint, full commit SHA body requirement, or read-back verification |
 | 17 | `artifact_dir override no ignore edit` | Artifact storage decoupling | Mutating root/global ignore files or treating repo-local override as default-safe |
 | 18 | `Review Dossier plan-first exclusive handoff` | Review Dossier handoff routing | Emitting a Direct Fix prompt, a second handoff, or allowing edits before explicit approval |
-| 19 | `exclusive Dossier and Direct Fix handoff` | Exclusive handoff routing | Using a direct prompt for a Dossier, a plan-first prompt for Direct Fix, or requiring a second plan approval |
+| 19 | `exclusive Dossier and Direct Fix handoff` | Exclusive handoff routing | Using a direct prompt for a Dossier, a plan-first prompt for Direct Fix, requiring a second plan approval, or omitting the Direct Fix failure-scope policy |
 | 20 | `cleanup current PR artifacts` | Cleanup workflow | Deleting without preview/confirmation or missing empty parent cleanup |
 | 21 | `cleanup skips repo-local override` | Cleanup safety | Deleting repo-local artifacts that were created through explicit override |
 | 22 | `cleanup-all default state root` | Cleanup-all workflow | Requiring per-repo cleanup or touching non-default artifact paths |
@@ -334,12 +334,12 @@
 
 ### 19. exclusive Dossier and Direct Fix handoff
 
-**Description:** Handoff mode is determined by artifact type. Review Dossier emits one plan-first prompt and waits for explicit approval before editing. Direct Fix Brief emits one direct execution prompt after explicit Direct Fix selection and does not add a second plan-approval prompt.
+**Description:** Handoff mode is determined by artifact type. Review Dossier emits one plan-first prompt and waits for explicit approval before editing. Direct Fix Brief emits one direct execution prompt after explicit Direct Fix selection and does not add a second plan-approval prompt. Direct Fix execution follows the [Direct Fix Failure Scope Matrix](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-failure-scope-matrix), including dependency-aware continuation after safe task-local failure and immediate stops for unsafe, global, or unreconciled-write failure.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | Classification is unchanged. |
-| expected reply posture | Both exclusive prompts preserve Section A and Section B reply tasks, commit SHA requirements, and read-back verification. Direct Fix additionally preserves the bounded `N/5` summary, per-task commit, and serial fail-stop policy. |
+| expected reply posture | Both exclusive prompts preserve Section A and Section B reply tasks, commit SHA requirements, and read-back verification. Direct Fix additionally preserves the bounded `N/5` summary, per-task commit, deterministic dependency order, serial execution, and failure-scope policy. |
 | expected overview-table | Final routing identifies the artifact path. |
 | expected dossier escalation | Review Dossier remains plan-first. Direct Fix remains direct execution after explicit selection. Neither artifact emits the other artifact's handoff or requires a second plan approval. |
 
@@ -508,13 +508,13 @@
 
 ### 31. direct-fix-mixed-topology
 
-**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, and one implementation locus, implementation and direct verification companions share a task, every typed complexity certificate passes, and no hard blocker remains.
+**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, and one implementation locus, implementation and direct verification companions share a task, every typed complexity certificate passes, and no hard blocker remains. The failure-path variant uses `task-1 -> task-2` plus independent singleton `task-3`: a proven-safe `task-1` failure blocks `task-2`, `task-3` continues serially, and the final artifact is `blocked` after scheduler exhaustion.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | All Section A tasks are eligible after individual complexity, certificate, identity, and topology checks. |
 | expected reply posture | Each task keeps its own distinct commit SHA, canonical reply target, full fixed or partially addressed SHA requirement, and route-specific read-back. |
-| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, implementation/verification paths, and fallback reason inventory. |
+| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, implementation/verification paths, fallback reason inventory, and the failure-path result: `task-1` failed, `task-2` is dependency-blocked, `task-3` continued, and the final artifact is `blocked` after scheduler exhaustion. |
 | expected dossier escalation | Direct Fix is allowed only after valid informed final-table confirmation. Generic `proceed` without a pending restated preference confirms classification only. |
 
 **Failure pattern guarded:** Rejecting legal mixed batches because they are not all independent, executing an ordered chain in parallel, exceeding the one-chain or three-node limit, or hiding topology and execution consequences before confirmation.
