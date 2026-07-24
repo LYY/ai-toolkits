@@ -50,17 +50,18 @@ DURABLE_PROVIDER_ID	compliant.fixture	docs/address-pr-comments-review/eval-matri
 DURABLE_HARNESS_VERSION	compliant.fixture	docs/address-pr-comments-review/eval-matrix.md	replace	dGhyZWFkX291dGRhdGVkIHVucmVzb2x2ZWQ=	aGFybmVzc192ZXJzaW9uIGNoZWNr	1	APR001
 NEG_README_BOUNDS	readme-region.bad.fixture					1	APR002
 NEG_REQUIRED_MARKER	required-marker.bad.fixture					1	APR003
-NEG_MARKER_ORDER	marker-order.bad.fixture					1	APR004
+NEG_MARKER_ORDER	marker-order.bad.fixture					1	APR003
 ROUTE_CONTRACT_MISSING_START	compliant.fixture	skills/address-pr-comments-review/references/interaction.md	replace	PCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6c3RhcnQgLS0+Cg==	Cg==	1	APR003
 ROUTE_CONTRACT_MISSING_END	compliant.fixture	skills/address-pr-comments-review/references/interaction.md	replace	PCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6ZW5kIC0tPgo=	Cg==	1	APR003
 ROUTE_CONTRACT_MISSING_ALL	compliant.fixture	skills/address-pr-comments-review/references/interaction.md	replace	PCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6c3RhcnQgLS0+ClJvdXRlIGNvbmZpcm1hdGlvbi4KPCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6ZW5kIC0tPgoKIyMgUG9zdC1Db25maXJtYXRpb24gUm91dGluZwpBZnRlciB1c2VyIGNvbmZpcm1zLCByb3V0ZSBieSB3b3JrIHNoYXBlOiBEaXJlY3QgRml4LCBSZXZpZXcgRG9zc2llciwgUmVwbHkgT25seSwgb3IgTm8gQWN0aW9uLgoKIyMjIENvbnNlbnQgU3RhdGUgTWF0cml4Cg==	Cg==	1	APR003
 ROUTE_CONTRACT_MARKER_ORDER	compliant.fixture	skills/address-pr-comments-review/references/interaction.md	replace	PCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6c3RhcnQgLS0+ClJvdXRlIGNvbmZpcm1hdGlvbi4KPCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6ZW5kIC0tPgo=	PCEtLSByb3V0ZS1jb25maXJtYXRpb24tY29udHJhY3Q6ZW5kIC0tPgpSb3V0ZSBjb25maXJtYXRpb24uCjwhLS0gcm91dGUtY29uZmlybWF0aW9uLWNvbnRyYWN0OnN0YXJ0IC0tPgo=	1	APR004
-NEG_ARTIFACT_ROUTE	artifact-route.bad.fixture					0	-
+ROUTE_CONTRACT_TRIGGER_BYPASS	route-contract-trigger-bypass.bad.fixture					1	APR003
+NEG_ARTIFACT_ROUTE	artifact-route.bad.fixture					1	APR003
 NEG_PLATFORM_ALIAS	platform-alias.bad.fixture					1	APR001
-NEG_CROSS_REF	cross-ref.bad.fixture					0	-
-NEG_SYMLINK	symlink.bad.fixture					1	APR008
-NEG_ROOT_ESCAPE	root-escape.bad.fixture					0	-
-NEG_MANIFEST_DRIFT	manifest-drift.bad.fixture					0	-
+NEG_CROSS_REF	cross-ref.bad.fixture					1	APR003
+NEG_SYMLINK	symlink.bad.fixture					1	APR003
+NEG_ROOT_ESCAPE	root-escape.bad.fixture					1	APR003
+NEG_MANIFEST_DRIFT	manifest-drift.bad.fixture					1	APR003
 DOC_ARTIFACT_CARDINALITY	compliant.fixture					0	-
 DOC_OPTIONAL_COMMIT	compliant.fixture					0	-
 LIFECYCLE_COMPLIANT	compliant.fixture					0	-
