@@ -1030,7 +1030,31 @@ After explicit Direct Fix selection, no second plan-approval step is required. B
 
 Each task requires its own distinct task-specific commit SHA, and every reply for that task references that SHA. Dependency-ready tasks still execute one at a time; Direct Fix never uses the Review Dossier's parallel allowance. Reply target count has no independent limit, but every target runs the Pre-Reply Gate and read-back verification.
 
-Any execution failure stops the whole batch immediately. This includes checkout, branch, HEAD, PR identity, edit, verification, commit, push, remote-reachability, reply, and reply read-back failures. Completed task evidence is preserved, the artifact becomes `blocked`, and later tasks remain unresolved. Do not continue, skip ahead, or silently retry a failed write. Record the failure and the evidence needed for resume.
+All Direct Fix failure, scheduling, lifecycle, and recovery decisions use the Direct Fix Failure Scope Matrix below. It is authoritative over generic Artifact Lifecycle, Task Schema, Verification Schema, and Section A failure wording for Direct Fix only. Review Dossier retains its general task-resolution and parallel-execution rules.
+
+### Direct Fix Failure Scope Matrix
+
+| Failure scope | Required Direct Fix action |
+|---------------|----------------------------|
+| Recoverable task error | For an error with a correction path within task scope, apply normal bounded correction/reconciliation: preserve the task as `in-progress`, use the existing maximum of three edit/verify cycles, retain existing remote-reachability retries, and record evidence. An uncertain reply write is reconciled only through its route-specific read-back, never by another POST. |
+| Terminal task-local failure at a proven safe checkpoint | Mark the current task `blocked` with its reason. Mark transitive dependents `blocked` with the failed prerequisite ID. Independent ready tasks continue serially in deterministic topological order. Preserve completed evidence; do not skip or reorder ready work. |
+| Terminal task-local failure without a safe checkpoint | The unsafe checkpoint leaves the artifact immediately blocked; record the current task reason and permit no later task side effects. Mark dependency-affected tasks `blocked`; unrelated not-started tasks deterministically remain `pending`. |
+| Global checkout, certificate, topology, or order failure | Checkout root, branch, HEAD, PR identity, complexity certificate, topology, or deterministic-order failure leaves the artifact immediately blocked before task effects. Record the current task or validation-phase reason, mark dependency-affected tasks `blocked`, leave unrelated not-started tasks deterministically `pending`, and permit no later task side effects. |
+| Uncertain POST or read-back failure | A timeout or malformed POST response performs route-specific read-back. Exactly one match reconciles the write and task flow continues. Zero, multiple, malformed, or incomplete read-back is an unreconciled external write, makes the checkpoint unsafe, leaves the artifact immediately blocked, records the current task reason, marks dependency-affected tasks `blocked`, leaves unrelated not-started tasks deterministically `pending`, permits zero later side effects, and never authorizes another POST or resume until external state is resolved. |
+
+#### Proven Safe Checkpoint
+
+A terminal task-local failure is safe for dependency-aware continuation only when its checkpoint is proven by executable evidence.
+
+Before each task, record its task-start HEAD, expected-path cleanliness/hashes, and prior external-write dispositions. Expected-path hashes preserve any pre-existing or user changes as the task preimage; they are not permission to reset, restore, or discard those changes.
+
+After a failure, revalidate checkout identity, scope, hashes, zero uncommitted task changes beyond the recorded preimage, and fully reconciled writes. Never reset, revert, restore, or discard pre-existing/user changes to manufacture a checkpoint. Any checkout, scope, hash, task-change, or write-reconciliation drift makes the checkpoint unsafe.
+
+#### Direct Fix Scheduler and Lifecycle
+
+Ready work moves from `pending` to `in-progress` only after every prerequisite is `verified`. The scheduler selects the first dependency-ready pending task by the recorded deterministic topological order, executes one task at a time, and recomputes readiness after every terminal outcome. Direct Fix adds no lifecycle state: the artifact uses only `pending`, `in-progress`, `blocked`, and `verified-complete`.
+
+For a safe terminal task-local failure, dependency-affected tasks are `blocked` with their failed prerequisite IDs while unrelated ready work remains eligible for serial continuation. When the scheduler is exhausted and required blocked tasks remain, transition the artifact to `blocked`. When all required work and replies are verified, transition it to `verified-complete`; the existing Pre-Completion Gate remains required. A global or unsafe failure transitions the artifact immediately to `blocked`, records the current task reason, leaves unrelated not-started tasks deterministically `pending`, and permits no later execution.
 
 ---
 
@@ -1177,18 +1201,24 @@ gh api "repos/{owner}/{repo}/commits/$COMMIT_SHA" --jq '.sha'
 
 ### lease-recover
 
-Recover execution state after interruption. Read artifact, re-validate Context against current checkout, then read back the current remote state before deciding whether any POST remains. Resume only after every prior target is reconciled by its canonical route.
+Recover Direct Fix execution state after interruption. Read artifact, repeat Context validation, repeat Direct Fix checkpoint validation, and read back the current remote state before deciding whether any POST remains, exactly once through each prior target's canonical route. Resume only after every prior target is fully reconciled.
 
 ```bash
 # 1. Read artifact and extract Status Block
 # 2. execution-check to validate context
-# 3. For every prior reply target, require source_comment_id, root_comment_id,
+# 3. Revalidate task-start HEAD, expected-path cleanliness/hashes, scope, and that
+#    no uncommitted task changes exist beyond recorded preimages; never reset,
+#    restore, or discard pre-existing/user changes
+# 4. For every prior reply target, require source_comment_id, root_comment_id,
 #    comment_kind, reply_mode, endpoint, and read_back_endpoint
-# 4. Read back current remote state through read_back_endpoint before deciding whether
-#    any POST remains; reconcile verified, posted, uncertain, and interrupted targets
-# 5. Preserve at most one POST per target; zero/absent or multiple/ambiguous matches
-#    remain blocked and never authorize another POST
-# 6. Resume from first pending task only after prior targets are reconciled
+# 5. Read back current remote state through read_back_endpoint exactly once before
+#    deciding whether any POST remains; reconcile verified, posted, uncertain, and
+#    interrupted targets
+# 6. Preserve at most one POST per target. Zero, multiple, malformed, or incomplete
+#    read-back is an unreconciled external write: keep the artifact blocked and do
+#    not resume or permit later task side effects until external state is resolved
+# 7. Resume from the first dependency-ready pending task only after prior targets are
+#    fully reconciled and the checkpoint is safe
 ```
 
 ---
