@@ -160,12 +160,14 @@ class _DirectFixBinding:
 class _DirectFixScope:
     expected_paths: tuple[str, ...]
     changed_selectors: tuple[str, ...]
+    verification_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class _DirectFixAuthorizationRequest:
     policy_json: str
     batch_tasks: tuple[Mapping[str, object], ...]
+    canonical_scopes: tuple[_DirectFixScope, ...]
     disclosure: _DirectFixBinding
     consent: _DirectFixBinding | None
     brief: _DirectFixBinding
@@ -174,6 +176,10 @@ class _DirectFixAuthorizationRequest:
     actual_diff_paths: tuple[str, ...]
     actual_selectors: tuple[str, ...]
     commit_paths: tuple[str, ...]
+    task_start_clean: bool
+    task_start_scope: _DirectFixScope
+    preimage_path_hashes: tuple[tuple[str, str], ...]
+    current_path_hashes: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +188,8 @@ class _DirectFixAuthorizationDecision:
     eligibility_inventory: tuple[str, ...]
     authorized_handoffs: int
     side_effect_counts: tuple[int, ...]
+    blocked_phase: str | None
+    authorization_attempts: int
 
 
 def _classify_reply_signal(
@@ -374,19 +382,68 @@ def _batch_fingerprint(
     return hashlib.sha256(_canonical_json_bytes(batch)).hexdigest()
 
 
+def _canonical_batch_tasks(
+    tasks: tuple[Mapping[str, object], ...],
+    canonical_scopes: tuple[_DirectFixScope, ...],
+) -> tuple[Mapping[str, object], ...]:
+    canonical_tasks: list[Mapping[str, object]] = []
+    for task, scope in zip(tasks, canonical_scopes, strict=False):
+        canonical_task = dict(task)
+        canonical_task["expected_paths"] = list(scope.expected_paths)
+        canonical_task["changed_locus_selectors"] = list(scope.changed_selectors)
+        canonical_task["verification_paths"] = list(scope.verification_paths)
+        canonical_tasks.append(canonical_task)
+    return tuple(canonical_tasks)
+
+
+def _task_scope_reason_ids(
+    tasks: tuple[Mapping[str, object], ...],
+    canonical_scopes: tuple[_DirectFixScope, ...],
+) -> tuple[str, ...]:
+    reason_ids: list[str] = []
+    for task, scope in zip(tasks, canonical_scopes, strict=False):
+        if task.get("expected_paths") != list(scope.expected_paths) or task.get(
+            "verification_paths"
+        ) != list(scope.verification_paths):
+            reason_ids.append("artifact.scope-drift")
+        if task.get("changed_locus_selectors") != list(scope.changed_selectors):
+            reason_ids.append("artifact.selector-drift")
+    return tuple(dict.fromkeys(reason_ids))
+
+
 def _authorize_direct_fix(
     request: _DirectFixAuthorizationRequest,
 ) -> _DirectFixAuthorizationDecision:
+    if (
+        not request.task_start_clean
+        or request.task_start_scope != request.fingerprint_preimage
+        or request.current_path_hashes != request.preimage_path_hashes
+    ):
+        return _DirectFixAuthorizationDecision(
+            reason_ids=("artifact.scope-drift",),
+            eligibility_inventory=(),
+            authorized_handoffs=0,
+            side_effect_counts=tuple(0 for _effect in _DIRECT_FIX_SIDE_EFFECTS),
+            blocked_phase="task-start",
+            authorization_attempts=0,
+        )
+
     reason_ids: list[str] = []
     expected_policy_sha = _policy_sha256(request.policy_json)
+    canonical_batch_tasks = _canonical_batch_tasks(
+        request.batch_tasks,
+        request.canonical_scopes,
+    )
     expected_batch_fingerprint = _batch_fingerprint(
-        expected_policy_sha, request.batch_tasks
+        expected_policy_sha, canonical_batch_tasks
     )
     if (
         request.disclosure.direct_fix_schema_version != 2
         or request.disclosure.policy_sha256 != expected_policy_sha
     ):
         reason_ids.append("route.policy-binding")
+    if request.disclosure.batch_fingerprint != expected_batch_fingerprint:
+        reason_ids.append("route.batch-fingerprint")
 
     consent = request.consent
     if consent is None:
@@ -397,10 +454,7 @@ def _authorize_direct_fix(
             or consent.policy_sha256 != expected_policy_sha
         ):
             reason_ids.append("route.policy-binding")
-        if (
-            request.disclosure.batch_fingerprint != expected_batch_fingerprint
-            or consent.batch_fingerprint != expected_batch_fingerprint
-        ):
+        if consent.batch_fingerprint != expected_batch_fingerprint:
             reason_ids.append("route.batch-fingerprint")
 
     if (
@@ -409,9 +463,14 @@ def _authorize_direct_fix(
         or request.brief.batch_fingerprint != expected_batch_fingerprint
     ):
         reason_ids.append("artifact.policy-binding")
+    reason_ids.extend(
+        _task_scope_reason_ids(request.batch_tasks, request.canonical_scopes)
+    )
     if (
         request.brief_scope.expected_paths
         != request.fingerprint_preimage.expected_paths
+        or request.brief_scope.verification_paths
+        != request.fingerprint_preimage.verification_paths
     ):
         reason_ids.append("artifact.scope-drift")
     if (
@@ -438,6 +497,8 @@ def _authorize_direct_fix(
         side_effect_counts=tuple(
             side_effect_count for _effect in _DIRECT_FIX_SIDE_EFFECTS
         ),
+        blocked_phase=None if side_effect_count else "authorization",
+        authorization_attempts=1,
     )
 
 
@@ -2467,7 +2528,10 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
                 for blocker in _HARD_BLOCKERS
             ],
             "change_mode": "locus-change",
-            "changed_locus_selectors": ["code:app/file-1.rb:10::Order#call"],
+            "changed_locus_selectors": [
+                "code:app/file-1.rb:10::Order#call",
+                "code:app/file-1.rb:20::Order#persist",
+            ],
             "conclusion": "valid",
             "depends_on_task_ids": [],
             "exact_change": "Persist state before returning",
@@ -2485,11 +2549,20 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
         binding = _DirectFixBinding(2, policy_sha, fingerprint)
         scope = _DirectFixScope(
             expected_paths=("app/file-1.rb", "spec/file-1_spec.rb"),
-            changed_selectors=("code:app/file-1.rb:10::Order#call",),
+            changed_selectors=(
+                "code:app/file-1.rb:10::Order#call",
+                "code:app/file-1.rb:20::Order#persist",
+            ),
+            verification_paths=("spec/file-1_spec.rb",),
+        )
+        path_hashes = (
+            ("app/file-1.rb", "app-hash"),
+            ("spec/file-1_spec.rb", "spec-hash"),
         )
         return _DirectFixAuthorizationRequest(
             policy_json=policy_json,
             batch_tasks=(task,),
+            canonical_scopes=(scope,),
             disclosure=binding,
             consent=binding,
             brief=binding,
@@ -2498,11 +2571,33 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
             actual_diff_paths=scope.expected_paths,
             actual_selectors=scope.changed_selectors,
             commit_paths=scope.expected_paths,
+            task_start_clean=True,
+            task_start_scope=scope,
+            preimage_path_hashes=path_hashes,
+            current_path_hashes=path_hashes,
         )
 
     def assertZeroSideEffects(self, decision: _DirectFixAuthorizationDecision) -> None:
         self.assertEqual(decision.authorized_handoffs, 0)
         self.assertEqual(decision.side_effect_counts, (0, 0, 0, 0, 0))
+
+    def _rebind_batch(
+        self,
+        request: _DirectFixAuthorizationRequest,
+        tasks: tuple[Mapping[str, object], ...],
+    ) -> _DirectFixAuthorizationRequest:
+        fingerprint = _batch_fingerprint(
+            _policy_sha256(request.policy_json),
+            tasks,
+        )
+        binding = replace(request.disclosure, batch_fingerprint=fingerprint)
+        return replace(
+            request,
+            batch_tasks=tasks,
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+        )
 
     def test_policy_block_is_canonical_utf8_json_with_one_trailing_lf(self) -> None:
         policy_json = self._request().policy_json
@@ -2600,6 +2695,126 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
         self.assertZeroSideEffects(decision)
         interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
         self.assertIn("batch_fingerprint:", interaction)
+
+    def test_self_consistent_unsorted_or_extra_batch_paths_cannot_authorize(
+        self,
+    ) -> None:
+        request = self._request()
+        for forged_paths in (
+            ["spec/file-1_spec.rb", "app/file-1.rb"],
+            ["app/file-1.rb", "app/unrelated.rb", "spec/file-1_spec.rb"],
+        ):
+            with self.subTest(forged_paths=forged_paths):
+                forged_task = dict(request.batch_tasks[0])
+                forged_task["expected_paths"] = forged_paths
+                forged_request = self._rebind_batch(request, (forged_task,))
+
+                decision = _authorize_direct_fix(forged_request)
+
+                self.assertIn("artifact.scope-drift", decision.reason_ids)
+                self.assertZeroSideEffects(decision)
+
+    def test_self_consistent_unsorted_or_extra_batch_selectors_cannot_authorize(
+        self,
+    ) -> None:
+        request = self._request()
+        for forged_selectors in (
+            [
+                "code:app/file-1.rb:20::Order#persist",
+                "code:app/file-1.rb:10::Order#call",
+            ],
+            [
+                "code:app/file-1.rb:10::Order#call",
+                "code:app/file-1.rb:20::Order#persist",
+                "code:app/unrelated.rb:20::Unrelated#call",
+            ],
+        ):
+            with self.subTest(forged_selectors=forged_selectors):
+                forged_task = dict(request.batch_tasks[0])
+                forged_task["changed_locus_selectors"] = forged_selectors
+                forged_request = self._rebind_batch(request, (forged_task,))
+
+                decision = _authorize_direct_fix(forged_request)
+
+                self.assertIn("artifact.selector-drift", decision.reason_ids)
+                self.assertZeroSideEffects(decision)
+
+    def test_self_consistent_extra_verification_path_cannot_authorize(self) -> None:
+        request = self._request()
+        forged_task = dict(request.batch_tasks[0])
+        forged_task["verification_paths"] = [
+            "spec/file-1_spec.rb",
+            "spec/unrelated_spec.rb",
+        ]
+        forged_request = self._rebind_batch(request, (forged_task,))
+
+        decision = _authorize_direct_fix(forged_request)
+
+        self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_missing_disclosure_fingerprint_and_consent_collect_both_reasons(
+        self,
+    ) -> None:
+        request = self._request()
+        missing_fingerprint = replace(
+            request.disclosure,
+            batch_fingerprint=None,
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=missing_fingerprint, consent=None)
+        )
+
+        self.assertEqual(
+            decision.reason_ids,
+            ("route.batch-fingerprint", "route.authorization"),
+        )
+        self.assertZeroSideEffects(decision)
+
+    def test_dirty_task_start_blocks_before_authorization(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(replace(request, task_start_clean=False))
+
+        self.assertEqual(decision.reason_ids, ("artifact.scope-drift",))
+        self.assertEqual(decision.blocked_phase, "task-start")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_task_start_preimage_hash_mismatch_blocks_before_authorization(
+        self,
+    ) -> None:
+        request = self._request()
+        changed_hashes = (
+            ("app/file-1.rb", "changed-app-hash"),
+            ("spec/file-1_spec.rb", "spec-hash"),
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, current_path_hashes=changed_hashes)
+        )
+
+        self.assertEqual(decision.reason_ids, ("artifact.scope-drift",))
+        self.assertEqual(decision.blocked_phase, "task-start")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_task_start_scope_mismatch_blocks_before_authorization(self) -> None:
+        request = self._request()
+        changed_scope = replace(
+            request.fingerprint_preimage,
+            expected_paths=("app/file-1.rb",),
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, task_start_scope=changed_scope)
+        )
+
+        self.assertEqual(decision.reason_ids, ("artifact.scope-drift",))
+        self.assertEqual(decision.blocked_phase, "task-start")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
 
     def test_consent_bound_to_another_batch_blocks_authorization(self) -> None:
         request = self._request()
