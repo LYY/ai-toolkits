@@ -56,7 +56,7 @@ _REQUIRED_TASK_FIELDS = (
     "Reply targets",
     "Read-back",
 )
-_DIRECT_FIX_V2_TASK_FIELDS = (
+_DIRECT_FIX_V2_POLICY_TASK_FIELDS = (
     "task_id",
     "conclusion",
     "root_concern_identity",
@@ -73,6 +73,13 @@ _DIRECT_FIX_V2_TASK_FIELDS = (
     "depends_on_task_ids",
     "exact_change",
     "reply_target_ids",
+)
+_DIRECT_FIX_V2_TASK_FIELDS = (
+    *_DIRECT_FIX_V2_POLICY_TASK_FIELDS,
+    "scope_resolution",
+)
+_DIRECT_FIX_SCOPE_RESOLUTIONS = frozenset(
+    {"resolved-commented-file-only", "unresolved-global-scope"}
 )
 _LEGACY_SCOPE_FIELDS = (
     "Implementation paths",
@@ -446,13 +453,39 @@ def _authorize_direct_fix(
             authorization_attempts=0,
         )
 
+    task_cardinality_matches = len(request.batch_tasks) == len(request.canonical_scopes)
+    task_schema_matches = task_cardinality_matches and all(
+        frozenset(task) == frozenset(_DIRECT_FIX_V2_TASK_FIELDS)
+        and task.get("scope_resolution") in _DIRECT_FIX_SCOPE_RESOLUTIONS
+        for task in request.batch_tasks
+    )
+    if not task_schema_matches:
+        return _DirectFixAuthorizationDecision(
+            reason_ids=("artifact.policy-binding",),
+            eligibility_inventory=(),
+            authorized_handoffs=0,
+            side_effect_counts=tuple(0 for _effect in _DIRECT_FIX_SIDE_EFFECTS),
+            blocked_phase="preflight",
+            authorization_attempts=0,
+        )
+    if any(
+        task["scope_resolution"] == "unresolved-global-scope"
+        for task in request.batch_tasks
+    ):
+        return _DirectFixAuthorizationDecision(
+            reason_ids=("batch.scope",),
+            eligibility_inventory=(),
+            authorized_handoffs=0,
+            side_effect_counts=tuple(0 for _effect in _DIRECT_FIX_SIDE_EFFECTS),
+            blocked_phase="preflight",
+            authorization_attempts=0,
+        )
+
     reason_ids: list[str] = []
     expected_policy_sha = _policy_sha256(request.policy_json)
-    task_cardinality_matches = len(request.batch_tasks) == len(request.canonical_scopes)
-    canonical_batch_tasks = (
-        _canonical_batch_tasks(request.batch_tasks, request.canonical_scopes)
-        if task_cardinality_matches
-        else ()
+    canonical_batch_tasks = _canonical_batch_tasks(
+        request.batch_tasks,
+        request.canonical_scopes,
     )
     expected_batch_fingerprint = _batch_fingerprint(
         expected_policy_sha, canonical_batch_tasks
@@ -483,15 +516,9 @@ def _authorize_direct_fix(
         or request.brief.batch_fingerprint != expected_batch_fingerprint
     ):
         reason_ids.append("artifact.policy-binding")
-    if not task_cardinality_matches or any(
-        frozenset(task) != frozenset(_DIRECT_FIX_V2_TASK_FIELDS)
-        for task in request.batch_tasks
-    ):
-        reason_ids.append("artifact.policy-binding")
-    if task_cardinality_matches:
-        reason_ids.extend(
-            _task_scope_reason_ids(request.batch_tasks, request.canonical_scopes)
-        )
+    reason_ids.extend(
+        _task_scope_reason_ids(request.batch_tasks, request.canonical_scopes)
+    )
     if (
         request.brief_scope.expected_paths
         != request.fingerprint_preimage.expected_paths
@@ -2568,6 +2595,7 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
             "locus_kind": "runtime-code",
             "reply_target_ids": ["discussion_r1"],
             "root_concern_identity": "order-state-persistence",
+            "scope_resolution": "resolved-commented-file-only",
             "task_id": "DF-1",
             "verification_paths": ["spec/file-1_spec.rb"],
         }
@@ -2641,7 +2669,7 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
                     "evidence",
                     "delta_locus_justification",
                 ],
-                "task_fields": list(_DIRECT_FIX_V2_TASK_FIELDS),
+                "task_fields": list(_DIRECT_FIX_V2_POLICY_TASK_FIELDS),
             },
             "canonicalization": {
                 "array_order": "preserved unless field rule sorts",
@@ -2817,6 +2845,74 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
         request = self._request()
         malformed_task = dict(request.batch_tasks[0])
         malformed_task["unexpected_scope_carrier"] = ["app/forged.rb"]
+        malformed_request = self._rebind_batch(request, (malformed_task,))
+
+        decision = _authorize_direct_fix(malformed_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+
+    def test_missing_scope_resolution_is_malformed_artifact_policy_binding(
+        self,
+    ) -> None:
+        request = self._request()
+        malformed_task = dict(request.batch_tasks[0])
+        del malformed_task["scope_resolution"]
+        malformed_request = self._rebind_batch(request, (malformed_task,))
+
+        decision = _authorize_direct_fix(malformed_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+
+    def test_valid_scope_resolution_binding_authorizes_one_handoff(self) -> None:
+        decision = _authorize_direct_fix(self._request())
+
+        self.assertEqual(decision.reason_ids, ())
+        self.assertEqual(decision.authorized_handoffs, 1)
+        self.assertEqual(decision.side_effect_counts, (1, 1, 1, 1, 1))
+
+    def test_scope_resolution_changes_canonical_batch_fingerprint(self) -> None:
+        request = self._request()
+        unresolved_task = dict(request.batch_tasks[0])
+        unresolved_task["scope_resolution"] = "unresolved-global-scope"
+        resolved_preimage = _canonical_batch_tasks(
+            request.batch_tasks,
+            request.canonical_scopes,
+        )
+        unresolved_preimage = _canonical_batch_tasks(
+            (unresolved_task,),
+            request.canonical_scopes,
+        )
+        policy_sha = _policy_sha256(request.policy_json)
+
+        resolved_fingerprint = _batch_fingerprint(policy_sha, resolved_preimage)
+        unresolved_fingerprint = _batch_fingerprint(policy_sha, unresolved_preimage)
+
+        self.assertNotEqual(resolved_preimage, unresolved_preimage)
+        self.assertNotEqual(resolved_fingerprint, unresolved_fingerprint)
+
+    def test_unresolved_scope_resolution_blocks_at_batch_scope_preflight(
+        self,
+    ) -> None:
+        request = self._request()
+        unresolved_task = dict(request.batch_tasks[0])
+        unresolved_task["scope_resolution"] = "unresolved-global-scope"
+        unresolved_request = self._rebind_batch(request, (unresolved_task,))
+
+        decision = _authorize_direct_fix(unresolved_request)
+
+        self.assertEqual(decision.reason_ids, ("batch.scope",))
+        self.assertEqual(decision.blocked_phase, "preflight")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_unknown_scope_resolution_is_malformed_artifact_policy_binding(
+        self,
+    ) -> None:
+        request = self._request()
+        malformed_task = dict(request.batch_tasks[0])
+        malformed_task["scope_resolution"] = "unknown-scope"
         malformed_request = self._rebind_batch(request, (malformed_task,))
 
         decision = _authorize_direct_fix(malformed_request)
