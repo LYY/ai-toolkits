@@ -899,20 +899,23 @@ The preflight evaluates every batch-level and task-level condition. It records e
 
 All conditions must be true for the batch and for each Section A task:
 - Section A contains one through five tasks. More than five tasks, including six or more, is ineligible and falls back to a Review Dossier.
-- One task represents one deduplicated root concern, one behavioral outcome, and one production implementation locus. `Behavioral outcome` is exactly one canonical slug `outcome-N::lower_snake_case`; `Implementation locus` is exactly one canonical slug `locus-N::lower_snake_case`. Free-form prose, conjunctions, lists, multiple slugs, spaces, and missing IDs are ineligible in these certificate fields; descriptive detail stays in Reviewer concern, Fix direction, and Exact change. Keep implementation and direct test/spec/fixture companions in the same task. Multiple production paths are eligible only when they form one mechanically enumerated locus; two independent production responsibilities or behavioral outcomes are ineligible. File count alone does not determine eligibility, and file type alone does not determine eligibility.
+- `direct_fix_schema_version` is integer `2`. A task has one deduplicated root concern, one behavioral outcome (`Behavioral outcome`), and one `Locus ID`. `Behavioral outcome` is exactly one canonical slug `outcome-N::lower_snake_case`; `Locus ID` is exactly one canonical slug `locus-N::lower_snake_case`. Free-form prose, conjunctions, lists, multiple slugs, spaces, and missing IDs are ineligible in these certificate fields. Descriptive detail stays in Reviewer concern, Fix direction, and Exact change.
+- `Change mode` is exactly `locus-change` or `verification-only`. A `locus-change` has at least one `Changed locus selectors` entry, and every expected change maps to the task's single outcome and locus. A `verification-only` task has an empty `Changed locus selectors` list and a non-empty independent `Expected-result oracle`; current implementation evidence alone is not a correctness oracle. Shared runner, helper, or matcher changes are `verification-infrastructure` locus changes, never `verification-only`.
+- `Locus kind`, `Locus evidence`, and every changed selector use one matching catalog form: `runtime-code` -> `code:PATH:LINE::SYMBOL`; `declarative-config` -> `config:PATH::KEY`; `tooling-automation` -> `automation:PATH::TARGET`; `documentation-contract` -> `doc:PATH::ANCHOR`; `verification-infrastructure` -> `verification:PATH::SYMBOL`. A kind outside this catalog or a selector whose typed form does not match its kind is ineligible.
+- `expected_paths` is the sole scope authority and exactly covers paths named by changed selectors plus `Verification paths`, without duplicates or extras. Keep direct test/spec/fixture paths in the same task. Multiple changed paths are eligible only when their typed selectors form one mechanically enumerated locus; two independent responsibilities or behavioral outcomes are ineligible. File count alone does not determine eligibility, and file type alone does not determine eligibility.
 - `Complexity class` is exactly `mechanical` or `local-behavior`. Clear local runtime behavior fixes remain eligible when scope, derivation, risk, verification, outcome, and locus are unambiguous.
 - Every task carries a mechanically auditable complexity certificate. `Hard blockers checked` contains every member of this closed fail-closed enum exactly once and in canonical order: `architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `unclear-verification`. `Hard blocker evidence` contains exactly one typed citation per member in the same canonical order. Citation forms are `code:PATH:LINE` with a positive line, `comment:POSITIVE_ID`, or `test:PATH::TEST_NAME`; arbitrary prose and malformed citations are ineligible. `Hard blocker result` is exactly `none`. The serialized shape is `Hard blockers checked: [canonical enum]`, `Hard blocker evidence: one typed citation per member`, and `Hard blocker result: none`. Missing, duplicate, unknown, reordered, empty-evidence, malformed-evidence, or contradictory values are ineligible.
 - Task identity is canonical: heading `### Task N` maps exactly to positive unique ID `task-N`. In `depends_on_task_ids: [task-X]`, `task-X -> task-N` means the prerequisite points to its dependent. Targets must be existing Section A IDs. Duplicate edges, self-edges, missing or external targets, and Section B dependencies are invalid.
 - Direct Fix topology uses total Section A hard cap `5`, ordered-chain hard cap `3`, and ordered-chain count cap `1`. A singleton has in-degree `0` and out-degree `0`. The sole ordered component, when present, is a simple directed path of 2 through 3 nodes with no branch, merge, or cycle. Every remaining component is an independent singleton. A second ordered chain, a four-node chain, or any cross-component dependency is ineligible.
-- Shared production symbols/hunks across tasks are ineligible. Direct test/spec/fixture companions do not create a shared-production conflict when they belong to their task's single implementation locus.
+- Shared locus selectors across tasks are ineligible. Direct verification paths do not create a shared-locus conflict when they belong to their task's single locus.
 - Every eligible batch records a deterministic topological order: respect dependency edges first, preserve final-table concern order among simultaneously ready nodes, then use numeric task ID as tie-break when table order is unavailable. Execution remains serial; eligibility never authorizes concurrent Direct Fix execution.
 - No unresolved duplicate ambiguity, conflict, or cross-file escalation exists.
 - The evidence ledger is complete: reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction derived from code evidence rather than copied from the raw suggestion.
 - Verification is exact and clear enough for direct execution. Unclear verification is ineligible.
-- Each task has an exact change, implementation paths, verification companion paths, production symbols/hunks, dependency IDs, guardrails, verification target, commit message, task-specific commit SHA slot, and complete reply target data: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`.
+- Each task has the exact v2 fields: `Conclusion`, `Behavioral outcome`, `Complexity class`, `Change mode`, `Locus kind`, `Locus ID`, `Locus evidence`, `expected_paths`, `Changed locus selectors`, `Verification paths`, `Expected-result oracle`, `depends_on_task_ids`, `Exact change`, blocker certificate fields, `Verification`, commit fields, and complete canonical reply fields.
 - Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
 
-Before Dossier fallback, the summary lists every failed eligibility condition. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
+Before Dossier fallback, collect every failed eligibility condition; never stop at first failure. Inventory entries use exactly `task-N|batch: reason-id -- observed evidence`. Batch IDs are `batch.task-count`, `batch.topology`, `batch.execution-order`, `batch.shared-locus`, and `batch.scope`. Task IDs are `task.classification`, `task.root-concern`, `task.behavioral-outcome`, `task.locus`, `task.change-mode`, `task.expected-paths`, `task.selector-mapping`, `task.verification-paths`, `task.expected-result-oracle`, `task.complexity`, `task.evidence-ledger`, `task.verification`, `task.suggestion-fit`, `task.reply-contract`, and `task.hard-blocker.<blocker-name>`. Authorization invalidation IDs (`route.policy-binding`, `route.batch-fingerprint`, `route.authorization`) and execution integrity IDs (`artifact.policy-binding`, `artifact.scope-drift`, `artifact.selector-drift`) are separate namespaces and never fabricate eligibility failures. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
 
 ### Direct Fix Summary
 
@@ -949,6 +952,7 @@ Section B Reply-Only entries remain a separate inventory. They are outside Secti
 <!-- artifact-execution-status:end -->
 
 ## Summary
+direct_fix_schema_version: 2
 Section A tasks: N/5
 Ordered chains: N/1
 Maximum chain length: N/3
@@ -960,6 +964,7 @@ All eligibility checks passed: yes|no
 Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and Task 5 as applicable. Do not merge task entries or omit fields.
 
 ### Task N: Comment #COMMENT_ID - SUMMARY
+- **direct_fix_schema_version**: 2
 - **Source**: @AUTHOR | KIND | FILE_PATH:LINE
 - **Conclusion**: `valid`
 - **Reviewer concern**: CONCERN
@@ -969,10 +974,14 @@ Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and
 - **Fix direction**: DIRECTION
 - **Behavioral outcome**: outcome-N::lower_snake_case
 - **Complexity class**: `mechanical` or `local-behavior`
-- **Implementation locus**: locus-N::lower_snake_case
-- **Implementation paths**: [PRODUCTION_PATH, ...]
-- **Verification companion paths**: [DIRECT_TEST_SPEC_OR_FIXTURE_PATH, ...]
-- **Production symbols/hunks**: [PATH::SYMBOL#HUNK, ...]
+- **Change mode**: `locus-change` or `verification-only`
+- **Locus kind**: `runtime-code`, `declarative-config`, `tooling-automation`, `documentation-contract`, or `verification-infrastructure`
+- **Locus ID**: locus-N::lower_snake_case
+- **Locus evidence**: TYPED_LOCUS_SELECTOR
+- **expected_paths**: [CHANGED_OR_VERIFICATION_PATH, ...]
+- **Changed locus selectors**: [TYPED_LOCUS_SELECTOR, ...] or []
+- **Verification paths**: [DIRECT_TEST_SPEC_OR_FIXTURE_PATH, ...]
+- **Expected-result oracle**: INDEPENDENT_EXPECTED_RESULT_ORACLE
 - **depends_on_task_ids**: [task-X, ...] or []
 - **Exact change**: DEV_CHANGES
 - **Hard blockers checked**: [`architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `unclear-verification`]

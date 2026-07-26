@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 import re
 import unittest
+from dataclasses import dataclass
 from typing import TypeVar
 
 
@@ -26,12 +27,18 @@ _REPLY_ONLY_TASK_RE = re.compile(
     r"^### Reply-Only Task ([1-9][0-9]*)\b.*$", re.MULTILINE
 )
 _REQUIRED_TASK_FIELDS = (
+    "direct_fix_schema_version",
+    "Conclusion",
     "Behavioral outcome",
     "Complexity class",
-    "Implementation locus",
-    "Implementation paths",
-    "Verification companion paths",
-    "Production symbols/hunks",
+    "Change mode",
+    "Locus kind",
+    "Locus ID",
+    "Locus evidence",
+    "expected_paths",
+    "Changed locus selectors",
+    "Verification paths",
+    "Expected-result oracle",
     "depends_on_task_ids",
     "Exact change",
     "Hard blockers checked",
@@ -42,6 +49,24 @@ _REQUIRED_TASK_FIELDS = (
     "Reply targets",
     "Read-back",
 )
+_LEGACY_SCOPE_FIELDS = (
+    "Implementation paths",
+    "Change paths",
+    "Verification companion paths",
+)
+_LOCUS_SELECTOR_PATTERNS = {
+    "runtime-code": re.compile(
+        r"code:(?P<path>[^:\s]+):[1-9][0-9]*::[A-Za-z_][A-Za-z0-9_.#:-]*"
+    ),
+    "declarative-config": re.compile(r"config:(?P<path>[^:\s]+)::[A-Za-z0-9_.-]+"),
+    "tooling-automation": re.compile(
+        r"automation:(?P<path>[^:\s]+)::[A-Za-z0-9_.:/-]+"
+    ),
+    "documentation-contract": re.compile(r"doc:(?P<path>[^:\s]+)::[A-Za-z0-9_.-]+"),
+    "verification-infrastructure": re.compile(
+        r"verification:(?P<path>[^:\s]+)::[A-Za-z_][A-Za-z0-9_.:-]*"
+    ),
+}
 _HARD_BLOCKERS = (
     "architecture",
     "cross-module-state",
@@ -78,6 +103,55 @@ _CONSENT_MATRIX_ROW_RE = re.compile(
 )
 _DIRECT_FIX_SIDE_EFFECTS = ("edit", "commit", "push", "reply POST", "read-back")
 _AnyStr = TypeVar("_AnyStr", str, bytes)
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixV2Task:
+    locus_kind: str = "runtime-code"
+    locus_evidence: str = "code:app/file-1.rb:10::Order#call"
+    expected_paths: tuple[str, ...] = ("app/file-1.rb", "spec/file-1_spec.rb")
+    changed_locus_selectors: tuple[str, ...] = ("code:app/file-1.rb:10::Order#call",)
+    verification_paths: tuple[str, ...] = ("spec/file-1_spec.rb",)
+    expected_result_oracle: str = "test:spec/file-1_spec.rb::test_order_call"
+    change_mode: str = "locus-change"
+    behavioral_outcome: str = "outcome-1::return_correct_order"
+
+
+def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
+    task = task or _DirectFixV2Task()
+    blockers = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
+    blocker_evidence = "; ".join(
+        f"{blocker}=code:app/file-1.rb:1" for blocker in _HARD_BLOCKERS
+    )
+    return f"""### Task 1: focused v2 change
+- **direct_fix_schema_version**: 2
+- **Conclusion**: valid
+- **Behavioral outcome**: {task.behavioral_outcome}
+- **Complexity class**: local-behavior
+- **Change mode**: {task.change_mode}
+- **Locus kind**: {task.locus_kind}
+- **Locus ID**: locus-1::order_call
+- **Locus evidence**: {task.locus_evidence}
+- **expected_paths**: [{", ".join(task.expected_paths)}]
+- **Changed locus selectors**: [{", ".join(task.changed_locus_selectors)}]
+- **Verification paths**: [{", ".join(task.verification_paths)}]
+- **Expected-result oracle**: {task.expected_result_oracle}
+- **depends_on_task_ids**: []
+- **Exact change**: update only the selected locus
+- **Hard blockers checked**: [{blockers}]
+- **Hard blocker evidence**: {blocker_evidence}
+- **Hard blocker result**: none
+- **Verification**: python3 -m unittest
+- **Commit message**: fix focused v2 change
+- **Reply targets**: reply-1
+- **source_comment_id**: 1001
+- **root_comment_id**: 1001
+- **comment_kind**: inline
+- **reply_mode**: threaded_inline
+- **endpoint**: repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments/1001/replies
+- **read_back_endpoint**: repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments
+- **Read-back**: exact actor/body/PR/root match
+"""
 
 
 def extract_markdown_section(markdown: str, heading: str) -> str:
@@ -210,7 +284,7 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         errors.append("Section A task IDs must be unique")
 
     dependencies: dict[int, list[int]] = {}
-    shared_symbols: dict[str, int] = {}
+    shared_selectors: dict[str, int] = {}
     for index, task_match in enumerate(task_matches):
         end = (
             task_matches[index + 1].start()
@@ -225,29 +299,184 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
             if value is None:
                 errors.append(f"{task_label} missing {field}")
 
+        if values["direct_fix_schema_version"] != "2":
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.classification",
+                    "direct_fix_schema_version must be integer 2",
+                )
+            )
+        if values["Conclusion"] != "valid":
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.classification",
+                    "Conclusion must be valid",
+                )
+            )
         complexity_class = values["Complexity class"]
         if complexity_class not in {"mechanical", "local-behavior"}:
             errors.append(f"{task_label} has invalid Complexity class")
-        singleton_fields = {
-            "Behavioral outcome": r"outcome-[1-9][0-9]*::[a-z][a-z0-9_]*",
-            "Implementation locus": r"locus-[1-9][0-9]*::[a-z][a-z0-9_]*",
-        }
-        for field, pattern in singleton_fields.items():
-            value = values[field]
-            if value is not None and re.fullmatch(pattern, value) is None:
-                errors.append(f"{task_label} must have exactly one {field.lower()}")
+        outcome = values["Behavioral outcome"]
+        if (
+            outcome is not None
+            and re.fullmatch(r"outcome-[1-9][0-9]*::[a-z][a-z0-9_]*", outcome) is None
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.behavioral-outcome",
+                    f"invalid Behavioral outcome {outcome}",
+                )
+            )
 
-        implementation_paths = _parse_list_field(
-            values["Implementation paths"], task_label, "Implementation paths", errors
+        locus_id = values["Locus ID"]
+        locus_kind = values["Locus kind"]
+        locus_evidence = values["Locus evidence"]
+        selector_pattern = (
+            _LOCUS_SELECTOR_PATTERNS.get(locus_kind) if locus_kind is not None else None
         )
-        _ = _parse_list_field(
-            values["Verification companion paths"],
+        if (
+            locus_id is not None
+            and re.fullmatch(r"locus-[1-9][0-9]*::[a-z][a-z0-9_]*", locus_id) is None
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", "task.locus", f"invalid Locus ID {locus_id}"
+                )
+            )
+        if selector_pattern is None:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.locus",
+                    f"Locus kind {locus_kind} is not in selector catalog",
+                )
+            )
+        elif (
+            locus_evidence is None or selector_pattern.fullmatch(locus_evidence) is None
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.locus",
+                    f"Locus evidence does not match {locus_kind}",
+                )
+            )
+
+        expected_paths = _parse_list_field(
+            values["expected_paths"], task_label, "expected_paths", errors
+        )
+        changed_selectors = _parse_list_field(
+            values["Changed locus selectors"],
             task_label,
-            "Verification companion paths",
+            "Changed locus selectors",
             errors,
         )
-        if implementation_paths == []:
-            errors.append(f"{task_label} requires one implementation locus path")
+        verification_paths = _parse_list_field(
+            values["Verification paths"], task_label, "Verification paths", errors
+        )
+        for legacy_field in _LEGACY_SCOPE_FIELDS:
+            if _field_value(task, legacy_field) is not None:
+                errors.append(
+                    _inventory_error(
+                        f"task-{task_number}",
+                        "task.expected-paths",
+                        f"legacy scope field {legacy_field} is forbidden",
+                    )
+                )
+
+        change_mode = values["Change mode"]
+        if change_mode not in {"locus-change", "verification-only"}:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.change-mode",
+                    f"unknown Change mode {change_mode}",
+                )
+            )
+        elif change_mode == "locus-change" and not changed_selectors:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.selector-mapping",
+                    "locus-change requires at least one selector",
+                )
+            )
+        elif change_mode == "verification-only" and changed_selectors:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.change-mode",
+                    "verification-only requires an empty selector list",
+                )
+            )
+
+        changed_paths: list[str] = []
+        for selector in changed_selectors:
+            selector_match = (
+                selector_pattern.fullmatch(selector)
+                if selector_pattern is not None
+                else None
+            )
+            if selector_match is None:
+                errors.append(
+                    _inventory_error(
+                        f"task-{task_number}",
+                        "task.selector-mapping",
+                        f"selector {selector} does not match {locus_kind}",
+                    )
+                )
+            else:
+                changed_paths.append(selector_match.group("path"))
+            if (
+                selector in shared_selectors
+                and shared_selectors[selector] != task_number
+            ):
+                errors.append(
+                    _inventory_error(
+                        "batch",
+                        "batch.shared-locus",
+                        f"tasks {shared_selectors[selector]} and {task_number} share {selector}",
+                    )
+                )
+            shared_selectors[selector] = task_number
+
+        authoritative_paths = set(changed_paths) | set(verification_paths)
+        if set(expected_paths) != authoritative_paths or len(expected_paths) != len(
+            authoritative_paths
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.expected-paths",
+                    "expected_paths must exactly equal selector and verification paths",
+                )
+            )
+        if not verification_paths:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.verification-paths",
+                    "Verification paths must be non-empty",
+                )
+            )
+
+        oracle = values["Expected-result oracle"]
+        if (
+            oracle is None
+            or not oracle.strip()
+            or oracle == locus_evidence
+            or oracle in changed_selectors
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.expected-result-oracle",
+                    "Expected-result oracle must be non-empty and independent",
+                )
+            )
 
         dependencies[task_number] = [
             int(value.removeprefix("task-"))
@@ -273,19 +502,6 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         if len(dependency_values) != len(set(dependency_values)):
             errors.append(f"{task_label} has duplicate dependency edge")
 
-        symbols = _parse_list_field(
-            values["Production symbols/hunks"],
-            task_label,
-            "Production symbols/hunks",
-            errors,
-        )
-        for symbol in symbols:
-            if symbol in shared_symbols and shared_symbols[symbol] != task_number:
-                errors.append(
-                    f"Tasks {shared_symbols[symbol]} and {task_number} share production symbol/hunk {symbol}"
-                )
-            shared_symbols[symbol] = task_number
-
         _validate_hard_blocker_certificate(values, task_label, errors)
         verification = values["Verification"]
         if verification is not None and re.search(
@@ -302,6 +518,10 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         errors.append("Section B dependencies are invalid")
     errors.extend(_validate_direct_fix_topology(task_numbers, dependencies))
     return errors
+
+
+def _inventory_error(scope: str, reason_id: str, evidence: str) -> str:
+    return f"{scope}: {reason_id} -- {evidence}"
 
 
 def _parse_list_field(
@@ -561,30 +781,38 @@ def _complete_task(
     *,
     depends_on: tuple[int, ...] = (),
     complexity_class: str = "local-behavior",
-    implementation_paths: tuple[str, ...] | None = None,
-    companion_paths: tuple[str, ...] | None = None,
+    changed_paths: tuple[str, ...] | None = None,
+    verification_paths: tuple[str, ...] | None = None,
     behavioral_outcome: str | None = None,
-    implementation_locus: str | None = None,
-    production_symbols: tuple[str, ...] | None = None,
+    locus_id: str | None = None,
+    changed_locus_selectors: tuple[str, ...] | None = None,
 ) -> str:
     comment_id = 1000 + number
-    implementation_paths = implementation_paths or (f"app/file-{number}.rb",)
-    companion_paths = companion_paths or (f"spec/file-{number}_spec.rb",)
-    production_symbols = production_symbols or (
-        f"app/file-{number}.rb::responsibility-{number}#behavior-hunk",
+    changed_paths = changed_paths or (f"app/file-{number}.rb",)
+    verification_paths = verification_paths or (f"spec/file-{number}_spec.rb",)
+    changed_locus_selectors = changed_locus_selectors or tuple(
+        f"code:{path}:{number}::responsibility-{number}#behavior-hunk"
+        for path in changed_paths
     )
+    expected_paths = (*changed_paths, *verification_paths)
     dependencies = ", ".join(f"task-{task_number}" for task_number in depends_on)
     blockers = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
     blocker_evidence = "; ".join(
         f"{blocker}=code:app/file-{number}.rb:{number}" for blocker in _HARD_BLOCKERS
     )
     return f"""### Task {number}: focused change
+- **direct_fix_schema_version**: 2
+- **Conclusion**: valid
 - **Behavioral outcome**: {behavioral_outcome or f"outcome-{number}::correct_outcome_{number}"}
 - **Complexity class**: {complexity_class}
-- **Implementation locus**: {implementation_locus or f"locus-{number}::responsibility_{number}"}
-- **Implementation paths**: [{", ".join(implementation_paths)}]
-- **Verification companion paths**: [{", ".join(companion_paths)}]
-- **Production symbols/hunks**: [{", ".join(production_symbols)}]
+- **Change mode**: locus-change
+- **Locus kind**: runtime-code
+- **Locus ID**: {locus_id or f"locus-{number}::responsibility_{number}"}
+- **Locus evidence**: {changed_locus_selectors[0]}
+- **expected_paths**: [{", ".join(expected_paths)}]
+- **Changed locus selectors**: [{", ".join(changed_locus_selectors)}]
+- **Verification paths**: [{", ".join(verification_paths)}]
+- **Expected-result oracle**: test:{verification_paths[0]}::test_behavior_{number}
 - **depends_on_task_ids**: [{dependencies}]
 - **Exact change**: mechanically update the named locus
 - **Hard blockers checked**: [{blockers}]
@@ -722,6 +950,143 @@ generate a plan
         self.assertIn("Task 1 missing Read-back", errors)
 
 
+class TestDirectFixLocusContract(unittest.TestCase):
+    def test_locus_change_and_verification_only_are_distinct(self) -> None:
+        locus_change = _direct_fix_v2_task()
+        verification_only = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                locus_kind="verification-infrastructure",
+                locus_evidence="verification:spec/file-1_spec.rb::test_order_call",
+                expected_paths=("spec/file-1_spec.rb",),
+                changed_locus_selectors=(),
+                verification_paths=("spec/file-1_spec.rb",),
+                expected_result_oracle="test:spec/file-1_spec.rb::test_expected_order",
+                change_mode="verification-only",
+            )
+        )
+        production_hunk_in_verification_only = verification_only.replace(
+            "- **Changed locus selectors**: []",
+            "- **Changed locus selectors**: [code:app/file-1.rb:10::Order#call]",
+        )
+
+        self.assertEqual(validate_direct_fix_brief_fixture(locus_change), [])
+        self.assertEqual(validate_direct_fix_brief_fixture(verification_only), [])
+        self.assertIn(
+            "task.change-mode",
+            "\n".join(
+                validate_direct_fix_brief_fixture(production_hunk_in_verification_only)
+            ),
+        )
+
+    def test_all_locus_kinds_require_matching_typed_selectors(self) -> None:
+        cases = (
+            ("runtime-code", "code:app/file-1.rb:10::Order#call", "app/file-1.rb"),
+            (
+                "declarative-config",
+                "config:config/app.yml::feature.enabled",
+                "config/app.yml",
+            ),
+            (
+                "tooling-automation",
+                "automation:.github/workflows/ci.yml::test",
+                ".github/workflows/ci.yml",
+            ),
+            (
+                "documentation-contract",
+                "doc:docs/contract.md::direct-fix",
+                "docs/contract.md",
+            ),
+            (
+                "verification-infrastructure",
+                "verification:spec/file-1_spec.rb::test_order_call",
+                "spec/file-1_spec.rb",
+            ),
+        )
+        for locus_kind, selector, changed_path in cases:
+            with self.subTest(locus_kind=locus_kind):
+                fixture = _direct_fix_v2_task(
+                    _DirectFixV2Task(
+                        locus_kind=locus_kind,
+                        locus_evidence=selector,
+                        expected_paths=(changed_path, "spec/oracle_spec.rb"),
+                        changed_locus_selectors=(selector,),
+                        verification_paths=("spec/oracle_spec.rb",),
+                    )
+                )
+                self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
+
+        mismatched = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                locus_kind="runtime-code",
+                locus_evidence="code:app/file-1.rb:10::Order#call",
+                expected_paths=("config/app.yml", "spec/file-1_spec.rb"),
+                changed_locus_selectors=("config:config/app.yml::feature.enabled",),
+            )
+        )
+        nonexistent = _direct_fix_v2_task(
+            _DirectFixV2Task(locus_kind="database-trigger")
+        )
+
+        self.assertIn(
+            "task.selector-mapping",
+            "\n".join(validate_direct_fix_brief_fixture(mismatched)),
+        )
+        self.assertIn(
+            "task.locus", "\n".join(validate_direct_fix_brief_fixture(nonexistent))
+        )
+
+    def test_expected_paths_is_the_only_scope_authority(self) -> None:
+        canonical = _direct_fix_v2_task()
+        extra_path = canonical.replace(
+            "[app/file-1.rb, spec/file-1_spec.rb]",
+            "[app/file-1.rb, spec/file-1_spec.rb, app/unrelated.rb]",
+        )
+        legacy_alias = canonical + "- **Implementation paths**: [app/file-1.rb]\n"
+
+        self.assertEqual(validate_direct_fix_brief_fixture(canonical), [])
+        self.assertIn(
+            "task.expected-paths",
+            "\n".join(validate_direct_fix_brief_fixture(extra_path)),
+        )
+        self.assertIn(
+            "task.expected-paths",
+            "\n".join(validate_direct_fix_brief_fixture(legacy_alias)),
+        )
+
+        direct_fix = read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        generic_task_schema = read_runtime_section(_DOSSIER_OUTPUT, "Task Schema")
+        for legacy_field in _LEGACY_SCOPE_FIELDS:
+            with self.subTest(legacy_field=legacy_field):
+                self.assertNotIn(legacy_field, direct_fix)
+        self.assertIn('"expected_paths": ["path"]', generic_task_schema)
+
+    def test_validator_reports_all_stable_semantic_reason_ids(self) -> None:
+        fixture = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                behavioral_outcome="persist order and notify customer",
+                expected_paths=("spec/file-1_spec.rb",),
+                changed_locus_selectors=(),
+                expected_result_oracle="code:app/file-1.rb:10::Order#call",
+            )
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+        reason_ids: list[str] = []
+        for error in errors:
+            match = re.fullmatch(r"task-1: (?P<reason>task\.[a-z.-]+) -- .+", error)
+            if match is not None:
+                reason_ids.append(match.group("reason"))
+
+        self.assertEqual(
+            reason_ids,
+            [
+                "task.behavioral-outcome",
+                "task.selector-mapping",
+                "task.expected-result-oracle",
+            ],
+        )
+
+
 class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
     def assertEligible(self, fixture: str) -> None:
         self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
@@ -752,8 +1117,8 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                 _complete_task(1),
             ),
             "multiple loci": re.sub(
-                r"(?m)^- \*\*Implementation locus\*\*:.*$",
-                "- **Implementation locus**: order persistence and notification delivery",
+                r"(?m)^- \*\*Locus ID\*\*:.*$",
+                "- **Locus ID**: order persistence and notification delivery",
                 _complete_task(1),
             ),
         }
@@ -773,10 +1138,10 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
     def test_pr_1431_implementation_and_spec_are_one_local_behavior_task(self) -> None:
         fixture = _complete_task(
             1,
-            implementation_paths=("app/controllers/orders_controller.rb",),
-            companion_paths=("spec/controllers/orders_controller_spec.rb",),
+            changed_paths=("app/controllers/orders_controller.rb",),
+            verification_paths=("spec/controllers/orders_controller_spec.rb",),
             behavioral_outcome="outcome-1::return_correct_controller_result",
-            implementation_locus="locus-1::orders_controller_result_computation",
+            locus_id="locus-1::orders_controller_result_computation",
         )
 
         self.assertEligible(fixture)
@@ -839,19 +1204,20 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
     def test_multiple_paths_are_allowed_only_with_one_locus_and_outcome(self) -> None:
         eligible = _complete_task(
             1,
-            implementation_paths=("app/order.rb", "app/order_status.rb"),
-            companion_paths=("spec/order_spec.rb", "fixtures/order.yml"),
-            implementation_locus="locus-1::order_status_responsibility",
+            changed_paths=("app/order.rb", "app/order_status.rb"),
+            verification_paths=("spec/order_spec.rb", "fixtures/order.yml"),
+            locus_id="locus-1::order_status_responsibility",
             behavioral_outcome="outcome-1::publish_corrected_order_status",
         )
         ineligible = _complete_task(
             1,
-            implementation_locus="order persistence and notification delivery",
+            locus_id="order persistence and notification delivery",
         )
 
         self.assertEligible(eligible)
         self.assertIneligible(
-            ineligible, "Task 1 must have exactly one implementation locus"
+            ineligible,
+            "task-1: task.locus -- invalid Locus ID order persistence and notification delivery",
         )
 
     def test_non_linear_or_oversized_topologies_fail_closed(self) -> None:
@@ -971,17 +1337,18 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                     "- **Behavioral outcome**: persist order and notify customer",
                     base,
                 ),
-                "Task 1 must have exactly one behavioral outcome",
+                "task-1: task.behavioral-outcome -- invalid Behavioral outcome persist order and notify customer",
             ),
             "shared production symbol": (
                 base
                 + _complete_task(
                     2,
-                    production_symbols=(
-                        "app/file-1.rb::responsibility-1#behavior-hunk",
+                    changed_paths=("app/file-1.rb",),
+                    changed_locus_selectors=(
+                        "code:app/file-1.rb:1::responsibility-1#behavior-hunk",
                     ),
                 ),
-                "Tasks 1 and 2 share production symbol/hunk app/file-1.rb::responsibility-1#behavior-hunk",
+                "batch: batch.shared-locus -- tasks 1 and 2 share code:app/file-1.rb:1::responsibility-1#behavior-hunk",
             ),
             "unclear verification": (
                 base.replace(
@@ -1098,13 +1465,11 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
     def test_direct_fix_removes_old_single_task_override(self) -> None:
         self.assertTextNotIn("exactly one task", self.direct_fix().lower())
 
-    def test_task_is_one_root_concern_outcome_and_implementation_locus(self) -> None:
+    def test_task_is_one_root_concern_outcome_and_locus(self) -> None:
         section = self.direct_fix()
         self.assertContractRegex(section, r"(?i)one deduplicated root concern")
         self.assertContractRegex(section, r"(?i)one behavioral outcome")
-        self.assertContractRegex(
-            section, r"(?i)one (?:production )?implementation locus"
-        )
+        self.assertContractRegex(section, r"(?i)one `?Locus ID`?")
 
     def test_only_certified_mechanical_or_local_behavior_tasks_are_eligible(
         self,
@@ -1119,11 +1484,11 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
     def test_direct_companions_stay_with_implementation_task(self) -> None:
         section = self.direct_fix()
         self.assertContractRegex(
-            section, r"(?i)(?:test|spec|fixture) companions?[^\n]*same task"
+            section, r"(?i)(?:test|spec|fixture) paths?[^\n]*same task"
         )
         self.assertContractRegex(
             section,
-            r"(?i)multiple production paths[^\n]*one mechanically enumerated locus",
+            r"(?i)multiple changed paths[^\n]*one mechanically enumerated locus",
         )
 
     def test_topology_caps_and_component_grammar_are_explicit(self) -> None:
@@ -1140,13 +1505,13 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
             with self.subTest(pattern=pattern):
                 self.assertContractRegex(section, pattern)
 
-    def test_canonical_identity_edge_direction_and_shared_hunks_are_explicit(
+    def test_canonical_identity_edge_direction_and_shared_loci_are_explicit(
         self,
     ) -> None:
         section = self.direct_fix()
         self.assertContractRegex(section, r"(?i)heading `### Task N`[^\n]*`task-N`")
         self.assertContractRegex(section, r"(?i)`task-X -> task-N`[^\n]*prerequisite")
-        self.assertContractRegex(section, r"(?i)shared production symbols?/hunks?")
+        self.assertContractRegex(section, r"(?i)shared locus selectors?")
 
     def test_deterministic_topological_order_is_serial(self) -> None:
         section = self.direct_fix()
