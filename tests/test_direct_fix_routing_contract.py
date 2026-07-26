@@ -31,6 +31,7 @@ _REQUIRED_TASK_FIELDS = (
     "direct_fix_schema_version",
     "Conclusion",
     "Reviewer suggestion fit",
+    "Scope resolution",
     "Behavioral outcome",
     "Complexity class",
     "Change mode",
@@ -112,6 +113,7 @@ _AnyStr = TypeVar("_AnyStr", str, bytes)
 class _DirectFixV2Task:
     conclusion: str = "valid"
     suggestion_fit: str = "accept"
+    scope_resolution: str = "resolved-commented-file-only"
     locus_kind: str = "runtime-code"
     locus_evidence: str = "code:app/file-1.rb:10::Order#call"
     expected_paths: tuple[str, ...] = ("app/file-1.rb", "spec/file-1_spec.rb")
@@ -133,7 +135,6 @@ class _ReplyEvidence:
 
 @dataclass(frozen=True, slots=True)
 class _DirectFixRoutingState:
-    scope_resolution: str = "resolved-commented-file-only"
     alternate_fix: str | None = None
     alternate_fix_disclosed: bool = False
     alternate_fix_confirmed: bool = False
@@ -162,6 +163,7 @@ def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
 - **direct_fix_schema_version**: 2
 - **Conclusion**: {task.conclusion}
 - **Reviewer suggestion fit**: {task.suggestion_fit}
+- **Scope resolution**: {task.scope_resolution}
 - **Behavioral outcome**: {task.behavioral_outcome}
 - **Complexity class**: local-behavior
 - **Change mode**: {task.change_mode}
@@ -322,6 +324,7 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
 
     dependencies: dict[int, list[int]] = {}
     shared_selectors: dict[str, int] = {}
+    scope_failures: list[str] = []
     for index, task_match in enumerate(task_matches):
         end = (
             task_matches[index + 1].start()
@@ -351,6 +354,15 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
                     "task.classification",
                     "Conclusion must be valid or partially_addressed",
                 )
+            )
+        scope_resolution = values["Scope resolution"]
+        if scope_resolution is None:
+            scope_failures.append(f"task-{task_number} missing scope resolution")
+        elif scope_resolution == "unresolved-global-scope":
+            scope_failures.append(f"task-{task_number} has unresolved global scope")
+        elif scope_resolution != "resolved-commented-file-only":
+            scope_failures.append(
+                f"task-{task_number} has unknown scope resolution {scope_resolution}"
             )
         expected_reply_kind = (
             "partially_addressed"
@@ -565,6 +577,11 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
             errors.append(f"{task_label} has unclear verification")
         errors.extend(_validate_route_fields(task, task_label))
 
+    if scope_failures:
+        errors.append(
+            _inventory_error("batch", "batch.scope", "; ".join(scope_failures))
+        )
+
     section_b_match = re.search(r"^### Reply-Only Task\b", brief, re.MULTILINE)
     section_b = brief[section_b_match.start() :] if section_b_match is not None else ""
     if section_b and re.search(
@@ -579,23 +596,6 @@ def validate_direct_fix_routing_state(
     brief: str, state: _DirectFixRoutingState
 ) -> list[str]:
     errors = validate_direct_fix_brief_fixture(brief)
-    if state.scope_resolution == "unresolved-global-scope":
-        errors.append(
-            _inventory_error(
-                "batch",
-                "batch.scope",
-                "unresolved global scope blocks Direct Fix",
-            )
-        )
-    elif state.scope_resolution != "resolved-commented-file-only":
-        errors.append(
-            _inventory_error(
-                "batch",
-                "batch.scope",
-                f"unknown scope resolution {state.scope_resolution}",
-            )
-        )
-
     suggestion_fit = _field_value(brief, "Reviewer suggestion fit")
     alternate_is_exact = (
         state.alternate_fix is not None
@@ -901,6 +901,7 @@ def _complete_task(
 - **direct_fix_schema_version**: 2
 - **Conclusion**: valid
 - **Reviewer suggestion fit**: accept
+- **Scope resolution**: resolved-commented-file-only
 - **Behavioral outcome**: {behavioral_outcome or f"outcome-{number}::correct_outcome_{number}"}
 - **Complexity class**: {complexity_class}
 - **Change mode**: locus-change
@@ -1250,8 +1251,10 @@ class TestDirectFixRoutingStateContract(RuntimeContractTestCase):
             validate_direct_fix_routing_state(fixture, _DirectFixRoutingState()), []
         )
         unresolved_errors = validate_direct_fix_routing_state(
-            fixture,
-            _DirectFixRoutingState(scope_resolution="unresolved-global-scope"),
+            _direct_fix_v2_task(
+                _DirectFixV2Task(scope_resolution="unresolved-global-scope")
+            ),
+            _DirectFixRoutingState(),
         )
         self.assertIn("batch.scope", "\n".join(unresolved_errors))
 
@@ -1263,6 +1266,18 @@ class TestDirectFixRoutingStateContract(RuntimeContractTestCase):
         self.assertContractRegex(
             cross_reference,
             r"(?i)`resolved-commented-file-only`[^\n]*does not block[^\n]*by itself",
+        )
+
+    def test_missing_scope_resolution_is_ineligible(self) -> None:
+        fixture = re.sub(
+            r"(?m)^- \*\*Scope resolution\*\*:.*\n", "", _direct_fix_v2_task()
+        )
+
+        self.assertIn(
+            "batch.scope",
+            "\n".join(
+                validate_direct_fix_routing_state(fixture, _DirectFixRoutingState())
+            ),
         )
 
     def test_rejected_suggestion_without_alternate_is_ineligible(self) -> None:
