@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import pathlib
 import re
 import unittest
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import TypeVar
 
 
@@ -106,6 +109,11 @@ _CONSENT_MATRIX_ROW_RE = re.compile(
     re.MULTILINE,
 )
 _DIRECT_FIX_SIDE_EFFECTS = ("edit", "commit", "push", "reply POST", "read-back")
+_POLICY_BLOCK_RE = re.compile(
+    r"<!-- direct-fix-policy:start -->\s*```json\s*\n(?P<json>\{[^\n]+\}\n)```\s*"
+    + r"<!-- direct-fix-policy:end -->",
+    re.MULTILINE,
+)
 _AnyStr = TypeVar("_AnyStr", str, bytes)
 
 
@@ -139,6 +147,41 @@ class _DirectFixRoutingState:
     alternate_fix_disclosed: bool = False
     alternate_fix_confirmed: bool = False
     fresh_preflight_passed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixBinding:
+    direct_fix_schema_version: int | None
+    policy_sha256: str | None
+    batch_fingerprint: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixScope:
+    expected_paths: tuple[str, ...]
+    changed_selectors: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixAuthorizationRequest:
+    policy_json: str
+    batch_tasks: tuple[Mapping[str, object], ...]
+    disclosure: _DirectFixBinding
+    consent: _DirectFixBinding | None
+    brief: _DirectFixBinding
+    fingerprint_preimage: _DirectFixScope
+    brief_scope: _DirectFixScope
+    actual_diff_paths: tuple[str, ...]
+    actual_selectors: tuple[str, ...]
+    commit_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixAuthorizationDecision:
+    reason_ids: tuple[str, ...]
+    eligibility_inventory: tuple[str, ...]
+    authorized_handoffs: int
+    side_effect_counts: tuple[int, ...]
 
 
 def _classify_reply_signal(
@@ -299,6 +342,103 @@ def _direct_fix_side_effect_counts(
     )
     count = 0 if consent_result in zero_results else 1
     return {effect: count for effect in _DIRECT_FIX_SIDE_EFFECTS}
+
+
+def _extract_direct_fix_policy(markdown: str) -> str:
+    match = _POLICY_BLOCK_RE.search(markdown)
+    if match is None:
+        return ""
+    return match.group("json")
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+
+
+def _policy_sha256(policy_json: str) -> str:
+    return hashlib.sha256(policy_json.encode("utf-8")).hexdigest()
+
+
+def _batch_fingerprint(
+    policy_sha256: str,
+    tasks: tuple[Mapping[str, object], ...],
+) -> str:
+    batch = {
+        "policy_sha256": policy_sha256,
+        "direct_fix_schema_version": 2,
+        "tasks": list(tasks),
+    }
+    return hashlib.sha256(_canonical_json_bytes(batch)).hexdigest()
+
+
+def _authorize_direct_fix(
+    request: _DirectFixAuthorizationRequest,
+) -> _DirectFixAuthorizationDecision:
+    reason_ids: list[str] = []
+    expected_policy_sha = _policy_sha256(request.policy_json)
+    expected_batch_fingerprint = _batch_fingerprint(
+        expected_policy_sha, request.batch_tasks
+    )
+    if (
+        request.disclosure.direct_fix_schema_version != 2
+        or request.disclosure.policy_sha256 != expected_policy_sha
+    ):
+        reason_ids.append("route.policy-binding")
+
+    consent = request.consent
+    if consent is None:
+        reason_ids.append("route.authorization")
+    else:
+        if (
+            consent.direct_fix_schema_version != 2
+            or consent.policy_sha256 != expected_policy_sha
+        ):
+            reason_ids.append("route.policy-binding")
+        if (
+            request.disclosure.batch_fingerprint != expected_batch_fingerprint
+            or consent.batch_fingerprint != expected_batch_fingerprint
+        ):
+            reason_ids.append("route.batch-fingerprint")
+
+    if (
+        request.brief.direct_fix_schema_version != 2
+        or request.brief.policy_sha256 != expected_policy_sha
+        or request.brief.batch_fingerprint != expected_batch_fingerprint
+    ):
+        reason_ids.append("artifact.policy-binding")
+    if (
+        request.brief_scope.expected_paths
+        != request.fingerprint_preimage.expected_paths
+    ):
+        reason_ids.append("artifact.scope-drift")
+    if (
+        request.brief_scope.changed_selectors
+        != request.fingerprint_preimage.changed_selectors
+    ):
+        reason_ids.append("artifact.selector-drift")
+    if (
+        tuple(sorted(request.actual_diff_paths))
+        != request.fingerprint_preimage.expected_paths
+        or tuple(sorted(request.commit_paths))
+        != request.fingerprint_preimage.expected_paths
+    ):
+        reason_ids.append("artifact.scope-drift")
+    if request.actual_selectors != request.fingerprint_preimage.changed_selectors:
+        reason_ids.append("artifact.selector-drift")
+
+    unique_reason_ids = tuple(dict.fromkeys(reason_ids))
+    side_effect_count = 0 if unique_reason_ids else 1
+    return _DirectFixAuthorizationDecision(
+        reason_ids=unique_reason_ids,
+        eligibility_inventory=(),
+        authorized_handoffs=side_effect_count,
+        side_effect_counts=tuple(
+            side_effect_count for _effect in _DIRECT_FIX_SIDE_EFFECTS
+        ),
+    )
 
 
 def extract_markdown_fixture(section: str) -> str:
@@ -2310,6 +2450,239 @@ class TestDirectFixExecutionContract(RuntimeContractTestCase):
         self.assertTextIn("never authorizes another POST or resume", unreconciled_write)
 
 
+class TestDirectFixPolicyBindingContract(unittest.TestCase):
+    def _request(self) -> _DirectFixAuthorizationRequest:
+        dossier = (_REPO_ROOT / _DOSSIER_OUTPUT).read_text(encoding="utf-8")
+        policy_json = _extract_direct_fix_policy(dossier)
+        policy_sha = _policy_sha256(policy_json)
+        task: Mapping[str, object] = {
+            "behavioral_outcome": "outcome-1::order_call_persists_state",
+            "blocker_dispositions": [
+                {
+                    "blocker_id": blocker,
+                    "delta_locus_justification": f"DF-1 does not intersect {blocker}",
+                    "disposition": "not-triggered",
+                    "evidence": f"checkout:{blocker}",
+                }
+                for blocker in _HARD_BLOCKERS
+            ],
+            "change_mode": "locus-change",
+            "changed_locus_selectors": ["code:app/file-1.rb:10::Order#call"],
+            "conclusion": "valid",
+            "depends_on_task_ids": [],
+            "exact_change": "Persist state before returning",
+            "expected_paths": ["app/file-1.rb", "spec/file-1_spec.rb"],
+            "expected_result_oracle": "spec:file-1:persists-state",
+            "locus_evidence": "code:app/file-1.rb:10::Order#call",
+            "locus_id": "locus-1::order_call",
+            "locus_kind": "runtime-code",
+            "reply_target_ids": ["discussion_r1"],
+            "root_concern_identity": "order-state-persistence",
+            "task_id": "DF-1",
+            "verification_paths": ["spec/file-1_spec.rb"],
+        }
+        fingerprint = _batch_fingerprint(policy_sha, (task,))
+        binding = _DirectFixBinding(2, policy_sha, fingerprint)
+        scope = _DirectFixScope(
+            expected_paths=("app/file-1.rb", "spec/file-1_spec.rb"),
+            changed_selectors=("code:app/file-1.rb:10::Order#call",),
+        )
+        return _DirectFixAuthorizationRequest(
+            policy_json=policy_json,
+            batch_tasks=(task,),
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+            fingerprint_preimage=scope,
+            brief_scope=scope,
+            actual_diff_paths=scope.expected_paths,
+            actual_selectors=scope.changed_selectors,
+            commit_paths=scope.expected_paths,
+        )
+
+    def assertZeroSideEffects(self, decision: _DirectFixAuthorizationDecision) -> None:
+        self.assertEqual(decision.authorized_handoffs, 0)
+        self.assertEqual(decision.side_effect_counts, (0, 0, 0, 0, 0))
+
+    def test_policy_block_is_canonical_utf8_json_with_one_trailing_lf(self) -> None:
+        policy_json = self._request().policy_json
+        expected_policy = {
+            "authorization": {
+                "artifact_policy_binding": "artifact.policy-binding",
+                "missing_consent": "route.authorization",
+                "route_batch_fingerprint": "route.batch-fingerprint",
+                "route_policy_binding": "route.policy-binding",
+            },
+            "batch": {
+                "blocker_disposition_fields": [
+                    "blocker_id",
+                    "disposition",
+                    "evidence",
+                    "delta_locus_justification",
+                ],
+                "task_fields": [
+                    "task_id",
+                    "conclusion",
+                    "root_concern_identity",
+                    "behavioral_outcome",
+                    "change_mode",
+                    "locus_kind",
+                    "locus_id",
+                    "locus_evidence",
+                    "expected_paths",
+                    "changed_locus_selectors",
+                    "verification_paths",
+                    "expected_result_oracle",
+                    "blocker_dispositions",
+                    "depends_on_task_ids",
+                    "exact_change",
+                    "reply_target_ids",
+                ],
+            },
+            "canonicalization": {
+                "array_order": "preserved unless field rule sorts",
+                "encoding": "UTF-8",
+                "object_keys": "sorted",
+                "separators": ",:",
+                "trailing_lf": 1,
+            },
+            "execution_scope": {
+                "authority": "expected_paths",
+                "path_drift": "artifact.scope-drift",
+                "selector_drift": "artifact.selector-drift",
+            },
+            "direct_fix_schema_version": 2,
+        }
+
+        self.assertTrue(policy_json)
+        self.assertEqual(policy_json.count("\n"), 1)
+        self.assertEqual(
+            policy_json.encode("utf-8"),
+            _canonical_json_bytes(expected_policy),
+        )
+
+    def test_missing_schema_version_blocks_route_before_side_effects(self) -> None:
+        request = self._request()
+        malformed_disclosure = replace(
+            request.disclosure, direct_fix_schema_version=None
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=malformed_disclosure)
+        )
+
+        self.assertIn("route.policy-binding", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("direct_fix_schema_version: 2", interaction)
+
+    def test_policy_sha_mismatch_blocks_route_before_side_effects(self) -> None:
+        request = self._request()
+        mismatched_disclosure = replace(request.disclosure, policy_sha256="a" * 64)
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=mismatched_disclosure)
+        )
+
+        self.assertIn("route.policy-binding", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        self.assertTrue(request.policy_json)
+
+    def test_batch_mismatch_blocks_route_before_side_effects(self) -> None:
+        request = self._request()
+        mismatched_disclosure = replace(request.disclosure, batch_fingerprint="c" * 64)
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=mismatched_disclosure)
+        )
+
+        self.assertIn("route.batch-fingerprint", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("batch_fingerprint:", interaction)
+
+    def test_consent_bound_to_another_batch_blocks_authorization(self) -> None:
+        request = self._request()
+        other_batch_consent = _DirectFixBinding(
+            direct_fix_schema_version=2,
+            policy_sha256=request.disclosure.policy_sha256,
+            batch_fingerprint="d" * 64,
+        )
+
+        decision = _authorize_direct_fix(replace(request, consent=other_batch_consent))
+
+        self.assertEqual(decision.eligibility_inventory, ())
+        self.assertIn("route.batch-fingerprint", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("direct_fix_consent:", interaction)
+
+    def test_missing_consent_preserves_empty_eligibility_inventory(self) -> None:
+        decision = _authorize_direct_fix(replace(self._request(), consent=None))
+
+        self.assertEqual(decision.eligibility_inventory, ())
+        self.assertEqual(decision.reason_ids, ("route.authorization",))
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("route.authorization", interaction)
+
+    def test_malformed_brief_binding_uses_artifact_namespace(self) -> None:
+        request = self._request()
+        malformed_brief = replace(request.brief, policy_sha256="e" * 64)
+
+        decision = _authorize_direct_fix(replace(request, brief=malformed_brief))
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+        template = extract_markdown_fixture(
+            read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        )
+        self.assertIn("policy_sha256:", template)
+        self.assertIn("batch_fingerprint:", template)
+
+    def test_actual_expected_paths_drift_blocks_before_edit(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(
+            replace(request, actual_diff_paths=("app/file-1.rb",))
+        )
+
+        self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_commit_expected_paths_drift_blocks_before_push(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(
+            replace(request, commit_paths=("app/file-1.rb", "app/unrelated.rb"))
+        )
+
+        self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_actual_selector_drift_blocks_before_edit(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(
+            replace(
+                request,
+                actual_selectors=("code:app/file-1.rb:11::Order#other",),
+            )
+        )
+
+        self.assertIn("artifact.selector-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_matching_disclosure_consent_and_artifact_authorize_one_handoff(
+        self,
+    ) -> None:
+        decision = _authorize_direct_fix(self._request())
+
+        self.assertEqual(decision.reason_ids, ())
+        self.assertEqual(decision.authorized_handoffs, 1)
+        self.assertEqual(decision.side_effect_counts, (1, 1, 1, 1, 1))
+
+
 class TestRouteSelectionContract(RuntimeContractTestCase):
     def interaction(self) -> str:
         return (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
@@ -2329,13 +2702,16 @@ class TestRouteSelectionContract(RuntimeContractTestCase):
         interaction = self.interaction()
         for field in (
             "Recommended route",
+            "direct_fix_schema_version: 2",
+            "policy_sha256:",
+            "batch_fingerprint:",
             "Batch shape",
             "Section A tasks: N/5",
             "Ordered chains: N/1",
             "Maximum chain length: N/3",
             "Eligible complexity classes: `mechanical`, `local-behavior`",
-            "Implementation paths",
-            "Verification companion paths",
+            "expected_paths:",
+            "changed_locus_selectors:",
             "Execution: serial",
             "Plan approval: no second plan approval",
             "Fallback reason inventory",

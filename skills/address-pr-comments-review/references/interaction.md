@@ -156,19 +156,22 @@ When Section A is non-empty, append this route disclosure to the final-table sur
 
 ```text
 Recommended route: Direct Fix | Review Dossier
+direct_fix_schema_version: 2
+policy_sha256: <SHA-256 of the canonical Direct Fix policy JSON>
+batch_fingerprint: <SHA-256 of the canonical disclosed batch JSON>
 Batch shape: <independent singletons and optional ordered chain>
 Section A tasks: N/5
 Ordered chains: N/1
 Maximum chain length: N/3
 Eligible complexity classes: `mechanical`, `local-behavior`
-Implementation paths: <paths grouped by task>
-Verification companion paths: <paths grouped by task>
+expected_paths: <exact lexically sorted scope-authority paths grouped by task>
+changed_locus_selectors: <exact selectors grouped by task>
 Execution: serial
 Plan approval: no second plan approval after valid informed Direct Fix confirmation
 Fallback reason inventory: <none, or every failed Direct Fix eligibility condition>
 ```
 
-This disclosure is route-specific. For a Direct Fix recommendation, it states the exact candidate batch and direct-execution consequences. For a Review Dossier recommendation, it names every failed Direct Fix condition in the Fallback reason inventory. Do not offer Direct Fix when the disclosed batch and current preflight differ.
+This disclosure is route-specific. For a Direct Fix recommendation, it states the exact candidate batch and direct-execution consequences. Compute `policy_sha256` and `batch_fingerprint` from `dossier-output.md` §Canonical Direct Fix Policy. `expected_paths` is the sole scope authority; `changed_locus_selectors` is fingerprint integrity data and never a second source of scope. For a Review Dossier recommendation, name every failed Direct Fix condition in the Fallback reason inventory. Do not offer Direct Fix when the disclosed batch and current preflight differ.
 
 <!-- route-confirmation-contract:start -->
 ## Route Confirmation Contract
@@ -191,6 +194,14 @@ After preflight, expose the final table and route disclosure. Apply these transi
 | `any` | `disclosed` + `explicit-review-dossier` | Select Review Dossier; this grants no Direct Fix authority. |
 
 If preflight finds failed Direct Fix eligibility conditions, enumerate every failed condition in the Fallback reason inventory before offering the Review Dossier route. If preflight finds the batch eligible but Direct Fix is still unconfirmed, do not fabricate an eligibility failure or silently choose either route: keep `Fallback reason inventory: none` and ask for the explicit route selection.
+
+Before accepting either Direct Fix transition, recompute canonical policy and batch digests. Disclosure and response authorize one exact binding only. Record accepted consent as this compact sorted-key JSON shape, substituting the three disclosed values exactly:
+
+```text
+direct_fix_consent: {"batch_fingerprint":"64hex","direct_fix_schema_version":2,"policy_sha256":"64hex"}
+```
+
+The consent record, final disclosure, and Direct Fix Brief must contain identical schema version, policy SHA, and batch fingerprint. Missing or malformed version/policy values produce `route.policy-binding`. Missing or mismatched fingerprint values, including consent bound to another disclosed batch, produce `route.batch-fingerprint`. Missing consent produces `route.authorization`. These route failures authorize no handoff or Direct Fix side effect and do not alter Direct Fix eligibility: when every eligibility check passed, keep `Fallback reason inventory: none`.
 <!-- route-confirmation-contract:end -->
 
 ### Confirmation Gate
@@ -219,7 +230,7 @@ The validation gates in `dossier-output.md` enforce that Step 4 confirmation was
 
 ### Consent State Matrix
 
-Use these states exactly. `classification-only`, `invalidated`, and `missing-contract` authorize no Direct Fix execution or handoff. They produce zero edit, commit, push, reply POST, and read-back side effects. Treat any malformed or unrecognized consent input as `missing-contract`.
+Use these states exactly. `classification-only`, `invalidated`, and `missing-contract` authorize no Direct Fix execution or handoff. They produce zero edit, commit, push, reply POST, and read-back side effects. Treat any malformed or unrecognized consent input as `missing-contract` and record `route.authorization`; eligibility inventory remains unchanged.
 
 | Prior preference | Final disclosure | User response | Result |
 |------------------|------------------|---------------|--------|
@@ -231,11 +242,11 @@ Use these states exactly. `classification-only`, `invalidated`, and `missing-con
 | `confirmed-direct-fix` | `materially-changed` | `any` | `invalidated` |
 | `confirmed-direct-fix` | `topology-mismatch` | `any` | `invalidated` |
 
-`direct-fix-once` authorizes only the disclosed final-table batch. Any final-table content, topology, or scope change invalidates prior confirmation and requires a fresh disclosure and reconfirmation before any Direct Fix side effect. A mismatch between disclosed topology and artifact topology is a material change: block preflight, list the mismatch in the fallback reason inventory, and route to Review Dossier only after valid confirmation for that updated surface.
+`direct-fix-once` authorizes only the disclosed final-table batch at the disclosed policy SHA and schema version. Effective Direct Fix authority is the intersection of successful eligibility, valid policy binding, valid batch binding, and one unused `direct-fix-once` consent record. Any final-table content, topology, scope, policy SHA, or batch fingerprint change invalidates prior confirmation and requires a fresh disclosure and reconfirmation before any Direct Fix side effect. A mismatch between disclosed topology and artifact topology is a material change: block authorization with the route binding ID, keep eligibility inventory separate, and offer Review Dossier only after valid confirmation for that updated surface.
 
 ### Post-Confirmation Routing (Decision Gate)
 
-After the user confirms the final table, evaluate the Consent State Matrix and check what kind of work is needed **before** generating the dossier. Direct Fix is available only for `direct-fix-once` and an eligible Section A batch matching the disclosed route. No second plan-approval step follows valid informed Direct Fix confirmation.
+After the user confirms the final table, evaluate the Consent State Matrix and check what kind of work is needed **before** generating the dossier. Direct Fix is available only for one unused `direct-fix-once`, an eligible Section A batch, and exact matching schema/policy/batch bindings across disclosure and consent. No second plan-approval step follows valid informed Direct Fix confirmation.
 
 | Scenario | Section A | Section B | Action |
 |----------|-----------|-----------|--------|

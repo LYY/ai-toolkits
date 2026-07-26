@@ -893,6 +893,26 @@ A Direct Fix Brief is generated when one through five complexity-certified Secti
 
 These rules are scoped only to Direct Fix eligibility, Direct Fix Brief, and Direct Fix handoff. They do not change Review Dossier task schemas, `expected_paths`, general dependency resolution, or same-order parallel allowance.
 
+### Canonical Direct Fix Policy
+
+The following marked JSON value is the single Direct Fix policy source. The JSON payload is exactly the bytes inside the fence: encode as UTF-8, sort every object key, use compact separators `,` and `:`, preserve every array's declared order, and terminate with exactly one LF. No other whitespace or Unicode normalization is applied. `policy_sha256` is the lowercase hexadecimal SHA-256 digest of those exact bytes.
+
+<!-- direct-fix-policy:start -->
+```json
+{"authorization":{"artifact_policy_binding":"artifact.policy-binding","missing_consent":"route.authorization","route_batch_fingerprint":"route.batch-fingerprint","route_policy_binding":"route.policy-binding"},"batch":{"blocker_disposition_fields":["blocker_id","disposition","evidence","delta_locus_justification"],"task_fields":["task_id","conclusion","root_concern_identity","behavioral_outcome","change_mode","locus_kind","locus_id","locus_evidence","expected_paths","changed_locus_selectors","verification_paths","expected_result_oracle","blocker_dispositions","depends_on_task_ids","exact_change","reply_target_ids"]},"canonicalization":{"array_order":"preserved unless field rule sorts","encoding":"UTF-8","object_keys":"sorted","separators":",:","trailing_lf":1},"direct_fix_schema_version":2,"execution_scope":{"authority":"expected_paths","path_drift":"artifact.scope-drift","selector_drift":"artifact.selector-drift"}}
+```
+<!-- direct-fix-policy:end -->
+
+`batch_fingerprint` is the lowercase hexadecimal SHA-256 digest of one canonical JSON value, encoded by the same UTF-8, sorted-key, compact-separator, preserved-array-order, one-trailing-LF rules:
+
+```json
+{"direct_fix_schema_version":2,"policy_sha256":"64hex","tasks":[]}
+```
+
+`tasks` follows deterministic execution order. Each task object has exactly the policy block's `task_fields`: canonical `task_id`; final-table `conclusion`; deduplicated `root_concern_identity`; `behavioral_outcome`; `change_mode`; `locus_kind`, `locus_id`, and `locus_evidence`; lexically sorted `expected_paths`; `changed_locus_selectors` in artifact order; `verification_paths` in artifact order; independent `expected_result_oracle`; `blocker_dispositions`; `depends_on_task_ids` in artifact order; `exact_change`; and lexically sorted `reply_target_ids`. `blocker_dispositions` follows the current canonical blocker order, with one object per blocker and exactly the policy block's `blocker_disposition_fields`: `blocker_id`, `disposition`, resolvable current-checkout `evidence`, and `delta_locus_justification`. Preserve every other array order. No field may be omitted, inferred, renamed, or accepted through an alias.
+
+Final disclosure, Direct Fix consent record, and newly generated Direct Fix Brief each carry identical `direct_fix_schema_version: 2`, `policy_sha256`, and `batch_fingerprint`. Recompute the policy digest and batch fingerprint before route authorization. Missing or malformed disclosure/consent version or policy digest produces `route.policy-binding`; a missing or mismatched disclosure/consent fingerprint produces `route.batch-fingerprint`; missing consent produces `route.authorization`. These are authorization failures, not eligibility failures, so an otherwise eligible batch keeps `Fallback reason inventory: none`. A newly generated Brief with any missing, malformed, or mismatched binding produces `artifact.policy-binding`. Every binding failure permits zero edit, commit, push, reply POST, and read-back side effects. No compatibility parsing or alternate field name is valid.
+
 ### Direct Fix Eligibility
 
 The preflight evaluates every batch-level and task-level condition. It records every failed condition before choosing a fallback. It must not stop at the first failed check.
@@ -953,6 +973,8 @@ Section B Reply-Only entries remain a separate inventory. They are outside Secti
 
 ## Summary
 direct_fix_schema_version: 2
+policy_sha256: POLICY_SHA256_64HEX
+batch_fingerprint: BATCH_FINGERPRINT_64HEX
 Section A tasks: N/5
 Ordered chains: N/1
 Maximum chain length: N/3
