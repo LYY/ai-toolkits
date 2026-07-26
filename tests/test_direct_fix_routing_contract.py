@@ -56,7 +56,7 @@ _REQUIRED_TASK_FIELDS = (
     "Reply targets",
     "Read-back",
 )
-_DIRECT_FIX_V2_POLICY_TASK_FIELDS = (
+_DIRECT_FIX_V2_TASK_FIELDS = (
     "task_id",
     "conclusion",
     "root_concern_identity",
@@ -73,9 +73,6 @@ _DIRECT_FIX_V2_POLICY_TASK_FIELDS = (
     "depends_on_task_ids",
     "exact_change",
     "reply_target_ids",
-)
-_DIRECT_FIX_V2_TASK_FIELDS = (
-    *_DIRECT_FIX_V2_POLICY_TASK_FIELDS,
     "scope_resolution",
 )
 _DIRECT_FIX_SCOPE_RESOLUTIONS = frozenset(
@@ -138,6 +135,9 @@ _POLICY_BLOCK_RE = re.compile(
     r"<!-- direct-fix-policy:start -->\s*```json\s*\n(?P<json>\{[^\n]+\}\n)```\s*"
     + r"<!-- direct-fix-policy:end -->",
     re.MULTILINE,
+)
+_POLICY_TASK_FIELDS_RE = re.compile(
+    r'"task_fields":\[(?P<fields>"[a-z_]+"(?:,"[a-z_]+")*)\]'
 )
 _AnyStr = TypeVar("_AnyStr", str, bytes)
 
@@ -395,6 +395,13 @@ def _policy_sha256(policy_json: str) -> str:
     return hashlib.sha256(policy_json.encode("utf-8")).hexdigest()
 
 
+def _policy_task_fields(policy_json: str) -> tuple[str, ...]:
+    match = _POLICY_TASK_FIELDS_RE.search(policy_json)
+    if match is None:
+        return ()
+    return tuple(field[1:-1] for field in match.group("fields").split(","))
+
+
 def _batch_fingerprint(
     policy_sha256: str,
     tasks: tuple[Mapping[str, object], ...],
@@ -410,10 +417,11 @@ def _batch_fingerprint(
 def _canonical_batch_tasks(
     tasks: tuple[Mapping[str, object], ...],
     canonical_scopes: tuple[_DirectFixScope, ...],
+    task_fields: tuple[str, ...],
 ) -> tuple[Mapping[str, object], ...]:
     canonical_tasks: list[Mapping[str, object]] = []
     for task, scope in zip(tasks, canonical_scopes, strict=True):
-        canonical_task = dict(task)
+        canonical_task = {field: task[field] for field in task_fields}
         canonical_task["expected_paths"] = list(scope.expected_paths)
         canonical_task["changed_locus_selectors"] = list(scope.changed_selectors)
         canonical_task["verification_paths"] = list(scope.verification_paths)
@@ -453,9 +461,11 @@ def _authorize_direct_fix(
             authorization_attempts=0,
         )
 
+    policy_task_fields = _policy_task_fields(request.policy_json)
     task_cardinality_matches = len(request.batch_tasks) == len(request.canonical_scopes)
     task_schema_matches = task_cardinality_matches and all(
-        frozenset(task) == frozenset(_DIRECT_FIX_V2_TASK_FIELDS)
+        policy_task_fields == _DIRECT_FIX_V2_TASK_FIELDS
+        and frozenset(task) == frozenset(policy_task_fields)
         and task.get("scope_resolution") in _DIRECT_FIX_SCOPE_RESOLUTIONS
         for task in request.batch_tasks
     )
@@ -486,6 +496,7 @@ def _authorize_direct_fix(
     canonical_batch_tasks = _canonical_batch_tasks(
         request.batch_tasks,
         request.canonical_scopes,
+        policy_task_fields,
     )
     expected_batch_fingerprint = _batch_fingerprint(
         expected_policy_sha, canonical_batch_tasks
@@ -2669,7 +2680,7 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
                     "evidence",
                     "delta_locus_justification",
                 ],
-                "task_fields": list(_DIRECT_FIX_V2_POLICY_TASK_FIELDS),
+                "task_fields": list(_DIRECT_FIX_V2_TASK_FIELDS),
             },
             "canonicalization": {
                 "array_order": "preserved unless field rule sorts",
@@ -2692,6 +2703,55 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
             policy_json.encode("utf-8"),
             _canonical_json_bytes(expected_policy),
         )
+
+    def test_policy_projected_task_with_recomputed_bindings_authorizes(self) -> None:
+        request = self._request()
+        policy_task_fields = _policy_task_fields(request.policy_json)
+        projected_task = {
+            field: request.batch_tasks[0][field] for field in policy_task_fields
+        }
+        policy_sha = _policy_sha256(request.policy_json)
+        fingerprint = _batch_fingerprint(policy_sha, (projected_task,))
+        binding = _DirectFixBinding(2, policy_sha, fingerprint)
+        projected_request = replace(
+            request,
+            batch_tasks=(projected_task,),
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+        )
+
+        decision = _authorize_direct_fix(projected_request)
+
+        self.assertEqual(decision.reason_ids, ())
+        self.assertEqual(decision.authorized_handoffs, 1)
+        self.assertEqual(decision.side_effect_counts, (1, 1, 1, 1, 1))
+
+    def test_policy_task_schema_drift_blocks_recomputed_bindings(self) -> None:
+        request = self._request()
+        drifted_policy = request.policy_json.replace(',"scope_resolution"]', "]")
+        self.assertNotEqual(drifted_policy, request.policy_json)
+        drifted_fields = _policy_task_fields(drifted_policy)
+        drifted_task = {
+            field: request.batch_tasks[0][field] for field in drifted_fields
+        }
+        policy_sha = _policy_sha256(drifted_policy)
+        fingerprint = _batch_fingerprint(policy_sha, (drifted_task,))
+        binding = _DirectFixBinding(2, policy_sha, fingerprint)
+        drifted_request = replace(
+            request,
+            policy_json=drifted_policy,
+            batch_tasks=(drifted_task,),
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+        )
+
+        decision = _authorize_direct_fix(drifted_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
 
     def test_missing_schema_version_blocks_route_before_side_effects(self) -> None:
         request = self._request()
@@ -2876,13 +2936,16 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
         request = self._request()
         unresolved_task = dict(request.batch_tasks[0])
         unresolved_task["scope_resolution"] = "unresolved-global-scope"
+        policy_task_fields = _policy_task_fields(request.policy_json)
         resolved_preimage = _canonical_batch_tasks(
             request.batch_tasks,
             request.canonical_scopes,
+            policy_task_fields,
         )
         unresolved_preimage = _canonical_batch_tasks(
             (unresolved_task,),
             request.canonical_scopes,
+            policy_task_fields,
         )
         policy_sha = _policy_sha256(request.policy_json)
 
