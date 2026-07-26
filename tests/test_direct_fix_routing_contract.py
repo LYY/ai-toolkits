@@ -464,11 +464,16 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
             )
 
         oracle = values["Expected-result oracle"]
+        oracle_is_locus_selector = oracle is not None and any(
+            pattern.fullmatch(oracle) is not None
+            for pattern in _LOCUS_SELECTOR_PATTERNS.values()
+        )
         if (
             oracle is None
             or not oracle.strip()
             or oracle == locus_evidence
             or oracle in changed_selectors
+            or oracle_is_locus_selector
         ):
             errors.append(
                 _inventory_error(
@@ -1085,6 +1090,17 @@ class TestDirectFixLocusContract(unittest.TestCase):
                 "task.expected-result-oracle",
             ],
         )
+
+    def test_implementation_selector_cannot_be_expected_result_oracle(self) -> None:
+        fixture = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                expected_result_oracle="code:app/file-1.rb:11::Order#computed_total"
+            )
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertIn("task.expected-result-oracle", "\n".join(errors))
 
 
 class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
