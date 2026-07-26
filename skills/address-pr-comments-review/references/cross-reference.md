@@ -124,7 +124,7 @@ Two comments are related, not duplicates, when:
 
 ## Already-Replied Detection
 
-See `classify.md` §has_replies and §already_replied for the detection protocol and conclusion rules. This section only covers the cross-reference interaction: when duplicates share a reply, and conservative default behavior for insufficient replies.
+See `classify.md` §has_replies and §already_replied for the authoritative detection protocol and conclusion rules. This section only covers how duplicates share a sufficient reply or preserve pending status.
 
 ### Duplicate Comments and Already-Replied
 
@@ -133,9 +133,9 @@ When a duplicate comment (same concern, different author) is detected and the pr
 - If the primary comment's reply is not sufficient, the duplicate inherits the pending status
 - In both cases, each author still gets an individual reply (or no reply, depending on sufficiency)
 
-### Conservative Default
+### Insufficient Replies
 
-Always default to `already_replied` when `has_replies: true`, even when the reply appears insufficient. This prevents re-opening threads without explicit user consent. The user overrides during Step 3 discussion. Flag insufficient replies with `replied (pending)` in the overview table.
+Apply no cross-reference default from `has_replies` alone. Bot-only, self-authored, and non-substantive replies preserve the comment's actionable conclusion and pending status. Only the human, substantive, non-self sufficiency rule in `classify.md` can yield `already_replied`.
 
 ---
 
@@ -182,6 +182,17 @@ When escalation triggers at Moderate (2-3 matches) or Strong (4+ matches):
 | **Reply (optional)** | Note in reply to reviewer: "Fixed in this file. Same pattern in {N} other files — follow-up if appropriate." |
 
 The commented file remains the only Section A code-change task. Escalation does NOT create additional Section A items.
+
+### Scope Resolution State
+
+After targeted search, record exactly one scope state for every cross-file candidate:
+
+| Scope state | Meaning | Direct Fix effect |
+|-------------|---------|-------------------|
+| `unresolved-global-scope` | Evidence or reviewer wording leaves global versus commented-file scope undecided. | Blocks Direct Fix by itself with `batch.scope` until Step 3 resolves scope. |
+| `resolved-commented-file-only` | Evidence and Step 3 resolve work to the commented file; sibling matches remain follow-up context under the existing guardrail. | Does not block Direct Fix by itself. All other eligibility gates still apply. |
+
+Only `unresolved-global-scope` blocks by itself. Do not invent additional scope states, and do not treat detected sibling matches as unresolved after scope is explicitly resolved to the commented file.
 
 ### Escalation Boundaries
 

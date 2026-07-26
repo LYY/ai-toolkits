@@ -19,6 +19,7 @@ _SKILL = pathlib.Path("skills/address-pr-comments-review/SKILL.md")
 _CROSS_REFERENCE = pathlib.Path(
     "skills/address-pr-comments-review/references/cross-reference.md"
 )
+_CLASSIFY = pathlib.Path("skills/address-pr-comments-review/references/classify.md")
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
@@ -29,6 +30,7 @@ _REPLY_ONLY_TASK_RE = re.compile(
 _REQUIRED_TASK_FIELDS = (
     "direct_fix_schema_version",
     "Conclusion",
+    "Reviewer suggestion fit",
     "Behavioral outcome",
     "Complexity class",
     "Change mode",
@@ -46,6 +48,7 @@ _REQUIRED_TASK_FIELDS = (
     "Hard blocker result",
     "Verification",
     "Commit message",
+    "Reply kind",
     "Reply targets",
     "Read-back",
 )
@@ -107,6 +110,8 @@ _AnyStr = TypeVar("_AnyStr", str, bytes)
 
 @dataclass(frozen=True, slots=True)
 class _DirectFixV2Task:
+    conclusion: str = "valid"
+    suggestion_fit: str = "accept"
     locus_kind: str = "runtime-code"
     locus_evidence: str = "code:app/file-1.rb:10::Order#call"
     expected_paths: tuple[str, ...] = ("app/file-1.rb", "spec/file-1_spec.rb")
@@ -115,6 +120,36 @@ class _DirectFixV2Task:
     expected_result_oracle: str = "test:spec/file-1_spec.rb::test_order_call"
     change_mode: str = "locus-change"
     behavioral_outcome: str = "outcome-1::return_correct_order"
+    reply_kind: str = "fixed"
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplyEvidence:
+    author_is_human: bool
+    is_self: bool
+    is_substantive: bool
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixRoutingState:
+    scope_resolution: str = "resolved-commented-file-only"
+    alternate_fix: str | None = None
+    alternate_fix_disclosed: bool = False
+    alternate_fix_confirmed: bool = False
+    fresh_preflight_passed: bool = False
+
+
+def _classify_reply_signal(
+    has_replies: bool,
+    replies: tuple[_ReplyEvidence, ...],
+    actionable_conclusion: str = "valid",
+) -> str:
+    reply_is_sufficient = has_replies and any(
+        reply.author_is_human and not reply.is_self and reply.is_substantive
+        for reply in replies
+    )
+    return "already_replied" if reply_is_sufficient else actionable_conclusion
 
 
 def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
@@ -125,7 +160,8 @@ def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
     )
     return f"""### Task 1: focused v2 change
 - **direct_fix_schema_version**: 2
-- **Conclusion**: valid
+- **Conclusion**: {task.conclusion}
+- **Reviewer suggestion fit**: {task.suggestion_fit}
 - **Behavioral outcome**: {task.behavioral_outcome}
 - **Complexity class**: local-behavior
 - **Change mode**: {task.change_mode}
@@ -143,6 +179,7 @@ def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
 - **Hard blocker result**: none
 - **Verification**: python3 -m unittest
 - **Commit message**: fix focused v2 change
+- **Reply kind**: {task.reply_kind}
 - **Reply targets**: reply-1
 - **source_comment_id**: 1001
 - **root_comment_id**: 1001
@@ -307,12 +344,25 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
                     "direct_fix_schema_version must be integer 2",
                 )
             )
-        if values["Conclusion"] != "valid":
+        if values["Conclusion"] not in {"valid", "partially_addressed"}:
             errors.append(
                 _inventory_error(
                     f"task-{task_number}",
                     "task.classification",
-                    "Conclusion must be valid",
+                    "Conclusion must be valid or partially_addressed",
+                )
+            )
+        expected_reply_kind = (
+            "partially_addressed"
+            if values["Conclusion"] == "partially_addressed"
+            else "fixed"
+        )
+        if values["Reply kind"] != expected_reply_kind:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.reply-contract",
+                    f"Reply kind must preserve {values['Conclusion']} posture",
                 )
             )
         complexity_class = values["Complexity class"]
@@ -522,6 +572,48 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
     ):
         errors.append("Section B dependencies are invalid")
     errors.extend(_validate_direct_fix_topology(task_numbers, dependencies))
+    return errors
+
+
+def validate_direct_fix_routing_state(
+    brief: str, state: _DirectFixRoutingState
+) -> list[str]:
+    errors = validate_direct_fix_brief_fixture(brief)
+    if state.scope_resolution == "unresolved-global-scope":
+        errors.append(
+            _inventory_error(
+                "batch",
+                "batch.scope",
+                "unresolved global scope blocks Direct Fix",
+            )
+        )
+    elif state.scope_resolution != "resolved-commented-file-only":
+        errors.append(
+            _inventory_error(
+                "batch",
+                "batch.scope",
+                f"unknown scope resolution {state.scope_resolution}",
+            )
+        )
+
+    suggestion_fit = _field_value(brief, "Reviewer suggestion fit")
+    alternate_is_exact = (
+        state.alternate_fix is not None
+        and re.fullmatch(r"mechanical:[a-z][a-z0-9_]*", state.alternate_fix) is not None
+    )
+    if suggestion_fit == "reject" and not (
+        alternate_is_exact
+        and state.alternate_fix_disclosed
+        and state.alternate_fix_confirmed
+        and state.fresh_preflight_passed
+    ):
+        errors.append(
+            _inventory_error(
+                "task-1",
+                "task.suggestion-fit",
+                "reject requires disclosed and confirmed exact mechanical alternate plus fresh preflight",
+            )
+        )
     return errors
 
 
@@ -808,6 +900,7 @@ def _complete_task(
     return f"""### Task {number}: focused change
 - **direct_fix_schema_version**: 2
 - **Conclusion**: valid
+- **Reviewer suggestion fit**: accept
 - **Behavioral outcome**: {behavioral_outcome or f"outcome-{number}::correct_outcome_{number}"}
 - **Complexity class**: {complexity_class}
 - **Change mode**: locus-change
@@ -825,6 +918,7 @@ def _complete_task(
 - **Hard blocker result**: none
 - **Verification**: python3 -m unittest
 - **Commit message**: fix task {number}
+- **Reply kind**: fixed
 - **Reply targets**: reply-{number}
 - **source_comment_id**: {comment_id}
 - **root_comment_id**: {comment_id}
@@ -1101,6 +1195,123 @@ class TestDirectFixLocusContract(unittest.TestCase):
         errors = validate_direct_fix_brief_fixture(fixture)
 
         self.assertIn("task.expected-result-oracle", "\n".join(errors))
+
+
+class TestDirectFixRoutingStateContract(RuntimeContractTestCase):
+    def test_bot_self_and_non_substantive_replies_remain_actionable(self) -> None:
+        cases = {
+            "bot-only": (
+                _ReplyEvidence(False, False, True, "Automated analysis complete"),
+            ),
+            "self reply": (
+                _ReplyEvidence(True, True, True, "Addressed in prior pass"),
+            ),
+            "non-substantive": (_ReplyEvidence(True, False, False, "I will check"),),
+        }
+
+        for name, replies in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(_classify_reply_signal(True, replies), "valid")
+
+    def test_partially_addressed_persists_through_artifact_and_reply_posture(
+        self,
+    ) -> None:
+        fixture = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                conclusion="partially_addressed",
+                reply_kind="partially_addressed",
+            )
+        )
+
+        self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
+
+        classify = (_REPO_ROOT / _CLASSIFY).read_text(encoding="utf-8")
+        direct_fix = read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        self.assertContractRegex(
+            classify,
+            re.compile(
+                r"final table[^\n]*preserve[^\n]*`valid`[^\n]*`partially_addressed`",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertContractRegex(
+            direct_fix,
+            r"(?i)Conclusion[^\n]*`valid`[^\n]*`partially_addressed`",
+        )
+        self.assertContractRegex(
+            direct_fix,
+            r"(?is)`partially_addressed`.*Reply kind[^\n]*`partially_addressed`",
+        )
+
+    def test_scope_resolution_blocks_only_unresolved_global_scope(self) -> None:
+        fixture = _direct_fix_v2_task()
+
+        self.assertEqual(
+            validate_direct_fix_routing_state(fixture, _DirectFixRoutingState()), []
+        )
+        unresolved_errors = validate_direct_fix_routing_state(
+            fixture,
+            _DirectFixRoutingState(scope_resolution="unresolved-global-scope"),
+        )
+        self.assertIn("batch.scope", "\n".join(unresolved_errors))
+
+        cross_reference = (_REPO_ROOT / _CROSS_REFERENCE).read_text(encoding="utf-8")
+        self.assertContractRegex(
+            cross_reference,
+            r"(?i)`unresolved-global-scope`[^\n]*blocks[^\n]*Direct Fix",
+        )
+        self.assertContractRegex(
+            cross_reference,
+            r"(?i)`resolved-commented-file-only`[^\n]*does not block[^\n]*by itself",
+        )
+
+    def test_rejected_suggestion_without_alternate_is_ineligible(self) -> None:
+        fixture = _direct_fix_v2_task(_DirectFixV2Task(suggestion_fit="reject"))
+
+        self.assertIn(
+            "task.suggestion-fit",
+            "\n".join(
+                validate_direct_fix_routing_state(fixture, _DirectFixRoutingState())
+            ),
+        )
+
+    def test_confirmed_mechanical_alternate_reenters_fresh_preflight(self) -> None:
+        fixture = _direct_fix_v2_task(_DirectFixV2Task(suggestion_fit="reject"))
+        confirmed = _DirectFixRoutingState(
+            alternate_fix="mechanical:update_selected_order_branch",
+            alternate_fix_disclosed=True,
+            alternate_fix_confirmed=True,
+            fresh_preflight_passed=True,
+        )
+        stale_preflight = _DirectFixRoutingState(
+            alternate_fix="mechanical:update_selected_order_branch",
+            alternate_fix_disclosed=True,
+            alternate_fix_confirmed=True,
+        )
+
+        self.assertEqual(validate_direct_fix_routing_state(fixture, confirmed), [])
+        self.assertIn(
+            "task.suggestion-fit",
+            "\n".join(validate_direct_fix_routing_state(fixture, stale_preflight)),
+        )
+
+        direct_fix = read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        self.assertContractRegex(
+            direct_fix,
+            re.compile(
+                r"suggestion fit[^\n]*`reject`.*exact mechanical alternate.*"
+                + r"final disclosure.*explicit user confirmation.*fresh preflight",
+                re.IGNORECASE | re.DOTALL,
+            ),
+        )
+
+    def test_already_fixed_remains_section_b(self) -> None:
+        classify = (_REPO_ROOT / _CLASSIFY).read_text(encoding="utf-8")
+
+        self.assertContractRegex(
+            classify,
+            r"(?m)^\| actionable \| `already_fixed` \| Section B \|",
+        )
 
 
 class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
@@ -1556,8 +1767,17 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
     def test_conflict_is_forbidden(self) -> None:
         self.assertContractRegex(self.direct_fix(), r"(?i)\bconflict\b")
 
-    def test_cross_file_escalation_is_forbidden(self) -> None:
-        self.assertContractRegex(self.direct_fix(), r"(?i)cross-file escalation")
+    def test_only_unresolved_cross_file_scope_is_forbidden(self) -> None:
+        section = self.direct_fix()
+
+        self.assertContractRegex(
+            section,
+            r"(?i)`unresolved-global-scope`[^\n]*blocks Direct Fix[^\n]*`batch.scope`",
+        )
+        self.assertContractRegex(
+            section,
+            r"(?i)`resolved-commented-file-only`[^\n]*only `unresolved-global-scope` blocks",
+        )
 
     def test_complexity_hard_blocker_enum_is_closed_and_canonical(self) -> None:
         section = self.direct_fix()

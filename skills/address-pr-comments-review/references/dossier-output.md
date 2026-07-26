@@ -832,7 +832,7 @@ A Review Dossier is generated when Section A contains code change work that exce
 ### Task N: Comment #COMMENT_ID -- SUMMARY
 - **Source**: @AUTHOR | KIND | FILE_PATH:LINE
 - **Also noted by**: @DUP1, @DUP2 (omit if no duplicates)
-- **Conclusion**: `valid`
+- **Conclusion**: `valid` or `partially_addressed` (preserve the final-table conclusion exactly)
 - **Reviewer concern**: CONCERN (underlying bug/risk/behavior)
 - **Code evidence**: EVIDENCE (current HEAD file:line proof)
 - **Local pattern evidence**: PATTERN (nearby code, callers, tests, conventions)
@@ -909,11 +909,11 @@ All conditions must be true for the batch and for each Section A task:
 - Direct Fix topology uses total Section A hard cap `5`, ordered-chain hard cap `3`, and ordered-chain count cap `1`. A singleton has in-degree `0` and out-degree `0`. The sole ordered component, when present, is a simple directed path of 2 through 3 nodes with no branch, merge, or cycle. Every remaining component is an independent singleton. A second ordered chain, a four-node chain, or any cross-component dependency is ineligible.
 - Shared locus selectors across tasks are ineligible. Direct verification paths do not create a shared-locus conflict when they belong to their task's single locus.
 - Every eligible batch records a deterministic topological order: respect dependency edges first, preserve final-table concern order among simultaneously ready nodes, then use numeric task ID as tie-break when table order is unavailable. Execution remains serial; eligibility never authorizes concurrent Direct Fix execution.
-- No unresolved duplicate ambiguity, conflict, or cross-file escalation exists.
+- No unresolved duplicate ambiguity or conflict exists. Cross-file scope is exactly `unresolved-global-scope` or `resolved-commented-file-only`; only `unresolved-global-scope` blocks Direct Fix by itself with `batch.scope`.
 - The evidence ledger is complete: reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction derived from code evidence rather than copied from the raw suggestion.
 - Verification is exact and clear enough for direct execution. Unclear verification is ineligible.
 - Each task has the exact v2 fields: `Conclusion`, `Behavioral outcome`, `Complexity class`, `Change mode`, `Locus kind`, `Locus ID`, `Locus evidence`, `expected_paths`, `Changed locus selectors`, `Verification paths`, `Expected-result oracle`, `depends_on_task_ids`, `Exact change`, blocker certificate fields, `Verification`, commit fields, and complete canonical reply fields.
-- Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
+- Suggestion fit is `accept` or mechanically safe `modify` with full explanation. A `reject` is eligible only when the exact mechanical alternate appears in the final disclosure, receives explicit user confirmation, and then re-enters and passes a fresh preflight with every other gate unchanged.
 
 Before Dossier fallback, collect every failed eligibility condition; never stop at first failure. Inventory entries use exactly `task-N|batch: reason-id -- observed evidence`. Batch IDs are `batch.task-count`, `batch.topology`, `batch.execution-order`, `batch.shared-locus`, and `batch.scope`. Task IDs are `task.classification`, `task.root-concern`, `task.behavioral-outcome`, `task.locus`, `task.change-mode`, `task.expected-paths`, `task.selector-mapping`, `task.verification-paths`, `task.expected-result-oracle`, `task.complexity`, `task.evidence-ledger`, `task.verification`, `task.suggestion-fit`, `task.reply-contract`, and `task.hard-blocker.<blocker-name>`. Authorization invalidation IDs (`route.policy-binding`, `route.batch-fingerprint`, `route.authorization`) and execution integrity IDs (`artifact.policy-binding`, `artifact.scope-drift`, `artifact.selector-drift`) are separate namespaces and never fabricate eligibility failures. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
 
@@ -966,7 +966,7 @@ Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and
 ### Task N: Comment #COMMENT_ID - SUMMARY
 - **direct_fix_schema_version**: 2
 - **Source**: @AUTHOR | KIND | FILE_PATH:LINE
-- **Conclusion**: `valid`
+- **Conclusion**: `valid` or `partially_addressed` (preserve the final-table conclusion exactly)
 - **Reviewer concern**: CONCERN
 - **Current code evidence**: EVIDENCE
 - **Local pattern evidence**: PATTERN
@@ -998,7 +998,7 @@ Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and
 - **reply_mode**: `threaded_inline`, `sibling_inline`, or `timeline`
 - **endpoint**: POST_ENDPOINT
 - **read_back_endpoint**: READ_BACK_ENDPOINT
-- **Reply kind**: `REPLY_KIND`
+- **Reply kind**: `fixed` for `valid`; `partially_addressed` for `partially_addressed`. Preserve this posture exactly.
 - **Reply body template**: REPLY_TEMPLATE with `{commit_sha}` placeholder
 - **Read-back**: READ_BACK_ENDPOINT and expected body, author, thread relationship
 - **Execution order**: edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back
