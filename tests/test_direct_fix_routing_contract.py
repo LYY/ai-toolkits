@@ -56,6 +56,24 @@ _REQUIRED_TASK_FIELDS = (
     "Reply targets",
     "Read-back",
 )
+_DIRECT_FIX_V2_TASK_FIELDS = (
+    "task_id",
+    "conclusion",
+    "root_concern_identity",
+    "behavioral_outcome",
+    "change_mode",
+    "locus_kind",
+    "locus_id",
+    "locus_evidence",
+    "expected_paths",
+    "changed_locus_selectors",
+    "verification_paths",
+    "expected_result_oracle",
+    "blocker_dispositions",
+    "depends_on_task_ids",
+    "exact_change",
+    "reply_target_ids",
+)
 _LEGACY_SCOPE_FIELDS = (
     "Implementation paths",
     "Change paths",
@@ -387,7 +405,7 @@ def _canonical_batch_tasks(
     canonical_scopes: tuple[_DirectFixScope, ...],
 ) -> tuple[Mapping[str, object], ...]:
     canonical_tasks: list[Mapping[str, object]] = []
-    for task, scope in zip(tasks, canonical_scopes, strict=False):
+    for task, scope in zip(tasks, canonical_scopes, strict=True):
         canonical_task = dict(task)
         canonical_task["expected_paths"] = list(scope.expected_paths)
         canonical_task["changed_locus_selectors"] = list(scope.changed_selectors)
@@ -401,7 +419,7 @@ def _task_scope_reason_ids(
     canonical_scopes: tuple[_DirectFixScope, ...],
 ) -> tuple[str, ...]:
     reason_ids: list[str] = []
-    for task, scope in zip(tasks, canonical_scopes, strict=False):
+    for task, scope in zip(tasks, canonical_scopes, strict=True):
         if task.get("expected_paths") != list(scope.expected_paths) or task.get(
             "verification_paths"
         ) != list(scope.verification_paths):
@@ -430,9 +448,11 @@ def _authorize_direct_fix(
 
     reason_ids: list[str] = []
     expected_policy_sha = _policy_sha256(request.policy_json)
-    canonical_batch_tasks = _canonical_batch_tasks(
-        request.batch_tasks,
-        request.canonical_scopes,
+    task_cardinality_matches = len(request.batch_tasks) == len(request.canonical_scopes)
+    canonical_batch_tasks = (
+        _canonical_batch_tasks(request.batch_tasks, request.canonical_scopes)
+        if task_cardinality_matches
+        else ()
     )
     expected_batch_fingerprint = _batch_fingerprint(
         expected_policy_sha, canonical_batch_tasks
@@ -463,9 +483,15 @@ def _authorize_direct_fix(
         or request.brief.batch_fingerprint != expected_batch_fingerprint
     ):
         reason_ids.append("artifact.policy-binding")
-    reason_ids.extend(
-        _task_scope_reason_ids(request.batch_tasks, request.canonical_scopes)
-    )
+    if not task_cardinality_matches or any(
+        frozenset(task) != frozenset(_DIRECT_FIX_V2_TASK_FIELDS)
+        for task in request.batch_tasks
+    ):
+        reason_ids.append("artifact.policy-binding")
+    if task_cardinality_matches:
+        reason_ids.extend(
+            _task_scope_reason_ids(request.batch_tasks, request.canonical_scopes)
+        )
     if (
         request.brief_scope.expected_paths
         != request.fingerprint_preimage.expected_paths
@@ -2615,24 +2641,7 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
                     "evidence",
                     "delta_locus_justification",
                 ],
-                "task_fields": [
-                    "task_id",
-                    "conclusion",
-                    "root_concern_identity",
-                    "behavioral_outcome",
-                    "change_mode",
-                    "locus_kind",
-                    "locus_id",
-                    "locus_evidence",
-                    "expected_paths",
-                    "changed_locus_selectors",
-                    "verification_paths",
-                    "expected_result_oracle",
-                    "blocker_dispositions",
-                    "depends_on_task_ids",
-                    "exact_change",
-                    "reply_target_ids",
-                ],
+                "task_fields": list(_DIRECT_FIX_V2_TASK_FIELDS),
             },
             "canonicalization": {
                 "array_order": "preserved unless field rule sorts",
@@ -2751,6 +2760,68 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
         decision = _authorize_direct_fix(forged_request)
 
         self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_task_and_canonical_scope_cardinality_mismatch_cannot_authorize(
+        self,
+    ) -> None:
+        request = self._request()
+        original_task = request.batch_tasks[0]
+        original_scope = request.canonical_scopes[0]
+        extra_task = dict(original_task)
+        extra_task["task_id"] = "DF-2"
+        extra_task["expected_paths"] = ["app/forged.rb"]
+        extra_task["changed_locus_selectors"] = ["code:app/forged.rb:1::Forged#call"]
+        extra_task["verification_paths"] = []
+        extra_scope = _DirectFixScope(
+            expected_paths=("app/forged.rb",),
+            changed_selectors=("code:app/forged.rb:1::Forged#call",),
+            verification_paths=(),
+        )
+        cases = (
+            (
+                "extra-task",
+                (original_task, extra_task),
+                (original_scope,),
+                (original_task,),
+            ),
+            ("missing-task", (), (original_scope,), ()),
+            (
+                "extra-canonical-scope",
+                (original_task,),
+                (original_scope, extra_scope),
+                (original_task,),
+            ),
+            ("missing-canonical-scope", (original_task,), (), ()),
+        )
+        policy_sha = _policy_sha256(request.policy_json)
+        for label, tasks, scopes, vulnerable_preimage in cases:
+            with self.subTest(label=label):
+                fingerprint = _batch_fingerprint(policy_sha, vulnerable_preimage)
+                binding = replace(request.disclosure, batch_fingerprint=fingerprint)
+                malformed_request = replace(
+                    request,
+                    batch_tasks=tasks,
+                    canonical_scopes=scopes,
+                    disclosure=binding,
+                    consent=binding,
+                    brief=binding,
+                )
+
+                decision = _authorize_direct_fix(malformed_request)
+
+                self.assertIn("artifact.policy-binding", decision.reason_ids)
+                self.assertZeroSideEffects(decision)
+
+    def test_unknown_task_field_is_malformed_artifact_policy_binding(self) -> None:
+        request = self._request()
+        malformed_task = dict(request.batch_tasks[0])
+        malformed_task["unexpected_scope_carrier"] = ["app/forged.rb"]
+        malformed_request = self._rebind_batch(request, (malformed_task,))
+
+        decision = _authorize_direct_fix(malformed_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
         self.assertZeroSideEffects(decision)
 
     def test_missing_disclosure_fingerprint_and_consent_collect_both_reasons(
