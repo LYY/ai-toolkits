@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,9 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNNER = "tests/run_address_pr_comments_review_regressions.py"
 CHECKER = "scripts/check-address-pr-comments-review-contract.sh"
+DOSSIER = "skills/address-pr-comments-review/references/dossier-output.md"
+MANIFEST = "tests/address-pr-comments-review-regressions/cases.json"
+CASE_IDS = "tests/address-pr-comments-review-regressions/case-ids.txt"
 
 
 class RegressionRunnerTestCase(unittest.TestCase):
@@ -44,6 +48,12 @@ class RegressionRunnerTestCase(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def dossier_path(self, isolated_root: Path) -> Path:
+        return isolated_root / DOSSIER
+
+    def manifest_path(self, isolated_root: Path) -> Path:
+        return isolated_root / MANIFEST
 
     def test_full_runner_passes_in_copy_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -84,17 +94,18 @@ class RegressionRunnerTestCase(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected 20 cases, got 19", result.stderr)
 
-    def test_route_direct_fix_invokes_v2_contract_checks(self) -> None:
+    def test_route_direct_fix_invokes_v2_contract_function(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
-            dossier_path = (
-                isolated_root
-                / "skills/address-pr-comments-review/references/dossier-output.md"
+            checker_path = isolated_root / CHECKER
+            checker = checker_path.read_text(encoding="utf-8").replace(
+                "check_direct_fix_v2_contract() {\n",
+                "check_direct_fix_v2_contract() {\n"
+                "    echo 'APR005: forced Direct Fix v2 check failure' >&2\n"
+                "    return 1\n",
+                1,
             )
-            dossier = dossier_path.read_text(encoding="utf-8").replace(
-                "<!-- direct-fix-policy:start -->\n", "", 1
-            )
-            dossier_path.write_text(dossier, encoding="utf-8")
+            checker_path.write_text(checker, encoding="utf-8")
 
             result = self.run_runner(isolated_root)
             route_stderr = (
@@ -105,51 +116,61 @@ class RegressionRunnerTestCase(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FAIL: route-direct-fix", result.stdout)
-        self.assertIn(
-            'APR003: missing marker "<!-- direct-fix-policy:start -->"',
-            route_stderr,
-        )
+        self.assertIn("APR005: forced Direct Fix v2 check failure", route_stderr)
 
-    def test_checker_rejects_legacy_field_inside_direct_fix_section(self) -> None:
+    def test_manifest_rejects_renamed_case_and_catalog_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
-            dossier_path = (
-                isolated_root
-                / "skills/address-pr-comments-review/references/dossier-output.md"
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0]["case_id"] = "renamed-route"
+            case_ids_path = isolated_root / CASE_IDS
+            ids_text = case_ids_path.read_text(encoding="utf-8").replace(
+                "route-review-dossier", "renamed-route", 1
             )
-            dossier = dossier_path.read_text(encoding="utf-8").replace(
-                "- **expected_paths**: [CHANGED_OR_VERIFICATION_PATH, ...]\n",
-                "- **expected_paths**: [CHANGED_OR_VERIFICATION_PATH, ...]\n"
-                + "- **Implementation paths**: [CHANGED_PATH, ...]\n",
-                1,
-            )
-            dossier_path.write_text(dossier, encoding="utf-8")
+            case_ids_path.write_text(ids_text, encoding="utf-8")
+            manifest["case_ids_sha256"] = hashlib.sha256(
+                ids_text.encode("utf-8")
+            ).hexdigest()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-            result = self.run_checker(isolated_root)
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(
-            'APR005: legacy Direct Fix field "Implementation paths"',
-            result.stderr,
-        )
+        self.assertIn("case_id inventory mismatch", result.stderr)
 
-    def test_checker_allows_legacy_field_outside_direct_fix_section(self) -> None:
+    def test_manifest_rejects_non_string_case_id_without_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
-            dossier_path = (
-                isolated_root
-                / "skills/address-pr-comments-review/references/dossier-output.md"
-            )
-            dossier = dossier_path.read_text(encoding="utf-8").replace(
-                "## Direct Fix Brief\n",
-                "Legacy rejection catalog: Implementation paths\n\n## Direct Fix Brief\n",
-                1,
-            )
-            dossier_path.write_text(dossier, encoding="utf-8")
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0]["case_id"] = []
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-            result = self.run_checker(isolated_root)
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
 
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("case_id must be a non-empty string", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_manifest_rejects_inexact_schema_and_field_types(self) -> None:
+        mutations = (
+            ("boolean-version", lambda manifest: manifest.update(schema_version=True)),
+            ("extra-key", lambda manifest: manifest.update(unexpected=True)),
+            ("invalid-env", lambda manifest: manifest["cases"][0].update(env=[])),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                isolated_root = self.copy_isolated_root(temp_dir)
+                manifest_path = self.manifest_path(isolated_root)
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                mutate(manifest)
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+                result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("Traceback", result.stderr)
 
     def test_runner_confines_arbitrary_artifact_path_to_case_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
