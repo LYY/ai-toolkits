@@ -29,18 +29,22 @@ DESIGN_MD="$REPO_ROOT/docs/address-pr-comments-review/executor-neutral-design.md
 ARCH_MD="$REPO_ROOT/docs/address-pr-comments-review/architecture.md"
 EVAL_MD="$REPO_ROOT/docs/address-pr-comments-review/eval-matrix.md"
 RUBRIC_MD="$REPO_ROOT/tests/address-pr-comments-review-eval/rubric.md"
+REQUIRED_PRODUCT_FILES=(
+    "$SKILL_MD"
+    "$DOSSIER_MD"
+    "$INTERACTION_MD"
+    "$EXECUTION_MD"
+    "$README_MD"
+    "$DESIGN_MD"
+    "$ARCH_MD"
+    "$EVAL_MD"
+    "$RUBRIC_MD"
+)
 
 check_required_product_files() {
     local found=0
     local file
-    for file in \
-        "$SKILL_MD" \
-        "$DOSSIER_MD" \
-        "$INTERACTION_MD" \
-        "$EXECUTION_MD" \
-        "$README_MD" \
-        "$EVAL_MD" \
-        "$RUBRIC_MD"; do
+    for file in "${REQUIRED_PRODUCT_FILES[@]}"; do
         if [ ! -f "$file" ]; then
             echo "APR010: missing required product file ${file#$REPO_ROOT/}" >&2
             found=1

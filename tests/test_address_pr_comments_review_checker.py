@@ -12,6 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNNER = "tests/run_address_pr_comments_review_regressions.py"
 CHECKER = "scripts/check-address-pr-comments-review-contract.sh"
 DOSSIER = "skills/address-pr-comments-review/references/dossier-output.md"
+DESIGN = "docs/address-pr-comments-review/executor-neutral-design.md"
+ARCHITECTURE = "docs/address-pr-comments-review/architecture.md"
 
 
 class ContractCheckerTestCase(unittest.TestCase):
@@ -127,6 +129,23 @@ class ContractCheckerTestCase(unittest.TestCase):
             " skills/address-pr-comments-review/SKILL.md",
             result.stderr,
         )
+
+    def test_checker_requires_all_declared_product_documents(self) -> None:
+        for product_path in (DESIGN, ARCHITECTURE):
+            with (
+                self.subTest(product_path=product_path),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                isolated_root = self.copy_isolated_root(temp_dir)
+                (isolated_root / product_path).unlink()
+
+                result = self.run_checker(isolated_root)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"APR010: missing required product file {product_path}",
+                    result.stderr,
+                )
 
     def test_checker_rejects_normalized_relative_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
