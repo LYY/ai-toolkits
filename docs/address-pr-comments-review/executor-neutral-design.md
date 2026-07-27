@@ -74,6 +74,27 @@ Every executable artifact carries:
 - Reply kind, target, endpoint requirements, and commit SHA requirements.
 - Read-back verification and cleanup conditions.
 
+Direct Fix v2 adds a bounded certificate to the Markdown interface. The runtime
+contract remains [`dossier-output.md`](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-brief).
+This design records only executor-visible distinctions:
+
+- `direct_fix_schema_version` is integer `2`; `change_mode` is exactly
+  `locus-change` or `verification-only`.
+- `locus-change` uses typed `changed_locus_selectors`; `verification-only` has
+  no changed selectors and uses an independent expected-result oracle.
+- `locus_kind` must match its typed selector. The catalog is `runtime-code`,
+  `declarative-config`, `tooling-automation`, `documentation-contract`, and
+  `verification-infrastructure`.
+- `expected_paths` is sole scope authority. It equals changed-selector paths
+  plus `Verification paths`, with no extras or omissions. Selectors prove
+  integrity and never infer scope.
+- Eligibility, route authorization, and artifact integrity remain separate.
+  `batch.*` and `task.*` describe eligibility, `route.*` describes consent and
+  binding, and `artifact.*` describes generated-artifact integrity.
+
+The executor consumes these fields. It does not reinterpret them, add aliases,
+or create a second scope authority.
+
 Artifact types (two persisted, two terminal):
 
 | Artifact | Condition | Consumer action |
@@ -96,7 +117,7 @@ Every persisted artifact (Review Dossier, Direct Fix Brief) transitions through 
 | `blocked` | Execution cannot proceed (stale evidence, checkout mismatch, dependency unresolved, verification failure) | Execution stops; artifact preserved for validated recovery or evidence regeneration |
 | `verified-complete` | All required Section A changes applied, verified, and committed with their modification SHA, replies posted, and read-back passes; Section B remains reply-only | Artifact is done; eligible for cleanup |
 
-Legal transitions are `pending → in-progress → verified-complete`, `pending/in-progress → blocked`, and `blocked → in-progress` only through validated recovery. A blocked artifact is never continued automatically: recovery revalidates current Context, task-start checkpoint (HEAD, scope, hashes, and preimages), and prior external-write reconciliation; Direct Fix interruption recovery uses `lease-recover`. Recovery resumes only from the first dependency-ready pending task after the checkpoint is proven safe. If validation fails, keep the artifact `blocked` or regenerate it with fresh evidence.
+Legal transitions are `pending → in-progress → verified-complete`, `pending/in-progress → blocked`, and `blocked → in-progress` only through validated recovery. A blocked artifact is never continued automatically: recovery revalidates current Context, task-start checkpoint (HEAD, scope, hashes, and preimages), and prior external-write reconciliation. Recovery resumes only from the first dependency-ready pending task after the checkpoint is proven safe. If validation fails, keep the artifact `blocked` or regenerate it with fresh evidence.
 
 ### Execution Handoff Module
 
@@ -139,7 +160,7 @@ This order is mandatory for every Section A artifact. Reordering or skipping ste
 
 ### Direct Fix Batch Topology and Ordering
 
-Direct Fix eligibility uses one bounded Section A graph. It contains one through five tasks, at most one ordered component, and at most three nodes in that component. The ordered component must be a simple directed path of two or three nodes, with no branch, merge, cycle, second chain, or cross-component dependency. Every other task is an independent singleton. Pure independent, pure ordered, and mixed batches are valid when all other gates pass. Task identity uses positive unique `task-N` IDs; dependency `task-X -> task-N` means `task-X` is the prerequisite. Implementation and direct test/spec/fixture companions share one task, while separate production responsibilities and shared production symbols/hunks do not.
+Direct Fix eligibility uses one bounded Section A graph. It contains one through five tasks, at most one ordered component, and at most three nodes in that component. The ordered component must be a simple directed path of two or three nodes, with no branch, merge, cycle, second chain, or cross-component dependency. Every other task is an independent singleton. Pure independent, pure ordered, and mixed batches are valid when all other gates pass. Task identity uses positive unique `task-N` IDs; dependency `task-X -> task-N` means `task-X` is the prerequisite. `expected_paths`, typed changed selectors, and `Verification paths` are checked as one task certificate; separate production responsibilities and shared production symbols or hunks do not qualify as one task.
 
 The executor derives one deterministic topological order before editing: dependency edges first, final-table concern order among simultaneously ready nodes, then numeric task ID as tie-break when table order is unavailable. It executes that order serially. Direct Fix authorization includes one distinct task-specific commit SHA per task. A topology, certificate, or preflight mismatch blocks the artifact before edits.
 
@@ -175,7 +196,7 @@ Artifact cleanup is governed by the following rules:
 2. Detect PR and collect review comments.
 3. Build evidence, classify, and cross-reference the full comment set.
 4. Present the overview and resolve blocking decisions.
-5. Present the final classification table with recommended route, batch shape, total and chain caps, complexity classes, implementation and verification paths, serial execution, fallback reason inventory, and the absence of a second plan approval. A prior Direct Fix preference is carried forward and restated, but remains pending rather than authorization. Generic `proceed` without that pending restated preference confirms classification only; an explicit Direct Fix selection after disclosure, or an affirmative final-table confirmation after valid restatement, authorizes Direct Fix once. Any table content, topology, or scope update invalidates prior confirmation.
+5. Present the final classification table with recommended route, batch shape, total and chain caps, complexity classes, exact `expected_paths`, typed `changed_locus_selectors`, `Verification paths`, serial execution, fallback reason inventory, and the absence of a second plan approval. A prior Direct Fix preference is carried forward and restated, but remains pending rather than authorization. Generic `proceed` without that pending restated preference confirms classification only; an explicit Direct Fix selection after disclosure, or an affirmative final-table confirmation after valid restatement, authorizes Direct Fix once. Any table content, topology, or scope update invalidates prior confirmation.
 6. Route to one of four outcomes: Review Dossier, Direct Fix Brief, Reply Only, or No Action.
 7. For persisted artifacts: generate the artifact, run completeness checks, and present exactly one applicable handoff prompt. Review Dossier is plan-first and waits for explicit approval before editing. Direct Fix is direct execution after explicit selection and needs no second plan approval.
 8. Executor validates checkout identity before acting.
@@ -193,7 +214,7 @@ Artifact cleanup is governed by the following rules:
 | Verification fails | Do not commit, claim success, post a fixed reply, or clean artifacts |
 | Commit unreachable from remote | Block the Section A task and post no reply until its distinct modification commit SHA is remotely reachable |
 | Reply POST result is unclear | Read back first; exactly one match reconciles the write, while zero, multiple, malformed, or incomplete matches block the artifact and prohibit a second POST |
-| Execution is interrupted | Run validated recovery: revalidate Context, task-start checkpoint, scope/hashes/preimages, and prior writes; use Direct Fix `lease-recover` read-back exactly once per prior target; resume only from the first dependency-ready pending task after full reconciliation, otherwise keep the artifact `blocked` |
+| Execution is interrupted | Run validated recovery: revalidate Context, task-start checkpoint, scope/hashes/preimages, and prior writes; read back each prior target exactly once through its canonical route; resume only from the first dependency-ready pending task after full reconciliation, otherwise keep the artifact `blocked` |
 | Direct Fix cap, complexity, certificate, or topology fails | Route to Review Dossier and report every failed eligibility condition; do not edit or emit a Direct Fix handoff |
 | Direct Fix route is not disclosed, or generic `proceed` has no pending restated preference | Confirm classification only; produce zero Direct Fix edit, commit, push, reply POST, and read-back side effects |
 | Final table content, topology, or scope changes after confirmation | Invalidate prior confirmation; require informed reconfirmation before any Direct Fix side effect |
@@ -209,7 +230,7 @@ Artifact cleanup is governed by the following rules:
 
 - Replace three runtime-oriented phases with Review Analysis and Execution Handoff.
 - Remove runtime lock, runtime-specific handoff, command-specific recovery, and branded fallback language.
-- Route complex work to Review Dossier, not to a named planner.
+- Route complex work to Review Dossier.
 - Keep Direct Fix, Reply Only, No Action, and cleanup routes.
 
 ### [`execution.md`](../../skills/address-pr-comments-review/references/execution.md)
@@ -264,7 +285,7 @@ The TDD protocol uses 40 samples across 4 behavior classes × 5 sessions each:
 
 Class 1 — Artifact type routing (5 samples):
 - Complex code work emits runtime-specific handoff material instead of one neutral artifact contract.
-- Direct Fix ineligibility routes to a named planner instead of Review Dossier.
+- Direct Fix ineligibility routes to Review Dossier.
 - Reply Only produces an unnecessary persisted artifact instead of direct POST/read-back.
 - No Action produces a write operation.
 - Unknown route falls through without classification.
