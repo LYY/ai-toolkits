@@ -264,7 +264,7 @@ check_direct_fix_v2_contract() {
         section_end="$(awk '$0 == "## Reply Policy" { print NR }' "$file")"
         if [ "$section_start" -ge "$section_end" ]; then
             echo 'APR005: Direct Fix Brief section headings are misordered' >&2
-            found=1
+            return 1
         else
             section="$(awk -v start="$section_start" -v end="$section_end" 'NR >= start && NR < end' "$file")"
         fi

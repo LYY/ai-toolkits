@@ -167,6 +167,26 @@ class ContractCheckerTestCase(unittest.TestCase):
             ],
         )
 
+    def test_misordered_section_headings_emit_one_stable_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            dossier_path = self.dossier_path(isolated_root)
+            dossier = dossier_path.read_text(encoding="utf-8")
+            dossier = (
+                dossier.replace("## Direct Fix Brief", "HEADING_PLACEHOLDER", 1)
+                .replace("## Reply Policy", "## Direct Fix Brief", 1)
+                .replace("HEADING_PLACEHOLDER", "## Reply Policy", 1)
+            )
+            dossier_path.write_text(dossier, encoding="utf-8")
+
+            result = self.run_checker(isolated_root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stderr.splitlines(),
+            ["APR005: Direct Fix Brief section headings are misordered"],
+        )
+
     def test_checker_rejects_normalized_relative_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
