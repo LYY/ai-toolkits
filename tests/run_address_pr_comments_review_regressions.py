@@ -81,6 +81,8 @@ def _do_run(args: Arguments) -> None:
             reason_parts.append(
                 f"exit={result['exit_code']} (expected {result['expected_exit']})"
             )
+        if not result.get("stdout_ok", False):
+            reason_parts.append("stdout mismatch")
         if not result.get("diag_ok", False):
             reason_parts.append(
                 f"diag={result.get('actual_diag', '?')} (expected {case['expected_diagnostic']})"

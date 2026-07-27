@@ -194,6 +194,20 @@ class RegressionRunnerTestCase(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(external_artifact.exists())
 
+    def test_runner_fails_when_expected_stdout_does_not_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0]["expected_stdout"] = "required output\n"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FAIL: route-review-dossier", result.stdout)
+        self.assertIn("stdout mismatch", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

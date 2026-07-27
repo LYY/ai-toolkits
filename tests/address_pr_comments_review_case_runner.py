@@ -31,6 +31,7 @@ class RunResult(RunResultBase, total=False):
     actual_diag: str
     missing_sentinels: list[str]
     exit_ok: bool
+    stdout_ok: bool
     diag_ok: bool
     sentinel_ok: bool
 
@@ -155,6 +156,9 @@ def run_case(case: RegressionCase, case_dir: Path) -> RunResult:
     _ = (case_dir / "stdout.bin").write_bytes(stdout_bytes)
     _ = (case_dir / "stderr.bin").write_bytes(stderr_bytes)
     exit_ok = process.returncode == expected_exit
+    stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+    expected_stdout = case["expected_stdout"]
+    stdout_ok = not expected_stdout or stdout_text == expected_stdout
     stderr_text = stderr_bytes.decode("utf-8", errors="replace")
     expected_diagnostic = case["expected_diagnostic"]
     diagnostic_ok = True
@@ -165,12 +169,12 @@ def run_case(case: RegressionCase, case_dir: Path) -> RunResult:
         if match:
             actual_diagnostic = match.group(1)
             diagnostic_ok = actual_diagnostic == expected_diagnostic
-    combined_text = stdout_bytes.decode("utf-8", errors="replace") + stderr_text
+    combined_text = stdout_text + stderr_text
     missing_sentinels = [
         sentinel for sentinel in case["sentinels"] if sentinel not in combined_text
     ]
     sentinel_ok = not missing_sentinels
-    passed = exit_ok and diagnostic_ok and sentinel_ok
+    passed = exit_ok and stdout_ok and diagnostic_ok and sentinel_ok
     log: dict[str, str | int | bool | list[str]] = {
         "case_id": case_id,
         "driver": case["driver"],
@@ -179,9 +183,12 @@ def run_case(case: RegressionCase, case_dir: Path) -> RunResult:
         "env": [f"{key}={value}" for key, value in sorted(case["env"].items())],
         "expected_exit": expected_exit,
         "actual_exit": process.returncode,
+        "expected_stdout_sha256": _sha256_hex(expected_stdout.encode("utf-8")),
+        "stdout_ok": stdout_ok,
         "expected_diagnostic": expected_diagnostic,
         "actual_diagnostic": actual_diagnostic,
         "exit_ok": exit_ok,
+        "stdout_ok": stdout_ok,
         "diag_ok": diagnostic_ok,
         "sentinel_ok": sentinel_ok,
         "missing_sentinels": missing_sentinels,
@@ -199,6 +206,7 @@ def run_case(case: RegressionCase, case_dir: Path) -> RunResult:
         "missing_sentinels": missing_sentinels,
         "passed": passed,
         "exit_ok": exit_ok,
+        "stdout_ok": stdout_ok,
         "diag_ok": diagnostic_ok,
         "sentinel_ok": sentinel_ok,
     }
