@@ -158,11 +158,14 @@ reason namespaces.
 | `interrupted-recovery` | `review-dossier` | `review-dossier` | Not a Direct Fix case; recovery requires stable IDs, CAS, read-back, and cleanup blocking |
 | `neutral-handoff` | Route-dependent | Route-dependent | Shared handoff contract; route emits exactly one applicable artifact or terminal outcome |
 
-Positive cases must emit exactly one eligible Direct Fix handoff with a
-`direct-fix-brief`. Negative cases must emit `review-dossier` and preserve the
-complete ordered reason inventory. Consent not selected is not an eligibility
-failure. A policy, batch, scope, selector, or artifact mismatch blocks before
-any edit, commit, push, reply POST, or read-back side effect.
+Positive Direct Fix cases must emit exactly one eligible Direct Fix handoff with
+a `direct-fix-brief`. The eligible-but-unselected `direct-fix-fallback` case
+must remain a Review Dossier, persist only `review-dossier`, and produce no
+Direct Fix artifact or execution side effect. Negative cases must emit
+`review-dossier` and preserve the complete ordered reason inventory. Consent
+not selected is not an eligibility failure. A policy, batch, scope, selector,
+or artifact mismatch blocks before any edit, commit, push, reply POST, or
+read-back side effect.
 
 ---
 
