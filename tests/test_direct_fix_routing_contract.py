@@ -222,6 +222,54 @@ class _DirectFixAuthorizationDecision:
     authorization_attempts: int
 
 
+@dataclass(frozen=True, slots=True)
+class _DirectFixValidationContext:
+    resolvable_citations: frozenset[str]
+    bound_delta_selectors: tuple[str, ...] = ()
+    actual_delta_paths: frozenset[str] = frozenset()
+    protected_delta_selectors: tuple[tuple[str, str], ...] = ()
+    targeted_verifications: tuple[tuple[str, str, str], ...] = (
+        (
+            "python3 -m unittest tests.test_direct_fix_routing_contract."
+            + "TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible",
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible",
+            "unittest:OK",
+        ),
+        (
+            "python3 -m unittest tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_singleton_fixture_is_eligible",
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_singleton_fixture_is_eligible",
+            "unittest:OK",
+        ),
+        (
+            "python3 -m unittest tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check",
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check",
+            "unittest:OK",
+        ),
+    )
+
+
+def _default_validation_context() -> _DirectFixValidationContext:
+    synthetic_citations = {
+        *(f"code:app/file-{number}.rb:{number}" for number in range(1, 7)),
+        "code:app/controllers/orders_controller.rb:1",
+        "code:app/order.rb:1",
+        "code:config/app.yml:1",
+        "code:.github/workflows/ci.yml:1",
+        "code:docs/contract.md:1",
+        "code:spec/file-1_spec.rb:1",
+    }
+    return _DirectFixValidationContext(frozenset(synthetic_citations))
+
+
 def _classify_reply_signal(
     has_replies: bool,
     replies: tuple[_ReplyEvidence, ...],
@@ -252,11 +300,11 @@ def _canonical_blocker_dispositions(locus_id: str, evidence: str) -> str:
     )
 
 
-def _exact_verification(scope: str) -> str:
+def _exact_verification(scope: str, oracle: str) -> str:
     return (
         f"command=python3 -m unittest {scope}; scope={scope}; "
-        + "expected_exit=0; expected_output=OK; "
-        + "behavioral_assertion=observable: named contract test passes"
+        + "expected_exit=0; expected_output=unittest:OK; "
+        + f"behavioral_assertion=observable:{oracle}"
     )
 
 
@@ -284,7 +332,7 @@ def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
 - **depends_on_task_ids**: []
 - **Exact change**: update only the selected locus
 - **Blocker dispositions**: {blocker_dispositions}
-- **Verification**: {_exact_verification("tests.test_direct_fix_routing_contract.TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible")}
+- **Verification**: {_exact_verification("tests.test_direct_fix_routing_contract.TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible", task.expected_result_oracle)}
 - **Commit message**: fix focused v2 change
 - **Reply kind**: {task.reply_kind}
 - **Reply targets**: reply-1
@@ -606,7 +654,10 @@ def extract_markdown_fixture(section: str) -> str:
     return fixtures[0]
 
 
-def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
+def validate_direct_fix_brief_fixture(
+    brief: str, *, context: _DirectFixValidationContext | None = None
+) -> list[str]:
+    context = context or _default_validation_context()
     task_matches = list(_TASK_RE.finditer(brief))
     errors: list[str] = []
     if not 1 <= len(task_matches) <= 5:
@@ -868,10 +919,18 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
             task_number,
             expected_paths,
             locus_id,
+            context,
             errors,
         )
         verification = values["Verification"]
-        _validate_exact_verification(verification, task_number, errors)
+        _validate_exact_verification(
+            verification,
+            task_number,
+            oracle,
+            verification_paths,
+            context,
+            errors,
+        )
         errors.extend(_validate_route_fields(task, task_label))
 
     if scope_failures:
@@ -939,6 +998,7 @@ def _validate_blocker_dispositions(
     task_number: int,
     expected_paths: list[str],
     locus_id: str | None,
+    context: _DirectFixValidationContext,
     errors: list[str],
 ) -> None:
     raw = values["Blocker dispositions"]
@@ -947,15 +1007,33 @@ def _validate_blocker_dispositions(
     except json.JSONDecodeError:
         parsed = None
     if not _is_object_list(parsed):
-        errors.append(
-            _inventory_error(
-                f"task-{task_number}",
-                "task.hard-blocker.architecture",
-                "Blocker dispositions must be a JSON array",
+        for blocker in _HARD_BLOCKERS:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    f"task.hard-blocker.{blocker}",
+                    "Blocker dispositions must be a JSON array",
+                )
             )
-        )
         return
     parsed_items = parsed
+    protected_blockers: set[str] = set()
+    for selector, blocker in context.protected_delta_selectors:
+        if selector not in context.bound_delta_selectors:
+            continue
+        selector_match = next(
+            (
+                match
+                for pattern in _LOCUS_SELECTOR_PATTERNS.values()
+                if (match := pattern.fullmatch(selector)) is not None
+            ),
+            None,
+        )
+        if (
+            selector_match is not None
+            and selector_match.group("path") in context.actual_delta_paths
+        ):
+            protected_blockers.add(blocker)
 
     for index, blocker in enumerate(_HARD_BLOCKERS):
         reason_id = f"task.hard-blocker.{blocker}"
@@ -1030,17 +1108,23 @@ def _validate_blocker_dispositions(
         malformed = (
             disposition not in _BLOCKER_DISPOSITIONS
             or citation_match is None
+            or evidence not in context.resolvable_citations
             or (cited_path is not None and cited_path not in expected_paths)
             or justification != expected_justification
         )
-        if malformed or disposition != "not-triggered":
+        derived_intersection = blocker in protected_blockers
+        if malformed or disposition != "not-triggered" or derived_intersection:
             errors.append(
                 _inventory_error(
                     f"task-{task_number}",
                     reason_id,
                     "malformed disposition"
                     if malformed
-                    else f"disposition is {disposition}",
+                    else (
+                        "bound delta intersects protected locus"
+                        if derived_intersection
+                        else f"disposition is {disposition}"
+                    ),
                 )
             )
     if len(parsed_items) > len(_HARD_BLOCKERS):
@@ -1062,15 +1146,23 @@ def _is_string_object_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
 
 
 def _validate_exact_verification(
-    verification: str | None, task_number: int, errors: list[str]
+    verification: str | None,
+    task_number: int,
+    oracle: str | None,
+    verification_paths: list[str],
+    context: _DirectFixValidationContext,
+    errors: list[str],
 ) -> None:
     reason_id = "task.verification"
     parts: dict[str, str] = {}
+    segments_are_unique_assignments = verification is not None
     if verification is not None:
         for segment in verification.split(";"):
             key, separator, value = segment.strip().partition("=")
-            if separator and key not in parts:
-                parts[key] = value.strip()
+            if not separator or not key or key in parts:
+                segments_are_unique_assignments = False
+                continue
+            parts[key] = value.strip()
     required = (
         "command",
         "scope",
@@ -1078,19 +1170,25 @@ def _validate_exact_verification(
         "expected_output",
         "behavioral_assertion",
     )
-    combined = " ".join(parts.values())
-    forbidden = re.search(
-        r"(?i)(?:^|\b)(?:run tests|retry|rerun|re-run|timeout|skip|update-snapshots?"
-        + r"|blind snapshot|weaken(?:ed|ing)? assertion|random|flaky|nondetermin)"
-        + r"(?:\b|$)|derived from (?:implementation )?output",
-        combined,
+    oracle_match = (
+        _BLOCKER_CITATION_RE.fullmatch(oracle) if oracle is not None else None
+    )
+    oracle_path = oracle_match.group("test_path") if oracle_match is not None else None
+    targeted_verification = (
+        parts.get("command", ""),
+        parts.get("scope", ""),
+        parts.get("expected_output", ""),
     )
     valid = (
-        tuple(parts) == required
+        segments_are_unique_assignments
+        and tuple(parts) == required
         and all(parts.values())
-        and re.fullmatch(r"[0-9]+", parts.get("expected_exit", "")) is not None
-        and parts.get("behavioral_assertion", "").startswith("observable:")
-        and forbidden is None
+        and parts.get("expected_exit") == "0"
+        and targeted_verification in context.targeted_verifications
+        and oracle_match is not None
+        and oracle_path is not None
+        and oracle_path in verification_paths
+        and parts.get("behavioral_assertion") == f"observable:{oracle}"
     )
     if not valid:
         errors.append(
@@ -1339,7 +1437,7 @@ def _complete_task(
 - **depends_on_task_ids**: [{dependencies}]
 - **Exact change**: mechanically update the named locus
 - **Blocker dispositions**: {blocker_dispositions}
-- **Verification**: {_exact_verification(f"tests.test_direct_fix_routing_contract.TestDirectFixComplexityAndTopologyFixtures.test_singleton_fixture_is_eligible")}
+- **Verification**: {_exact_verification(f"tests.test_direct_fix_routing_contract.TestDirectFixComplexityAndTopologyFixtures.test_singleton_fixture_is_eligible", f"test:{verification_paths[0]}::test_behavior_{number}")}
 - **Commit message**: fix task {number}
 - **Reply kind**: fixed
 - **Reply targets**: reply-{number}
@@ -1533,6 +1631,9 @@ class TestDirectFixLocusContract(unittest.TestCase):
                         expected_paths=(changed_path, "spec/oracle_spec.rb"),
                         changed_locus_selectors=(selector,),
                         verification_paths=("spec/oracle_spec.rb",),
+                        expected_result_oracle=(
+                            "test:spec/oracle_spec.rb::test_order_call"
+                        ),
                     )
                 )
                 self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
@@ -1605,6 +1706,7 @@ class TestDirectFixLocusContract(unittest.TestCase):
                 "task.behavioral-outcome",
                 "task.selector-mapping",
                 "task.expected-result-oracle",
+                "task.verification",
             ],
         )
 
@@ -1808,10 +1910,12 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
             + "tests.test_direct_fix_routing_contract."
             + "TestDirectFixComplexityAndTopologyFixtures."
             + "test_exact_verification_accepts_deterministic_observable_check; "
-            + "scope=TestDirectFixComplexityAndTopologyFixtures."
+            + "scope=tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
             + "test_exact_verification_accepts_deterministic_observable_check; "
-            + "expected_exit=0; expected_output=OK; "
-            + "behavioral_assertion=observable: eligible fixture returns no reasons"
+            + "expected_exit=0; expected_output=unittest:OK; "
+            + "behavioral_assertion=observable:"
+            + "test:spec/file-1_spec.rb::test_behavior_1"
         )
         fixture = re.sub(
             r"(?m)^- \*\*Blocker dispositions\*\*:.*$",
@@ -1970,6 +2074,192 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
             self._todo4_fixture(dispositions),
             "task-1: task.hard-blocker.architecture -- malformed disposition",
         )
+
+    def test_protected_delta_overrides_not_triggered_self_attestation(self) -> None:
+        cases = (
+            (
+                "security-or-authorization",
+                "code:app/tenant_policy.rb:20::TenantBoundary#authorize",
+                "app/tenant_policy.rb",
+                "spec/tenant_policy_spec.rb",
+            ),
+            (
+                "deployment-or-release",
+                "automation:.github/workflows/deploy.yml::production-rollout",
+                ".github/workflows/deploy.yml",
+                "spec/deploy_workflow_spec.rb",
+            ),
+        )
+
+        for blocker, protected_selector, changed_path, verification_path in cases:
+            with self.subTest(blocker=blocker, context="ambient"):
+                ambient = _complete_task(
+                    1,
+                    changed_paths=("app/file-1.rb",),
+                    verification_paths=("spec/file-1_spec.rb",),
+                )
+                context = _DirectFixValidationContext(
+                    resolvable_citations=frozenset(
+                        {
+                            "code:app/file-1.rb:1",
+                            "test:spec/file-1_spec.rb::test_behavior_1",
+                            f"code:{changed_path}:1",
+                            f"test:{verification_path}::test_behavior_1",
+                        }
+                    ),
+                    bound_delta_selectors=(
+                        "code:app/file-1.rb:1::responsibility-1#behavior-hunk",
+                    ),
+                    actual_delta_paths=frozenset({"app/file-1.rb"}),
+                    protected_delta_selectors=((protected_selector, blocker),),
+                )
+                self.assertEqual(
+                    validate_direct_fix_brief_fixture(ambient, context=context), []
+                )
+
+            with self.subTest(blocker=blocker, context="delta-intersection"):
+                delta = _complete_task(
+                    1,
+                    changed_paths=(changed_path,),
+                    verification_paths=(verification_path,),
+                    changed_locus_selectors=(protected_selector,),
+                )
+                delta_context = replace(
+                    context,
+                    bound_delta_selectors=(protected_selector,),
+                    actual_delta_paths=frozenset({changed_path}),
+                )
+                errors = validate_direct_fix_brief_fixture(delta, context=delta_context)
+                self.assertIn(f"task.hard-blocker.{blocker}", "\n".join(errors))
+
+    def test_bound_delta_inventory_outvotes_artifact_selector(self) -> None:
+        protected_selector = "code:app/tenant_policy.rb:20::TenantBoundary#authorize"
+        context = _DirectFixValidationContext(
+            resolvable_citations=frozenset({"code:app/file-1.rb:1"}),
+            bound_delta_selectors=(protected_selector,),
+            actual_delta_paths=frozenset({"app/tenant_policy.rb"}),
+            protected_delta_selectors=(
+                (protected_selector, "security-or-authorization"),
+            ),
+        )
+
+        errors = validate_direct_fix_brief_fixture(
+            self._todo4_fixture(), context=context
+        )
+
+        self.assertIn("task.hard-blocker.security-or-authorization", "\n".join(errors))
+
+    def test_unresolvable_citations_fail_while_ambient_citations_resolve(self) -> None:
+        context = _DirectFixValidationContext(
+            resolvable_citations=frozenset(
+                {
+                    "code:app/file-1.rb:1",
+                    "test:spec/file-1_spec.rb::test_behavior_1",
+                    "comment:1001",
+                }
+            )
+        )
+        self.assertEqual(
+            validate_direct_fix_brief_fixture(self._todo4_fixture(), context=context),
+            [],
+        )
+
+        stale = self._todo4_dispositions()
+        stale = [
+            {
+                **item,
+                "evidence": "comment:999999999",
+                "delta_locus_justification": "delta:none; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:comment:999999999",
+            }
+            for item in stale
+        ]
+        errors = validate_direct_fix_brief_fixture(
+            self._todo4_fixture(stale), context=context
+        )
+
+        for blocker in _HARD_BLOCKERS:
+            self.assertIn(f"task.hard-blocker.{blocker}", "\n".join(errors))
+
+    def test_malformed_blocker_container_reports_all_canonical_reasons(self) -> None:
+        fixture = re.sub(
+            r"(?m)^- \*\*Blocker dispositions\*\*:.*$",
+            "- **Blocker dispositions**: not-json",
+            self._todo4_fixture(),
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertEqual(
+            [
+                error.split(": ", 1)[1].split(" --", 1)[0]
+                for error in errors
+                if "task.hard-blocker." in error
+            ],
+            [f"task.hard-blocker.{blocker}" for blocker in _HARD_BLOCKERS],
+        )
+
+    def test_verification_rejects_structurally_invalid_paraphrases(self) -> None:
+        scope = (
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check"
+        )
+        cases = {
+            "broad discover": (
+                "command=python3 -m unittest discover; scope=all tests; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "attempt again": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=attempt again on failure; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "execute repeatedly": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=execute repeatedly until green; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "excluding failure": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=excluding failing case; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "deadline inflation": (
+                f"command=python3 -m unittest {scope} --deadline 600; "
+                + f"scope={scope}; expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "regenerate golden": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=regenerate golden files; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "weak assertion": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable:process-returned-a-value"
+            ),
+            "seed dependent": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable:shuffled-seed-dependent-output"
+            ),
+            "self oracle": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable:expected-equals-actual-output"
+            ),
+        }
+
+        for name, verification in cases.items():
+            with self.subTest(name=name):
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(verification=verification)
+                )
+                self.assertIn("task.verification", "\n".join(errors))
 
     def test_natural_language_multiple_outcomes_and_loci_are_rejected(self) -> None:
         cases = {
