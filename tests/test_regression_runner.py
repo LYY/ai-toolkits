@@ -11,6 +11,7 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNNER = "tests/run_address_pr_comments_review_regressions.py"
+CHECKER = "scripts/check-address-pr-comments-review-contract.sh"
 
 
 class RegressionRunnerTestCase(unittest.TestCase):
@@ -27,13 +28,21 @@ class RegressionRunnerTestCase(unittest.TestCase):
 
     def run_runner(
         self, isolated_root: Path, *args: str
-    ) -> subprocess.CompletedProcess:
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["python3", RUNNER, *args],
             cwd=isolated_root,
             capture_output=True,
             text=True,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+
+    def run_checker(self, isolated_root: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", CHECKER, str(isolated_root)],
+            cwd=isolated_root,
+            capture_output=True,
+            text=True,
         )
 
     def test_full_runner_passes_in_copy_without_git_metadata(self) -> None:
@@ -58,6 +67,89 @@ class RegressionRunnerTestCase(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fixture_sha256 mismatch", result.stderr)
+
+    def test_manifest_rejects_case_count_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = (
+                isolated_root
+                / "tests/address-pr-comments-review-regressions/cases.json"
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"].pop()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Expected 20 cases, got 19", result.stderr)
+
+    def test_route_direct_fix_invokes_v2_contract_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            dossier_path = (
+                isolated_root
+                / "skills/address-pr-comments-review/references/dossier-output.md"
+            )
+            dossier = dossier_path.read_text(encoding="utf-8").replace(
+                "<!-- direct-fix-policy:start -->\n", "", 1
+            )
+            dossier_path.write_text(dossier, encoding="utf-8")
+
+            result = self.run_runner(isolated_root)
+            route_stderr = (
+                isolated_root
+                / "tests/address-pr-comments-review-regressions/cases"
+                / "route-direct-fix/stderr.bin"
+            ).read_text(encoding="utf-8")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FAIL: route-direct-fix", result.stdout)
+        self.assertIn(
+            'APR003: missing marker "<!-- direct-fix-policy:start -->"',
+            route_stderr,
+        )
+
+    def test_checker_rejects_legacy_field_inside_direct_fix_section(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            dossier_path = (
+                isolated_root
+                / "skills/address-pr-comments-review/references/dossier-output.md"
+            )
+            dossier = dossier_path.read_text(encoding="utf-8").replace(
+                "- **expected_paths**: [CHANGED_OR_VERIFICATION_PATH, ...]\n",
+                "- **expected_paths**: [CHANGED_OR_VERIFICATION_PATH, ...]\n"
+                + "- **Implementation paths**: [CHANGED_PATH, ...]\n",
+                1,
+            )
+            dossier_path.write_text(dossier, encoding="utf-8")
+
+            result = self.run_checker(isolated_root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            'APR005: legacy Direct Fix field "Implementation paths"',
+            result.stderr,
+        )
+
+    def test_checker_allows_legacy_field_outside_direct_fix_section(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            dossier_path = (
+                isolated_root
+                / "skills/address-pr-comments-review/references/dossier-output.md"
+            )
+            dossier = dossier_path.read_text(encoding="utf-8").replace(
+                "## Direct Fix Brief\n",
+                "Legacy rejection catalog: Implementation paths\n\n## Direct Fix Brief\n",
+                1,
+            )
+            dossier_path.write_text(dossier, encoding="utf-8")
+
+            result = self.run_checker(isolated_root)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_runner_confines_arbitrary_artifact_path_to_case_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

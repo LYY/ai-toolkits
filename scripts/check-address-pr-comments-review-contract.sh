@@ -222,6 +222,96 @@ check_marker_order() {
     return $found
 }
 
+check_direct_fix_v2_contract() {
+    local file="$1"
+    local found=0
+    local section
+    [ -f "$file" ] || return 0
+
+    section="$(awk '
+        $0 == "## Direct Fix Brief" { in_section = 1 }
+        in_section && $0 == "## Reply Policy" { exit }
+        in_section { print }
+    ' "$file")"
+    if [ -z "$section" ]; then
+        echo 'APR005: missing bounded Direct Fix Brief section in dossier-output.md' >&2
+        return 1
+    fi
+
+    while IFS= read -r literal; do
+        [ -z "$literal" ] && continue
+        if ! grep -qF -- "$literal" <<< "$section"; then
+            echo "APR005: missing Direct Fix v2 contract literal \"${literal}\"" >&2
+            found=1
+        fi
+    done <<'LITERALS'
+"direct_fix_schema_version":2
+"blocker_disposition_fields":["blocker_id","disposition","evidence","delta_locus_justification"]
+"task_fields":["task_id","conclusion","root_concern_identity","behavioral_outcome","change_mode","locus_kind","locus_id","locus_evidence","expected_paths","changed_locus_selectors","verification_paths","expected_result_oracle","blocker_dispositions","depends_on_task_ids","exact_change","reply_target_ids","scope_resolution"]
+"verification_fields":["command","scope","expected_exit","expected_output","behavioral_assertion"]
+"authority":"expected_paths"
+`locus-change`
+`verification-only`
+`runtime-code`
+`declarative-config`
+`tooling-automation`
+`documentation-contract`
+`verification-infrastructure`
+`architecture`
+`cross-module-state`
+`public-interface`
+`security-or-authorization`
+`schema-or-data`
+`dependency-introduction`
+`concurrency`
+`transaction`
+`retry-or-recovery`
+`deployment-or-release`
+`unclear-verification`
+`expected_paths`
+`batch.task-count`
+`batch.topology`
+`batch.execution-order`
+`batch.shared-locus`
+`batch.scope`
+`task.classification`
+`task.root-concern`
+`task.behavioral-outcome`
+`task.locus`
+`task.change-mode`
+`task.expected-paths`
+`task.selector-mapping`
+`task.verification-paths`
+`task.expected-result-oracle`
+`task.complexity`
+`task.evidence-ledger`
+`task.verification`
+`task.suggestion-fit`
+`task.reply-contract`
+`task.hard-blocker.<blocker-name>`
+`route.policy-binding`
+`route.batch-fingerprint`
+`route.authorization`
+`artifact.policy-binding`
+`artifact.scope-drift`
+`artifact.selector-drift`
+LITERALS
+
+    while IFS= read -r legacy_field; do
+        [ -z "$legacy_field" ] && continue
+        if grep -qF -- "$legacy_field" <<< "$section"; then
+            echo "APR005: legacy Direct Fix field \"${legacy_field}\" found in bounded section" >&2
+            found=1
+        fi
+    done <<'LEGACY_FIELDS'
+Implementation paths
+Change paths
+Verification companion paths
+LEGACY_FIELDS
+
+    return $found
+}
+
 # --- check old-name references (platform.md must not appear in skill runtime files) ---
 check_platform_alias() {
     local found=0
@@ -270,7 +360,8 @@ check_required_markers "$RUBRIC_MD" "rubric.md" \
 
 check_required_markers "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-status:start -->:::<!-- artifact-execution-status:end -->' \
-    '<!-- artifact-execution-inventory:start -->:::<!-- artifact-execution-inventory:end -->' || errors=1
+    '<!-- artifact-execution-inventory:start -->:::<!-- artifact-execution-inventory:end -->' \
+    '<!-- direct-fix-policy:start -->:::<!-- direct-fix-policy:end -->' || errors=1
 
 check_required_markers "$INTERACTION_MD" "interaction.md" \
     '<!-- route-confirmation-contract:start -->:::<!-- route-confirmation-contract:end -->' || errors=1
@@ -281,6 +372,12 @@ check_marker_order "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-status:end -->' \
     '<!-- artifact-execution-inventory:start -->' \
     '<!-- artifact-execution-inventory:end -->' || errors=1
+
+check_marker_order "$DOSSIER_MD" "dossier-output.md" \
+    '<!-- direct-fix-policy:start -->' \
+    '<!-- direct-fix-policy:end -->' || errors=1
+
+check_direct_fix_v2_contract "$DOSSIER_MD" || errors=1
 
 check_marker_order "$INTERACTION_MD" "interaction.md" \
     '<!-- route-confirmation-contract:start -->' \
