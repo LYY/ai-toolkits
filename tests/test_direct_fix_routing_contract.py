@@ -7,7 +7,7 @@ import re
 import unittest
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import TypeVar
+from typing import TypeGuard, TypeVar
 
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -47,9 +47,7 @@ _REQUIRED_TASK_FIELDS = (
     "Expected-result oracle",
     "depends_on_task_ids",
     "Exact change",
-    "Hard blockers checked",
-    "Hard blocker evidence",
-    "Hard blocker result",
+    "Blocker dispositions",
     "Verification",
     "Commit message",
     "Reply kind",
@@ -100,13 +98,20 @@ _HARD_BLOCKERS = (
     "architecture",
     "cross-module-state",
     "public-interface",
-    "authorization",
+    "security-or-authorization",
     "schema-or-data",
     "dependency-introduction",
     "concurrency",
     "transaction",
     "retry-or-recovery",
+    "deployment-or-release",
     "unclear-verification",
+)
+_BLOCKER_DISPOSITIONS = frozenset({"not-triggered", "triggered", "uncertain"})
+_BLOCKER_CITATION_RE = re.compile(
+    r"(?:code:(?P<code_path>[^;=\s]+):[1-9][0-9]*"
+    + r"|comment:[1-9][0-9]*"
+    + r"|test:(?P<test_path>[^;=\s]+)::[A-Za-z_][A-Za-z0-9_.]*)"
 )
 _ROUTE_FIELDS = (
     "source_comment_id",
@@ -229,11 +234,37 @@ def _classify_reply_signal(
     return "already_replied" if reply_is_sufficient else actionable_conclusion
 
 
+def _canonical_blocker_dispositions(locus_id: str, evidence: str) -> str:
+    return json.dumps(
+        [
+            {
+                "blocker_id": blocker,
+                "disposition": "not-triggered",
+                "evidence": evidence,
+                "delta_locus_justification": (
+                    f"delta:none; locus:{locus_id}; evidence:{evidence}"
+                ),
+            }
+            for blocker in _HARD_BLOCKERS
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _exact_verification(scope: str) -> str:
+    return (
+        f"command=python3 -m unittest {scope}; scope={scope}; "
+        + "expected_exit=0; expected_output=OK; "
+        + "behavioral_assertion=observable: named contract test passes"
+    )
+
+
 def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
     task = task or _DirectFixV2Task()
-    blockers = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
-    blocker_evidence = "; ".join(
-        f"{blocker}=code:app/file-1.rb:1" for blocker in _HARD_BLOCKERS
+    blocker_evidence = f"code:{task.expected_paths[0]}:1"
+    blocker_dispositions = _canonical_blocker_dispositions(
+        "locus-1::order_call", blocker_evidence
     )
     return f"""### Task 1: focused v2 change
 - **direct_fix_schema_version**: 2
@@ -252,10 +283,8 @@ def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
 - **Expected-result oracle**: {task.expected_result_oracle}
 - **depends_on_task_ids**: []
 - **Exact change**: update only the selected locus
-- **Hard blockers checked**: [{blockers}]
-- **Hard blocker evidence**: {blocker_evidence}
-- **Hard blocker result**: none
-- **Verification**: python3 -m unittest
+- **Blocker dispositions**: {blocker_dispositions}
+- **Verification**: {_exact_verification("tests.test_direct_fix_routing_contract.TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible")}
 - **Commit message**: fix focused v2 change
 - **Reply kind**: {task.reply_kind}
 - **Reply targets**: reply-1
@@ -834,12 +863,15 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         if len(dependency_values) != len(set(dependency_values)):
             errors.append(f"{task_label} has duplicate dependency edge")
 
-        _validate_hard_blocker_certificate(values, task_label, errors)
+        _validate_blocker_dispositions(
+            values,
+            task_number,
+            expected_paths,
+            locus_id,
+            errors,
+        )
         verification = values["Verification"]
-        if verification is not None and re.search(
-            r"(?i)\b(?:unclear|tbd|unknown)\b", verification
-        ):
-            errors.append(f"{task_label} has unclear verification")
+        _validate_exact_verification(verification, task_number, errors)
         errors.extend(_validate_route_fields(task, task_label))
 
     if scope_failures:
@@ -902,45 +934,172 @@ def _parse_list_field(
     return [item.strip().strip("`") for item in content.split(",") if item.strip()]
 
 
-def _validate_hard_blocker_certificate(
-    values: dict[str, str | None], task_label: str, errors: list[str]
+def _validate_blocker_dispositions(
+    values: dict[str, str | None],
+    task_number: int,
+    expected_paths: list[str],
+    locus_id: str | None,
+    errors: list[str],
 ) -> None:
-    checked = _parse_list_field(
-        values["Hard blockers checked"],
-        task_label,
-        "Hard blockers checked",
-        errors,
-    )
-    if checked != list(_HARD_BLOCKERS):
+    raw = values["Blocker dispositions"]
+    try:
+        parsed: object = json.loads(raw) if raw is not None else None
+    except json.JSONDecodeError:
+        parsed = None
+    if not _is_object_list(parsed):
         errors.append(
-            f"{task_label} Hard blockers checked must match canonical enum order"
+            _inventory_error(
+                f"task-{task_number}",
+                "task.hard-blocker.architecture",
+                "Blocker dispositions must be a JSON array",
+            )
+        )
+        return
+    parsed_items = parsed
+
+    for index, blocker in enumerate(_HARD_BLOCKERS):
+        reason_id = f"task.hard-blocker.{blocker}"
+        if index >= len(parsed_items):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "missing canonical disposition"
+                )
+            )
+            continue
+        candidate = parsed_items[index]
+        if not _is_string_object_mapping(candidate):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "disposition must be an object"
+                )
+            )
+            continue
+        raw_item = candidate
+        required_fields = {
+            "blocker_id",
+            "delta_locus_justification",
+            "disposition",
+            "evidence",
+        }
+        if set(raw_item) != required_fields:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "disposition fields are invalid"
+                )
+            )
+            continue
+        blocker_id = raw_item.get("blocker_id")
+        disposition = raw_item.get("disposition")
+        evidence = raw_item.get("evidence")
+        justification = raw_item.get("delta_locus_justification")
+        if not all(
+            isinstance(value, str)
+            for value in (blocker_id, disposition, evidence, justification)
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "disposition values are invalid"
+                )
+            )
+            continue
+        assert isinstance(blocker_id, str)
+        assert isinstance(disposition, str)
+        assert isinstance(evidence, str)
+        assert isinstance(justification, str)
+        if blocker_id != blocker:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "canonical blocker order mismatch"
+                )
+            )
+            continue
+        citation_match = _BLOCKER_CITATION_RE.fullmatch(evidence)
+        cited_path = (
+            citation_match.group("code_path") or citation_match.group("test_path")
+            if citation_match is not None
+            else None
+        )
+        expected_delta = {
+            "not-triggered": "none",
+            "triggered": "intersects",
+            "uncertain": "uncertain",
+        }.get(disposition)
+        expected_justification = (
+            f"delta:{expected_delta}; locus:{locus_id}; evidence:{evidence}"
+        )
+        malformed = (
+            disposition not in _BLOCKER_DISPOSITIONS
+            or citation_match is None
+            or (cited_path is not None and cited_path not in expected_paths)
+            or justification != expected_justification
+        )
+        if malformed or disposition != "not-triggered":
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    reason_id,
+                    "malformed disposition"
+                    if malformed
+                    else f"disposition is {disposition}",
+                )
+            )
+    if len(parsed_items) > len(_HARD_BLOCKERS):
+        errors.append(
+            _inventory_error(
+                f"task-{task_number}",
+                f"task.hard-blocker.{_HARD_BLOCKERS[-1]}",
+                "unknown extra disposition",
+            )
         )
 
-    evidence_value = values["Hard blocker evidence"]
-    evidence_names: list[str] = []
-    has_malformed_citation = False
-    if evidence_value is not None:
-        for item in evidence_value.split(";"):
-            name, separator, citation = item.strip().partition("=")
-            evidence_names.append(name)
-            if not separator or not citation.strip():
-                errors.append(f"{task_label} Hard blocker evidence must be non-empty")
-            elif (
-                re.fullmatch(
-                    r"(?:code:[^;=\s]+:[1-9][0-9]*|comment:[1-9][0-9]*|test:[^;=\s]+::[A-Za-z_][A-Za-z0-9_.]*)",
-                    citation,
-                )
-                is None
-            ):
-                has_malformed_citation = True
-    if has_malformed_citation:
-        errors.append(f"{task_label} Hard blocker evidence contains malformed citation")
-    if evidence_names != list(_HARD_BLOCKERS):
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
+def _is_string_object_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
+    return isinstance(value, Mapping)
+
+
+def _validate_exact_verification(
+    verification: str | None, task_number: int, errors: list[str]
+) -> None:
+    reason_id = "task.verification"
+    parts: dict[str, str] = {}
+    if verification is not None:
+        for segment in verification.split(";"):
+            key, separator, value = segment.strip().partition("=")
+            if separator and key not in parts:
+                parts[key] = value.strip()
+    required = (
+        "command",
+        "scope",
+        "expected_exit",
+        "expected_output",
+        "behavioral_assertion",
+    )
+    combined = " ".join(parts.values())
+    forbidden = re.search(
+        r"(?i)(?:^|\b)(?:run tests|retry|rerun|re-run|timeout|skip|update-snapshots?"
+        + r"|blind snapshot|weaken(?:ed|ing)? assertion|random|flaky|nondetermin)"
+        + r"(?:\b|$)|derived from (?:implementation )?output",
+        combined,
+    )
+    valid = (
+        tuple(parts) == required
+        and all(parts.values())
+        and re.fullmatch(r"[0-9]+", parts.get("expected_exit", "")) is not None
+        and parts.get("behavioral_assertion", "").startswith("observable:")
+        and forbidden is None
+    )
+    if not valid:
         errors.append(
-            f"{task_label} Hard blocker evidence must match canonical enum order"
+            _inventory_error(
+                f"task-{task_number}",
+                reason_id,
+                "Verification must be deterministic command, scope, expected result, and observable assertion",
+            )
         )
-    if values["Hard blocker result"] != "none":
-        errors.append(f"{task_label} Hard blocker result must be exactly none")
 
 
 def _validate_direct_fix_topology(
@@ -1158,9 +1317,9 @@ def _complete_task(
     )
     expected_paths = (*changed_paths, *verification_paths)
     dependencies = ", ".join(f"task-{task_number}" for task_number in depends_on)
-    blockers = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
-    blocker_evidence = "; ".join(
-        f"{blocker}=code:app/file-{number}.rb:{number}" for blocker in _HARD_BLOCKERS
+    blocker_dispositions = _canonical_blocker_dispositions(
+        locus_id or f"locus-{number}::responsibility_{number}",
+        f"code:{changed_paths[0]}:{number}",
     )
     return f"""### Task {number}: focused change
 - **direct_fix_schema_version**: 2
@@ -1179,10 +1338,8 @@ def _complete_task(
 - **Expected-result oracle**: test:{verification_paths[0]}::test_behavior_{number}
 - **depends_on_task_ids**: [{dependencies}]
 - **Exact change**: mechanically update the named locus
-- **Hard blockers checked**: [{blockers}]
-- **Hard blocker evidence**: {blocker_evidence}
-- **Hard blocker result**: none
-- **Verification**: python3 -m unittest
+- **Blocker dispositions**: {blocker_dispositions}
+- **Verification**: {_exact_verification(f"tests.test_direct_fix_routing_contract.TestDirectFixComplexityAndTopologyFixtures.test_singleton_fixture_is_eligible")}
 - **Commit message**: fix task {number}
 - **Reply kind**: fixed
 - **Reply targets**: reply-{number}
@@ -1602,18 +1759,216 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
         errors = validate_direct_fix_brief_fixture(fixture)
         self.assertIn(expected, errors, errors)
 
-    def test_hard_blocker_evidence_requires_typed_citations(self) -> None:
-        malformed_evidence = "; ".join(
-            f"{blocker}=not-a-citation" for blocker in _HARD_BLOCKERS
+    def _todo4_dispositions(
+        self,
+        *,
+        dispositions: Mapping[str, str] | None = None,
+        justification_overrides: Mapping[str, str] | None = None,
+    ) -> list[dict[str, str]]:
+        dispositions = dispositions or {}
+        justification_overrides = justification_overrides or {}
+        return [
+            {
+                "blocker_id": blocker,
+                "disposition": dispositions.get(blocker, "not-triggered"),
+                "evidence": "code:app/file-1.rb:1",
+                "delta_locus_justification": justification_overrides.get(
+                    blocker,
+                    "delta:none; locus:locus-1::responsibility_1; "
+                    + "evidence:code:app/file-1.rb:1",
+                ),
+            }
+            for blocker in (
+                "architecture",
+                "cross-module-state",
+                "public-interface",
+                "security-or-authorization",
+                "schema-or-data",
+                "dependency-introduction",
+                "concurrency",
+                "transaction",
+                "retry-or-recovery",
+                "deployment-or-release",
+                "unclear-verification",
+            )
+        ]
+
+    def _todo4_fixture(
+        self,
+        dispositions: list[dict[str, str]] | None = None,
+        verification: str | None = None,
+    ) -> str:
+        blocker_json = json.dumps(
+            dispositions or self._todo4_dispositions(),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        exact_verification = verification or (
+            "command=python3 -m unittest "
+            + "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check; "
+            + "scope=TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check; "
+            + "expected_exit=0; expected_output=OK; "
+            + "behavioral_assertion=observable: eligible fixture returns no reasons"
         )
         fixture = re.sub(
-            r"(?m)^- \*\*Hard blocker evidence\*\*:.*$",
-            f"- **Hard blocker evidence**: {malformed_evidence}",
+            r"(?m)^- \*\*Blocker dispositions\*\*:.*$",
+            f"- **Blocker dispositions**: {blocker_json}",
             _complete_task(1),
         )
+        return re.sub(
+            r"(?m)^- \*\*Verification\*\*:.*$",
+            f"- **Verification**: {exact_verification}",
+            fixture,
+        )
+
+    def test_all_eleven_blockers_are_delta_sensitive(self) -> None:
+        blocker_names = tuple(
+            disposition["blocker_id"] for disposition in self._todo4_dispositions()
+        )
+
+        for blocker in blocker_names:
+            with self.subTest(blocker=blocker, context="ambient"):
+                self.assertEqual(
+                    validate_direct_fix_brief_fixture(self._todo4_fixture()), []
+                )
+
+            with self.subTest(blocker=blocker, context="delta-intersection"):
+                dispositions = self._todo4_dispositions(
+                    dispositions={blocker: "triggered"},
+                    justification_overrides={
+                        blocker: "delta:intersects; "
+                        + "locus:locus-1::responsibility_1; "
+                        + "evidence:code:app/file-1.rb:1"
+                    },
+                )
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(dispositions)
+                )
+                self.assertIn(f"task.hard-blocker.{blocker}", "\n".join(errors))
+
+    def test_blocker_dispositions_reject_invalid_shapes_and_relevance(self) -> None:
+        canonical = self._todo4_dispositions()
+        cases = {
+            "missing": canonical[1:],
+            "reordered": [canonical[1], canonical[0], *canonical[2:]],
+            "malformed": [
+                {**canonical[0], "disposition": "clear"},
+                *canonical[1:],
+            ],
+            "irrelevant": [
+                {
+                    **canonical[0],
+                    "delta_locus_justification": "nearby code looks safe",
+                },
+                *canonical[1:],
+            ],
+        }
+
+        for name, dispositions in cases.items():
+            with self.subTest(name=name):
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(dispositions)
+                )
+                self.assertIn("task.hard-blocker.", "\n".join(errors))
+
+    def test_triggered_and_uncertain_dispositions_use_per_blocker_reason(self) -> None:
+        for disposition, delta in (
+            ("triggered", "intersects"),
+            ("uncertain", "uncertain"),
+        ):
+            with self.subTest(disposition=disposition):
+                blockers = self._todo4_dispositions(
+                    dispositions={"security-or-authorization": disposition},
+                    justification_overrides={
+                        "security-or-authorization": f"delta:{delta}; "
+                        + "locus:locus-1::responsibility_1; "
+                        + "evidence:code:app/file-1.rb:1"
+                    },
+                )
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(blockers)
+                )
+                self.assertIn(
+                    "task-1: task.hard-blocker.security-or-authorization",
+                    "\n".join(errors),
+                )
+
+    def test_exact_verification_accepts_deterministic_observable_check(self) -> None:
+        self.assertEqual(validate_direct_fix_brief_fixture(self._todo4_fixture()), [])
+
+    def test_verification_rejects_masking_and_self_derived_oracles(self) -> None:
+        cases = {
+            "broad run-tests": "run tests",
+            "retry": "command=retry python3 -m unittest; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "rerun": "command=rerun until pass; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "timeout inflation": "command=python3 -m unittest --timeout 600; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "skip": "command=python3 -m unittest test_x --skip; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "blind snapshot": "command=python3 -m unittest test_x --update-snapshots; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "assertion weakening": "command=python3 -m unittest test_x; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=weaken assertion",
+            "nondeterminism": "command=python3 -m unittest test_x; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable: random output accepted",
+            "self-derived oracle": "command=python3 -m unittest test_x; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable: expected value derived from implementation output",
+        }
+
+        for name, verification in cases.items():
+            with self.subTest(name=name):
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(verification=verification)
+                )
+                self.assertIn("task.verification", "\n".join(errors))
+
+    def test_todo4_combined_failures_report_complete_inventory(self) -> None:
+        dispositions = self._todo4_dispositions(
+            dispositions={
+                "security-or-authorization": "triggered",
+                "deployment-or-release": "triggered",
+                "unclear-verification": "uncertain",
+            },
+            justification_overrides={
+                "security-or-authorization": "delta:intersects; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:code:app/file-1.rb:1",
+                "deployment-or-release": "delta:intersects; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:code:app/file-1.rb:1",
+                "unclear-verification": "delta:uncertain; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:code:app/file-1.rb:1",
+            },
+        )
+        retry_verification = (
+            "command=retry python3 -m unittest test_x; scope=test_x; "
+            + "expected_exit=0; expected_output=OK; "
+            + "behavioral_assertion=observable:test_x passes"
+        )
+
+        errors = validate_direct_fix_brief_fixture(
+            self._todo4_fixture(dispositions, retry_verification)
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                "task-1: task.hard-blocker.security-or-authorization -- "
+                + "disposition is triggered",
+                "task-1: task.hard-blocker.deployment-or-release -- "
+                + "disposition is triggered",
+                "task-1: task.hard-blocker.unclear-verification -- "
+                + "disposition is uncertain",
+                "task-1: task.verification -- Verification must be deterministic "
+                + "command, scope, expected result, and observable assertion",
+            ],
+        )
+
+    def test_blocker_disposition_evidence_requires_typed_citations(self) -> None:
+        dispositions = self._todo4_dispositions()
+        dispositions[0] = {**dispositions[0], "evidence": "not-a-citation"}
 
         self.assertIneligible(
-            fixture, "Task 1 Hard blocker evidence contains malformed citation"
+            self._todo4_fixture(dispositions),
+            "task-1: task.hard-blocker.architecture -- malformed disposition",
         )
 
     def test_natural_language_multiple_outcomes_and_loci_are_rejected(self) -> None:
@@ -1834,9 +2189,12 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
             ),
             "missing certificate field": (
                 re.sub(
-                    r"^- \*\*Hard blocker result\*\*:.*\n", "", base, flags=re.MULTILINE
+                    r"^- \*\*Blocker dispositions\*\*:.*\n",
+                    "",
+                    base,
+                    flags=re.MULTILINE,
                 ),
-                "Task 1 missing Hard blocker result",
+                "Task 1 missing Blocker dispositions",
             ),
             "multiple outcomes": (
                 re.sub(
@@ -1858,80 +2216,17 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                 "batch: batch.shared-locus -- tasks 1 and 2 share code:app/file-1.rb:1::responsibility-1#behavior-hunk",
             ),
             "unclear verification": (
-                base.replace(
-                    "- **Verification**: python3 -m unittest", "- **Verification**: TBD"
+                re.sub(
+                    r"(?m)^- \*\*Verification\*\*:.*$",
+                    "- **Verification**: TBD",
+                    base,
                 ),
-                "Task 1 has unclear verification",
+                "task-1: task.verification -- Verification must be deterministic command, scope, expected result, and observable assertion",
             ),
         }
         for name, (fixture, expected) in cases.items():
             with self.subTest(name=name):
                 self.assertIneligible(fixture, expected)
-
-    def test_hard_blocker_certificate_rejects_every_malformed_shape(self) -> None:
-        base = _complete_task(1)
-        checked_line = re.search(
-            r"^- \*\*Hard blockers checked\*\*:.*$", base, re.MULTILINE
-        )
-        evidence_line = re.search(
-            r"^- \*\*Hard blocker evidence\*\*:.*$", base, re.MULTILINE
-        )
-        assert checked_line is not None
-        assert evidence_line is not None
-        cases = {
-            "missing enum": base.replace("`architecture`, ", "", 1),
-            "duplicate enum": base.replace(
-                "`architecture`, ", "`architecture`, `architecture`, ", 1
-            ),
-            "unknown enum": base.replace("`architecture`", "`unknown`", 1),
-            "reordered enum": base.replace(
-                "`architecture`, `cross-module-state`",
-                "`cross-module-state`, `architecture`",
-                1,
-            ),
-            "empty evidence": base.replace(
-                "architecture=code:app/file-1.rb:1",
-                "architecture=",
-                1,
-            ),
-            "missing evidence member": base.replace(
-                "architecture=code:app/file-1.rb:1; ",
-                "",
-                1,
-            ),
-            "duplicate evidence member": base.replace(
-                "architecture=code:app/file-1.rb:1; ",
-                "architecture=code:app/file-1.rb:1; architecture=code:app/file-1.rb:1; ",
-                1,
-            ),
-            "unknown evidence member": base.replace(
-                "architecture=code:app/file-1.rb:1",
-                "unknown=code:app/file-1.rb:1",
-                1,
-            ),
-            "reordered evidence": base.replace(
-                "architecture=code:app/file-1.rb:1; cross-module-state=code:app/file-1.rb:1",
-                "cross-module-state=code:app/file-1.rb:1; architecture=code:app/file-1.rb:1",
-                1,
-            ),
-            "contradictory result": base.replace(
-                "- **Hard blocker result**: none",
-                "- **Hard blocker result**: architecture",
-            ),
-        }
-        for name, fixture in cases.items():
-            with self.subTest(name=name):
-                self.assertTrue(validate_direct_fix_brief_fixture(fixture), name)
-
-        for blocker in _HARD_BLOCKERS:
-            with self.subTest(hard_blocker=blocker):
-                fixture = base.replace(
-                    "- **Hard blocker result**: none",
-                    f"- **Hard blocker result**: {blocker}",
-                )
-                self.assertIneligible(
-                    fixture, "Task 1 Hard blocker result must be exactly none"
-                )
 
     def test_validator_reports_all_failed_conditions(self) -> None:
         fixture = "\n".join(
@@ -1939,9 +2234,10 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                 _complete_task(1, complexity_class="architectural"),
                 _complete_task(2, depends_on=(1,)),
                 _complete_task(3, depends_on=(2,)),
-                _complete_task(4, depends_on=(3,)).replace(
-                    "- **Verification**: python3 -m unittest",
+                re.sub(
+                    r"(?m)^- \*\*Verification\*\*:.*$",
                     "- **Verification**: unclear",
+                    _complete_task(4, depends_on=(3,)),
                 ),
             )
         )
@@ -1949,7 +2245,7 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
         errors = validate_direct_fix_brief_fixture(fixture)
 
         self.assertIn("Task 1 has invalid Complexity class", errors)
-        self.assertIn("Task 4 has unclear verification", errors)
+        self.assertIn("task-4: task.verification", "\n".join(errors))
         self.assertIn("Direct Fix ordered-chain length must be 2-3 tasks", errors)
 
 
@@ -2059,16 +2355,17 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
             r"(?i)`resolved-commented-file-only`[^\n]*only `unresolved-global-scope` blocks",
         )
 
-    def test_complexity_hard_blocker_enum_is_closed_and_canonical(self) -> None:
+    def test_blocker_dispositions_are_closed_delta_sensitive_and_canonical(
+        self,
+    ) -> None:
         section = self.direct_fix()
         canonical = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
         self.assertTextIn(canonical, section)
-        self.assertContractRegex(section, r"(?i)closed fail-closed enum")
-        self.assertContractRegex(section, r"Hard blockers checked:\s*\[[^\n]+\]")
-        self.assertContractRegex(section, r"Hard blocker evidence:\s*[^\n]+")
-        self.assertContractRegex(section, r"Hard blocker result:\s*`?none`?")
+        self.assertTextIn("exactly eleven `Blocker dispositions` objects", section)
+        self.assertTextIn("Only eleven valid `not-triggered` objects", section)
+        self.assertContractRegex(section, r"task\.hard-blocker\.<blocker-name>")
 
-    def test_direct_fix_template_contains_complexity_certificate_fields(self) -> None:
+    def test_direct_fix_template_contains_blocker_disposition_field(self) -> None:
         template = extract_markdown_fixture(self.direct_fix())
         section_a = extract_markdown_section(template, "Section A: Code Change + Reply")
         for field in _REQUIRED_TASK_FIELDS:
@@ -2688,6 +2985,21 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
                 "object_keys": "sorted",
                 "separators": ",:",
                 "trailing_lf": 1,
+            },
+            "eligibility": {
+                "blocker_dispositions": [
+                    "not-triggered",
+                    "triggered",
+                    "uncertain",
+                ],
+                "blocker_order": list(_HARD_BLOCKERS),
+                "verification_fields": [
+                    "command",
+                    "scope",
+                    "expected_exit",
+                    "expected_output",
+                    "behavioral_assertion",
+                ],
             },
             "execution_scope": {
                 "authority": "expected_paths",
