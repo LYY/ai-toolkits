@@ -74,8 +74,11 @@ Every executable artifact carries:
 - Reply kind, target, endpoint requirements, and commit SHA requirements.
 - Read-back verification and cleanup conditions.
 
-Direct Fix v2 adds a bounded certificate to the Markdown interface. The runtime
-contract remains [`dossier-output.md`](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-brief).
+Direct Fix v2 adds a bounded policy certificate to the existing Markdown
+interface. Its canonical policy block carries `direct_fix_schema_version` as
+integer `2`; this versions the existing bounded Markdown contract, but does not
+introduce a new serialized JSON or YAML protocol. The runtime contract remains
+[`dossier-output.md`](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-brief).
 This design records only executor-visible distinctions:
 
 - `direct_fix_schema_version` is integer `2`; `change_mode` is exactly
@@ -104,7 +107,10 @@ Artifact types (two persisted, two terminal):
 | Reply Only | No code changes are needed, but confirmed replies remain | Direct POST to each reply endpoint, then GET/LIST read-back verification; no artifact written |
 | No Action | Nothing remains actionable | Terminal no-write; record completion only |
 
-Markdown remains the interface for persisted artifacts. Mandatory sections and completeness gates provide sufficient structure without adding schema versioning or parser maintenance.
+Markdown remains the interface for persisted artifacts. Mandatory sections and
+completeness gates provide sufficient structure, while the bounded Direct Fix
+policy block carries its existing contract version without adding a separate
+serialization protocol or parser maintenance.
 
 ### Artifact Lifecycle
 
