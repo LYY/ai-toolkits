@@ -745,6 +745,31 @@ class TestPrepareScoreCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         return json.loads(result.stdout)
 
+    def _run_score_with_manifest(
+        self, manifest_raw: bytes
+    ) -> subprocess.CompletedProcess[str]:
+        response_path = self.tmp / "manifest_error_response.json"
+        response_path.write_bytes(_canonical_json_bytes(_make_valid_response_json()))
+        output_path = self.tmp / "manifest_error_score.json"
+        manifest_path = self.tmp / "manifest_error.json"
+        manifest_path.write_bytes(manifest_raw)
+        return run_script(
+            _PREPARE_SCRIPT,
+            [
+                "--score",
+                "--phase",
+                "green",
+                "--case-id",
+                "complex-dossier",
+                "--response",
+                str(response_path),
+                "--output",
+                str(output_path),
+                "--manifest",
+                str(manifest_path),
+            ],
+        )
+
     # -- basic success -------------------------------------------------------
 
     def test_score_all_pass(self) -> None:
@@ -1062,6 +1087,30 @@ class TestPrepareScoreCLI(unittest.TestCase):
                         }
                     ],
                 )
+
+    def test_score_rejects_invalid_utf8_manifest_without_traceback(self) -> None:
+        result = self._run_score_with_manifest(b"\xff")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stderr, "Invalid score manifest: expected UTF-8 JSON\n")
+
+    def test_score_rejects_non_object_manifest_root_without_traceback(self) -> None:
+        result = self._run_score_with_manifest(b"[]")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "Invalid score manifest: root must be a JSON object\n",
+        )
+
+    def test_score_rejects_non_object_manifest_case_without_traceback(self) -> None:
+        result = self._run_score_with_manifest(b'{"cases":[[]]}')
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "Invalid score manifest: case 0 must be a JSON object\n",
+        )
 
     def test_score_en08_missing_actual_object_fails_without_defaults(self) -> None:
         response = _make_valid_response_json("direct-fix-hard-blocker")

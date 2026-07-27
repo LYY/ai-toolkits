@@ -559,14 +559,39 @@ def _load_expected_direct_fix_case(
     manifest_path: str, case_id: str
 ) -> dict[str, DirectFixCaseValue] | None:
     try:
-        with open(manifest_path, "rb") as fh:
-            manifest = json.load(fh, object_pairs_hook=_reject_duplicate_json_keys)
+        with open(manifest_path, "rb") as manifest_file:
+            manifest_raw = manifest_file.read()
+    except OSError as error:
+        _die(f"Cannot read score manifest: {error}", 2)
+    try:
+        manifest_text = manifest_raw.decode("utf-8")
+    except UnicodeDecodeError:
+        _die("Invalid score manifest: expected UTF-8 JSON", 2)
+    try:
+        manifest = json.loads(
+            manifest_text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
     except _DuplicateJSONKeyError:
         return {}
-    for case in manifest.get("cases", []):
+    except json.JSONDecodeError:
+        _die("Invalid score manifest: malformed JSON", 2)
+    if not isinstance(manifest, dict):
+        _die("Invalid score manifest: root must be a JSON object", 2)
+    cases = manifest.get("cases", [])
+    if not isinstance(cases, list):
+        _die("Invalid score manifest: cases must be an array", 2)
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            _die(f"Invalid score manifest: case {index} must be a JSON object", 2)
         if case.get("case_id") != case_id:
             continue
         expected = case.get("expected", {})
+        if not isinstance(expected, dict):
+            _die(
+                f"Invalid score manifest: case {index} expected must be a JSON object",
+                2,
+            )
         if "direct_fix_case" not in expected:
             return None
         direct_fix_case = expected["direct_fix_case"]
@@ -771,33 +796,40 @@ def _do_score(args: argparse.Namespace) -> None:
         return
 
     # Extract fields with defaults for missing
-    try:
-        routes: list = response_obj.get("routes", [])
-        artifacts: list = response_obj.get("persisted_artifacts", [])
-        section_a_order: list = response_obj.get("section_a_order", [])
-        push_authorized = response_obj.get("push_authorized")
-        recovery: dict = response_obj.get("recovery", {})
-        runtime_specific_terms: list = response_obj.get("runtime_specific_terms", [])
-        handoff_complete = response_obj.get("handoff_complete")
-        direct_fix_policy: dict[str, DirectFixPolicyValue] = response_obj.get(
-            "direct_fix_policy", {}
-        )
-        handoff_prompt_counts: dict[str, int] = response_obj.get(
-            "handoff_prompt_counts", {}
-        )
-        actual_direct_fix_case = response_obj.get("direct_fix_case")
-    except Exception:
-        verdicts = _verdicts_for_all("schema-error", criterion_ids)
-        _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
-        return
+    routes = response_obj.get("routes", [])
+    artifacts = response_obj.get("persisted_artifacts", [])
+    section_a_order = response_obj.get("section_a_order", [])
+    push_authorized = response_obj.get("push_authorized")
+    recovery = response_obj.get("recovery", {})
+    runtime_specific_terms = response_obj.get("runtime_specific_terms", [])
+    handoff_complete = response_obj.get("handoff_complete")
+    direct_fix_policy = response_obj.get("direct_fix_policy", {})
+    handoff_prompt_counts = response_obj.get("handoff_prompt_counts", {})
+    actual_direct_fix_case = response_obj.get("direct_fix_case")
 
     # Check for missing required fields (None values for critical fields)
     if (
-        push_authorized is None
+        not isinstance(routes, list)
+        or not all(isinstance(route, str) for route in routes)
+        or not isinstance(artifacts, list)
+        or not all(isinstance(artifact, str) for artifact in artifacts)
+        or not isinstance(section_a_order, list)
+        or not all(isinstance(section, str) for section in section_a_order)
+        or type(push_authorized) is not bool
         or not isinstance(recovery, dict)
-        or handoff_complete is None
+        or not isinstance(runtime_specific_terms, list)
+        or not all(isinstance(term, str) for term in runtime_specific_terms)
+        or type(handoff_complete) is not bool
         or not isinstance(direct_fix_policy, dict)
         or not isinstance(handoff_prompt_counts, dict)
+        or not all(
+            isinstance(prompt_name, str) and type(count) is int
+            for prompt_name, count in handoff_prompt_counts.items()
+        )
+        or (
+            actual_direct_fix_case is not None
+            and not isinstance(actual_direct_fix_case, dict)
+        )
     ):
         verdicts = _verdicts_for_all("schema-error", criterion_ids)
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
