@@ -17,6 +17,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+from typing import TypedDict
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +35,21 @@ _VALIDATE_SCRIPT = str(
     _REPO_ROOT / "scripts" / "validate-address-pr-comments-review-receipts.py"
 )
 _FIXTURES = _REPO_ROOT / "tests" / "address-pr-comments-review-eval"
+
+
+class ScoreVerdict(TypedDict):
+    criterion_id: str
+    status: str
+    reason_code: str
+
+
+class ScoreJSON(TypedDict):
+    schema_version: int
+    phase: str
+    case_id: str
+    output_sha256: str
+    verdicts: list[ScoreVerdict]
+    all_pass: bool
 
 
 # Canonical JSON helper
@@ -551,6 +567,34 @@ class TestPrepareScoreCLI(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
 
+    def _score_raw(
+        self,
+        case_id: str,
+        response_raw: bytes,
+        manifest_raw: bytes | None = None,
+    ) -> ScoreJSON:
+        response_path = self.tmp / "raw_response.json"
+        response_path.write_bytes(response_raw)
+        output_path = self.tmp / "raw_score.json"
+        args = [
+            "--score",
+            "--phase",
+            "green",
+            "--case-id",
+            case_id,
+            "--response",
+            str(response_path),
+            "--output",
+            str(output_path),
+        ]
+        if manifest_raw is not None:
+            manifest_path = self.tmp / "raw_manifest.json"
+            manifest_path.write_bytes(manifest_raw)
+            args.extend(["--manifest", str(manifest_path)])
+        result = run_script(_PREPARE_SCRIPT, args)
+        self.assertEqual(result.returncode, 0)
+        return json.loads(result.stdout)
+
     # -- basic success -------------------------------------------------------
 
     def test_score_all_pass(self) -> None:
@@ -714,6 +758,34 @@ class TestPrepareScoreCLI(unittest.TestCase):
                 )
                 self.assertEqual(en06["reason_code"], "policy-mismatch")
 
+    def test_score_duplicate_policy_key_fails_all_criteria(self) -> None:
+        response_raw = _canonical_json_bytes(_make_valid_response_json()).replace(
+            b'"max_tasks":5',
+            b'"max_tasks":6,"max_tasks":5',
+            1,
+        )
+        self.assertEqual(response_raw.count(b'"max_tasks"'), 2)
+        data = self._score_raw("complex-dossier", response_raw)
+        self.assertFalse(data["all_pass"])
+        self.assertEqual(
+            {verdict["reason_code"] for verdict in data["verdicts"]},
+            {"parse-error"},
+        )
+
+    def test_score_duplicate_root_key_fails_all_criteria(self) -> None:
+        response_raw = _canonical_json_bytes(_make_valid_response_json()).replace(
+            b'"handoff_complete":true',
+            b'"handoff_complete":false,"handoff_complete":true',
+            1,
+        )
+        self.assertEqual(response_raw.count(b'"handoff_complete"'), 2)
+        data = self._score_raw("complex-dossier", response_raw)
+        self.assertFalse(data["all_pass"])
+        self.assertEqual(
+            {verdict["reason_code"] for verdict in data["verdicts"]},
+            {"parse-error"},
+        )
+
     def test_score_en08_case_mutations_are_independent(self) -> None:
         baseline = _make_valid_response_json("direct-fix-hard-blocker")
         mutations = {
@@ -769,6 +841,77 @@ class TestPrepareScoreCLI(unittest.TestCase):
                             }
                         ],
                     )
+
+    def test_score_duplicate_actual_direct_fix_key_fails_en08(self) -> None:
+        response_raw = _canonical_json_bytes(
+            _make_valid_response_json("direct-fix-hard-blocker")
+        ).replace(
+            b'"eligible":false',
+            b'"eligible":true,"eligible":false',
+            1,
+        )
+        self.assertEqual(response_raw.count(b'"eligible"'), 2)
+        data = self._score_raw("direct-fix-hard-blocker", response_raw)
+        self.assertFalse(data["all_pass"])
+        en08 = next(
+            verdict
+            for verdict in data["verdicts"]
+            if verdict["criterion_id"] == "EN-08"
+        )
+        self.assertEqual(en08["status"], "FAIL")
+        self.assertEqual(en08["reason_code"], "parse-error")
+
+    def test_score_duplicate_manifest_key_fails_en08(self) -> None:
+        expected_direct_fix_case = _make_valid_response_json("direct-fix-hard-blocker")[
+            "direct_fix_case"
+        ]
+        manifest_raw = _canonical_json_bytes(
+            {
+                "cases": [
+                    {
+                        "case_id": "duplicate-expected-direct-fix-case",
+                        "expected": {"direct_fix_case": expected_direct_fix_case},
+                    }
+                ]
+            }
+        )
+        duplicate_manifests = {
+            "root": manifest_raw.replace(
+                b'{"cases":',
+                b'{"cases":[],"cases":',
+                1,
+            ),
+            "nested": manifest_raw.replace(
+                b'"eligible":false',
+                b'"eligible":true,"eligible":false',
+                1,
+            ),
+        }
+        response = _make_valid_response_json("direct-fix-hard-blocker")
+
+        for duplicate_kind, duplicate_manifest_raw in duplicate_manifests.items():
+            with self.subTest(duplicate_kind=duplicate_kind):
+                data = self._score_raw(
+                    "duplicate-expected-direct-fix-case",
+                    _canonical_json_bytes(response),
+                    duplicate_manifest_raw,
+                )
+                self.assertFalse(data["all_pass"])
+                failed = [
+                    verdict
+                    for verdict in data["verdicts"]
+                    if verdict["status"] == "FAIL"
+                ]
+                self.assertEqual(
+                    failed,
+                    [
+                        {
+                            "criterion_id": "EN-08",
+                            "status": "FAIL",
+                            "reason_code": "direct-fix-case-mismatch",
+                        }
+                    ],
+                )
 
     def test_score_en08_missing_actual_object_fails_without_defaults(self) -> None:
         response = _make_valid_response_json("direct-fix-hard-blocker")

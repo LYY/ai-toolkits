@@ -66,6 +66,24 @@ def _file_sha256(path: str) -> str:
 # Canonical JSON
 # ---------------------------------------------------------------------------
 
+JSONScalar: TypeAlias = str | int | float | bool | None
+JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+
+
+class _DuplicateJSONKeyError(ValueError):
+    pass
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, JSONValue]],
+) -> dict[str, JSONValue]:
+    parsed: dict[str, JSONValue] = {}
+    for key, value in pairs:
+        if key in parsed:
+            raise _DuplicateJSONKeyError(key)
+        parsed[key] = value
+    return parsed
+
 
 def _canonical_json(obj: object) -> bytes:
     text = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -534,8 +552,11 @@ def _verdicts_for_all(
 def _load_expected_direct_fix_case(
     manifest_path: str, case_id: str
 ) -> dict[str, DirectFixCaseValue] | None:
-    with open(manifest_path, "rb") as fh:
-        manifest = json.load(fh)
+    try:
+        with open(manifest_path, "rb") as fh:
+            manifest = json.load(fh, object_pairs_hook=_reject_duplicate_json_keys)
+    except _DuplicateJSONKeyError:
+        return {}
     for case in manifest.get("cases", []):
         if case.get("case_id") != case_id:
             continue
@@ -727,8 +748,11 @@ def _do_score(args: argparse.Namespace) -> None:
 
     # Parse JSON
     try:
-        response_obj = json.loads(response_text)
-    except (json.JSONDecodeError, ValueError) as e:
+        response_obj = json.loads(
+            response_text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (json.JSONDecodeError, _DuplicateJSONKeyError):
         # Parse failure → all parse-error
         verdicts = _verdicts_for_all("parse-error", criterion_ids)
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
