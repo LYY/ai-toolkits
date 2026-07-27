@@ -86,12 +86,12 @@
 |-----------|---------------|
 | expected classification | `partially_addressed` — the fix attempt does not resolve the concern. Re-classify as `partially_addressed` requiring a corrected fix. |
 | expected reply posture | Reply explaining the current fix is insufficient and the direction needs correction. Then code change + reply. |
-| expected overview-table | Section A entry, conclusion `valid`, with note: "Partial fix applied but direction is incorrect — requires redo." |
+| expected overview-table | Section A entry, conclusion `partially_addressed`, with note: "Partial fix applied but direction is incorrect — requires redo." |
 | expected dossier escalation | Yes — Section A (rework the fix: code change + reply). Must describe the correct fix direction and the specific file/line to change. |
 
-**Edge case within partial fix:** If the partial fix actually resolves the concern partially and the remaining issue is cosmetic/minor, it could be `already_fixed` for the resolved part plus a new `valid` for the remainder. Default to `partially_addressed` unless the core concern is genuinely resolved.
+**Edge case within partial fix:** A partial fix remains `partially_addressed` while the core concern is unresolved. Do not replace it with `already_fixed` or `valid` merely because a smaller part changed.
 
-**Token-to-conclusion mapping:** The `partial fix` scenario token maps to the `partially_addressed` classification conclusion defined in `classify.md`.
+**Token-to-conclusion mapping:** The `partial fix` scenario token maps to the `partially_addressed` classification conclusion defined in `classify.md`, and that conclusion survives final-table and artifact generation.
 
 ---
 
@@ -126,6 +126,46 @@
 | expected dossier escalation | Yes — Section A for the commented file. Dossier must include a Scope Guardrail item: "Cross-file pattern detected in [file list] — fix only the commented file in this task. Do not scope-creep to other files. Consider a separate follow-up PR." |
 
 **Edge case within cross-file:** If all instances are trivial changes and the comment explicitly asks "fix this everywhere", the agent may classify additional files as duplicates or extensions. Default is to scope-creep guardrail unless the user or reviewer explicitly requests global fix.
+
+---
+
+## Todo 7 Evaluator Coverage
+
+Todo 7's 17 current manifests cover shared routing plus Direct Fix v2 positive
+and negative decisions. Every Direct Fix case uses the same policy object from
+[`dossier-output.md`](../../skills/address-pr-comments-review/references/dossier-output.md#direct-fix-brief): schema version `2`, mode `locus-change` or
+`verification-only`, typed locus selectors, `expected_paths` as sole scope
+authority, and separate eligibility, authorization, and artifact-integrity
+reason namespaces.
+
+| Case | Expected route | Persisted artifact | Exact Direct Fix result |
+|------|----------------|---------------------|-------------------------|
+| `complex-dossier` | `review-dossier` | `review-dossier` | Not a Direct Fix case |
+| `direct-fix-branch` | `review-dossier` | `review-dossier` | `locus-change`, `runtime-code`, ineligible, `reason_ids=["batch.topology"]` |
+| `direct-fix-chain-four` | `review-dossier` | `review-dossier` | `locus-change`, `runtime-code`, ineligible, `reason_ids=["batch.topology"]` |
+| `direct-fix-change-mode-mismatch` | `review-dossier` | `review-dossier` | `verification-only`, `verification-infrastructure`, ineligible, `reason_ids=["task.change-mode"]` |
+| `direct-fix-confirmed-alternate` | `direct-fix` | `direct-fix-brief` | `locus-change`, `documentation-contract`, eligible, `reason_ids=[]`, matched policy and batch bindings; preserves `partially_addressed` |
+| `direct-fix-fallback` | `review-dossier` | `review-dossier` | `locus-change`, `runtime-code`, eligible with `reason_ids=[]`, matched bindings; Review Dossier selected, so no Direct Fix side effect |
+| `direct-fix-hard-blocker` | `review-dossier` | `review-dossier` | `locus-change`, `runtime-code`, ineligible, `reason_ids=["task.hard-blocker.security-or-authorization","task.hard-blocker.retry-or-recovery"]` |
+| `direct-fix-locus-kinds` | `direct-fix` | `direct-fix-brief` | Representative `locus-change`, `verification-infrastructure`, eligible, `reason_ids=[]`, matched bindings; all five typed locus kinds map exactly to `expected_paths` |
+| `direct-fix-merge` | `review-dossier` | `review-dossier` | `locus-change`, `runtime-code`, ineligible, `reason_ids=["batch.topology"]` |
+| `direct-fix-mixed` | `direct-fix` | `direct-fix-brief` | Representative `locus-change`, `runtime-code`, eligible, `reason_ids=[]`, matched bindings; mixed singleton plus one chain remains serial |
+| `direct-fix-pr1431` | `direct-fix` | `direct-fix-brief` | `locus-change`, `runtime-code`, eligible, `reason_ids=[]`, matched bindings; implementation and direct verification paths stay one task |
+| `direct-fix-security-deployment` | `review-dossier` | `review-dossier` | `locus-change`, `tooling-automation`, ineligible, `reason_ids=["task.hard-blocker.security-or-authorization","task.hard-blocker.deployment-or-release"]` |
+| `direct-fix-two-chains` | `review-dossier` | `review-dossier` | `locus-change`, `runtime-code`, ineligible, `reason_ids=["batch.topology"]` |
+| `direct-fix-verification-only` | `direct-fix` | `direct-fix-brief` | `verification-only`, `runtime-code`, eligible, `reason_ids=[]`, matched bindings; empty changed selectors and independent oracle are required |
+| `direct-fix-verification-unsafe` | `review-dossier` | `review-dossier` | `verification-only`, `runtime-code`, ineligible, `reason_ids=["task.expected-result-oracle","task.verification"]` |
+| `interrupted-recovery` | `review-dossier` | `review-dossier` | Not a Direct Fix case; recovery requires stable IDs, CAS, read-back, and cleanup blocking |
+| `neutral-handoff` | Route-dependent | Route-dependent | Shared handoff contract; route emits exactly one applicable artifact or terminal outcome |
+
+Positive Direct Fix cases must emit exactly one eligible Direct Fix handoff with
+a `direct-fix-brief`. The eligible-but-unselected `direct-fix-fallback` case
+must remain a Review Dossier, persist only `review-dossier`, and produce no
+Direct Fix artifact or execution side effect. Negative cases must emit
+`review-dossier` and preserve the complete ordered reason inventory. Consent
+not selected is not an eligibility failure. A policy, batch, scope, selector,
+or artifact mismatch blocks before any edit, commit, push, reply POST, or
+read-back side effect.
 
 ---
 
@@ -257,7 +297,7 @@
 
 ### 14. direct-fix-pr1431 implementation-plus-verification companion
 
-**Description:** PR #1431 contains one root concern with one local behavioral outcome: a controller implementation path, its directly corresponding spec path, and one exact focused test. The implementation and verification paths belong to one `local-behavior` task, not separate tasks. The task has a complete typed complexity certificate, exact change, canonical reply fields, and no hard blockers. The agent may select Direct Fix only after the final table discloses the route and consequences, then receives valid informed confirmation.
+**Description:** PR #1431 contains one root concern with one local behavioral outcome. One `local-behavior` task carries a typed implementation locus, exact `expected_paths`, and direct `Verification paths`. The task has a complete typed complexity certificate, exact change, canonical reply fields, and no hard blockers. The agent may select Direct Fix only after the final table discloses the route and consequences, then receives valid informed confirmation.
 
 **Origin:** PR #1431. The implementation path and corresponding spec path are direct companions for one behavior, with a focused test as verification. This replaces the old one-file shortcut and guards against splitting one concern into multiple Direct Fix tasks.
 
@@ -265,7 +305,7 @@
 |-----------|---------------|
 | expected classification | `valid` Section A. One `local-behavior` task owns one root concern, one behavioral outcome, and one implementation locus. |
 | expected reply posture | Code change, focused implementation-plus-spec/test validation, commit, body-only reply through the target's exact endpoint, full task-specific 40-character commit SHA in fixed or partially addressed body text, and route-specific read-back verification. |
-| expected overview-table | One Section A task, batch shape `1/5`, ordered chains `0/1`, maximum chain length none, complexity `local-behavior`, implementation and verification paths disclosed, serial execution and fallback reason inventory disclosed, no conflicts or duplicates, and no 🔴 discussion items. |
+| expected overview-table | One Section A task, batch shape `1/5`, ordered chains `0/1`, maximum chain length none, complexity `local-behavior`, exact `expected_paths` and `Verification paths` disclosed, serial execution and fallback reason inventory disclosed, no conflicts or duplicates, and no 🔴 discussion items. |
 | expected dossier escalation | Direct Fix Brief is allowed only after informed final-table confirmation. With no prior Direct Fix preference, generic `proceed` confirms classification only and does not authorize Direct Fix. A valid explicit Direct Fix selection after disclosure is sufficient; a declined or ambiguous route uses the normal Review Dossier path. |
 
 **Failure pattern guarded:** Splitting implementation and direct verification companions into separate tasks, treating one file as the eligibility rule, or treating Direct Fix as code-only work and dropping informed confirmation or reply/read-back requirements.
@@ -281,7 +321,7 @@
 | expected classification | Existing classification stays unchanged unless the grill gate reveals new evidence requiring reclassification. |
 | expected reply posture | Reply posture is confirmed before writing the final artifact if reply wording, target, or commit-SHA wording could mislead. |
 | expected overview-table | Any conclusion, scope, dependency, or conflict change from the grill gate must be reflected in the final overview before artifact writing. |
-| expected dossier escalation | If the grill gate exposes ambiguity, conflict, cross-file scope, architectural choice, or unclear test strategy, use the normal dossier/Prometheus path. If no ambiguity remains and direct-fix criteria pass, Direct Fix Brief is allowed. |
+| expected dossier escalation | If the grill gate exposes ambiguity, conflict, cross-file scope, architectural choice, or unclear test strategy, use the normal Review Dossier path. If no ambiguity remains and Direct Fix criteria pass, Direct Fix Brief is allowed. |
 
 **Failure pattern guarded:** Generating an apparently precise dossier while `What to change`, test strategy, scope guardrails, or reply behavior still require a decision.
 
@@ -508,13 +548,13 @@
 
 ### 31. direct-fix-mixed-topology
 
-**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, and one implementation locus, implementation and direct verification companions share a task, every typed complexity certificate passes, and no hard blocker remains. The failure-path variant uses `task-1 -> task-2` plus independent singleton `task-3`: a proven-safe `task-1` failure blocks `task-2`, `task-3` continues serially, and the final artifact is `blocked` after scheduler exhaustion.
+**Description:** A Direct Fix batch contains legal mixed topology: three independent singleton tasks plus one ordered chain `task-4 -> task-5`. A boundary variant contains two singleton tasks plus one ordered chain `task-3 -> task-4 -> task-5`. Every task is `mechanical` or `local-behavior`, each has one root concern, one behavioral outcome, one typed implementation locus, exact `expected_paths`, and direct `Verification paths`; every typed complexity certificate passes, and no hard blocker remains. The failure-path variant uses `task-1 -> task-2` plus independent singleton `task-3`: a proven-safe `task-1` failure blocks `task-2`, `task-3` continues serially, and the final artifact is `blocked` after scheduler exhaustion.
 
 | Dimension | Expected Value |
 |-----------|---------------|
 | expected classification | All Section A tasks are eligible after individual complexity, certificate, identity, and topology checks. |
 | expected reply posture | Each task keeps its own distinct commit SHA, canonical reply target, full fixed or partially addressed SHA requirement, and route-specific read-back. |
-| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, implementation/verification paths, fallback reason inventory, and the failure-path result: `task-1` failed, `task-2` is dependency-blocked, `task-3` continued, and the final artifact is `blocked` after scheduler exhaustion. |
+| expected overview-table | The table discloses total `5/5`, ordered-chain count `1/1`, chain length `2/3`, dependency-first order, serial execution, complexity classes, exact `expected_paths` and `Verification paths`, fallback reason inventory, and the failure-path result: `task-1` failed, `task-2` is dependency-blocked, `task-3` continued, and the final artifact is `blocked` after scheduler exhaustion. |
 | expected dossier escalation | Direct Fix is allowed only after valid informed final-table confirmation. Generic `proceed` without a pending restated preference confirms classification only. |
 
 **Failure pattern guarded:** Rejecting legal mixed batches because they are not all independent, executing an ordered chain in parallel, exceeding the one-chain or three-node limit, or hiding topology and execution consequences before confirmation.
@@ -561,7 +601,7 @@
 |-----------|---------------|
 | expected classification | Step 3 classification is confirmed before route selection. The transcript must preserve the distinction between no route authorization and a failed Direct Fix eligibility condition. |
 | expected reply posture | No edit, commit, push, reply POST, or read-back is authorized by Step 3 `proceed` or by a generic affirmative without a pending restated Direct Fix preference. Explicit Direct Fix authorizes only the disclosed eligible batch; explicit Review Dossier authorizes no Direct Fix side effect. |
-| expected overview-table | Final disclosure is user-visible and includes the selected or recommended route, batch shape, complexity, implementation and verification paths, serial execution, plan-approval consequence, and fallback reason inventory. |
+| expected overview-table | Final disclosure is user-visible and includes the selected or recommended route, batch shape, complexity, exact `expected_paths`, typed selectors, `Verification paths`, serial execution, plan-approval consequence, and fallback reason inventory. |
 | expected dossier escalation | An eligible single `local-behavior` task with only the `authorization` blocker recommends Review Dossier and records fallback reason inventory exactly `authorization`; it must not invent a second failed condition. |
 
 #### Transcript Evidence Table

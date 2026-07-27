@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,10 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNNER = "tests/run_address_pr_comments_review_regressions.py"
+CHECKER = "scripts/check-address-pr-comments-review-contract.sh"
+DOSSIER = "skills/address-pr-comments-review/references/dossier-output.md"
+MANIFEST = "tests/address-pr-comments-review-regressions/cases.json"
+CASE_IDS = "tests/address-pr-comments-review-regressions/case-ids.txt"
 
 
 class RegressionRunnerTestCase(unittest.TestCase):
@@ -27,7 +32,7 @@ class RegressionRunnerTestCase(unittest.TestCase):
 
     def run_runner(
         self, isolated_root: Path, *args: str
-    ) -> subprocess.CompletedProcess:
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["python3", RUNNER, *args],
             cwd=isolated_root,
@@ -35,6 +40,20 @@ class RegressionRunnerTestCase(unittest.TestCase):
             text=True,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         )
+
+    def run_checker(self, isolated_root: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", CHECKER, str(isolated_root)],
+            cwd=isolated_root,
+            capture_output=True,
+            text=True,
+        )
+
+    def dossier_path(self, isolated_root: Path) -> Path:
+        return isolated_root / DOSSIER
+
+    def manifest_path(self, isolated_root: Path) -> Path:
+        return isolated_root / MANIFEST
 
     def test_full_runner_passes_in_copy_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -59,6 +78,179 @@ class RegressionRunnerTestCase(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fixture_sha256 mismatch", result.stderr)
 
+    def test_manifest_rejects_duplicate_root_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest_raw = manifest_path.read_text(encoding="utf-8").replace(
+                '  "schema_version": 1,',
+                '  "schema_version": 999,\n  "schema_version": 1,',
+                1,
+            )
+            manifest_path.write_text(manifest_raw, encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "Failed to load manifest: duplicate JSON key: schema_version\n",
+        )
+
+    def test_manifest_rejects_duplicate_nested_case_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest_raw = manifest_path.read_text(encoding="utf-8").replace(
+                '      "case_id": "route-review-dossier",',
+                '      "case_id": "renamed",\n      "case_id": "route-review-dossier",',
+                1,
+            )
+            manifest_path.write_text(manifest_raw, encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "Failed to load manifest: duplicate JSON key: case_id\n",
+        )
+
+    def test_manifest_rejects_invalid_utf8_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            self.manifest_path(isolated_root).write_bytes(b"\xff")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stderr, "Failed to load manifest: invalid UTF-8\n")
+
+    def test_manifest_rejects_non_object_root_deterministically(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            self.manifest_path(isolated_root).write_text("[]", encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stderr,
+            "Manifest validation errors:\n  - Manifest is not a JSON object\n",
+        )
+
+    def test_manifest_rejects_non_object_case_deterministically(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0] = []
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stderr,
+            "Manifest validation errors:\n"
+            "  - Case 0: not a JSON object\n"
+            "  - case_id inventory mismatch\n",
+        )
+
+    def test_manifest_rejects_case_count_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = (
+                isolated_root
+                / "tests/address-pr-comments-review-regressions/cases.json"
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"].pop()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Expected 20 cases, got 19", result.stderr)
+
+    def test_route_direct_fix_invokes_v2_contract_function(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            checker_path = isolated_root / CHECKER
+            checker = checker_path.read_text(encoding="utf-8").replace(
+                "check_direct_fix_v2_contract() {\n",
+                "check_direct_fix_v2_contract() {\n"
+                "    echo 'APR005: forced Direct Fix v2 check failure' >&2\n"
+                "    return 1\n",
+                1,
+            )
+            checker_path.write_text(checker, encoding="utf-8")
+
+            result = self.run_runner(isolated_root)
+            route_stderr = (
+                isolated_root
+                / "tests/address-pr-comments-review-regressions/cases"
+                / "route-direct-fix/stderr.bin"
+            ).read_text(encoding="utf-8")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FAIL: route-direct-fix", result.stdout)
+        self.assertIn("APR005: forced Direct Fix v2 check failure", route_stderr)
+
+    def test_manifest_rejects_renamed_case_and_catalog_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0]["case_id"] = "renamed-route"
+            case_ids_path = isolated_root / CASE_IDS
+            ids_text = case_ids_path.read_text(encoding="utf-8").replace(
+                "route-review-dossier", "renamed-route", 1
+            )
+            case_ids_path.write_text(ids_text, encoding="utf-8")
+            manifest["case_ids_sha256"] = hashlib.sha256(
+                ids_text.encode("utf-8")
+            ).hexdigest()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("case_id inventory mismatch", result.stderr)
+
+    def test_manifest_rejects_non_string_case_id_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0]["case_id"] = []
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("case_id must be a non-empty string", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_manifest_rejects_inexact_schema_and_field_types(self) -> None:
+        mutations = (
+            ("boolean-version", lambda manifest: manifest.update(schema_version=True)),
+            ("extra-key", lambda manifest: manifest.update(unexpected=True)),
+            ("invalid-env", lambda manifest: manifest["cases"][0].update(env=[])),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                isolated_root = self.copy_isolated_root(temp_dir)
+                manifest_path = self.manifest_path(isolated_root)
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                mutate(manifest)
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+                result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("Traceback", result.stderr)
+
     def test_runner_confines_arbitrary_artifact_path_to_case_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
@@ -80,6 +272,20 @@ class RegressionRunnerTestCase(unittest.TestCase):
             result = self.run_runner(isolated_root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(external_artifact.exists())
+
+    def test_runner_fails_when_expected_stdout_does_not_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0]["expected_stdout"] = "required output\n"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FAIL: route-review-dossier", result.stdout)
+        self.assertIn("stdout mismatch", result.stdout)
 
 
 if __name__ == "__main__":

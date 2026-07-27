@@ -832,7 +832,7 @@ A Review Dossier is generated when Section A contains code change work that exce
 ### Task N: Comment #COMMENT_ID -- SUMMARY
 - **Source**: @AUTHOR | KIND | FILE_PATH:LINE
 - **Also noted by**: @DUP1, @DUP2 (omit if no duplicates)
-- **Conclusion**: `valid`
+- **Conclusion**: `valid` or `partially_addressed` (preserve the final-table conclusion exactly)
 - **Reviewer concern**: CONCERN (underlying bug/risk/behavior)
 - **Code evidence**: EVIDENCE (current HEAD file:line proof)
 - **Local pattern evidence**: PATTERN (nearby code, callers, tests, conventions)
@@ -893,26 +893,49 @@ A Direct Fix Brief is generated when one through five complexity-certified Secti
 
 These rules are scoped only to Direct Fix eligibility, Direct Fix Brief, and Direct Fix handoff. They do not change Review Dossier task schemas, `expected_paths`, general dependency resolution, or same-order parallel allowance.
 
+### Canonical Direct Fix Policy
+
+The following marked JSON value is the single Direct Fix policy source. The JSON payload is exactly the bytes inside the fence: encode as UTF-8, sort every object key, use compact separators `,` and `:`, preserve every array's declared order, and terminate with exactly one LF. No other whitespace or Unicode normalization is applied. `policy_sha256` is the lowercase hexadecimal SHA-256 digest of those exact bytes.
+
+<!-- direct-fix-policy:start -->
+```json
+{"authorization":{"artifact_policy_binding":"artifact.policy-binding","missing_consent":"route.authorization","route_batch_fingerprint":"route.batch-fingerprint","route_policy_binding":"route.policy-binding"},"batch":{"blocker_disposition_fields":["blocker_id","disposition","evidence","delta_locus_justification"],"task_fields":["task_id","conclusion","root_concern_identity","behavioral_outcome","change_mode","locus_kind","locus_id","locus_evidence","expected_paths","changed_locus_selectors","verification_paths","expected_result_oracle","blocker_dispositions","depends_on_task_ids","exact_change","reply_target_ids","scope_resolution"]},"canonicalization":{"array_order":"preserved unless field rule sorts","encoding":"UTF-8","object_keys":"sorted","separators":",:","trailing_lf":1},"direct_fix_schema_version":2,"eligibility":{"blocker_dispositions":["not-triggered","triggered","uncertain"],"blocker_order":["architecture","cross-module-state","public-interface","security-or-authorization","schema-or-data","dependency-introduction","concurrency","transaction","retry-or-recovery","deployment-or-release","unclear-verification"],"verification_fields":["command","scope","expected_exit","expected_output","behavioral_assertion"]},"execution_scope":{"authority":"expected_paths","path_drift":"artifact.scope-drift","selector_drift":"artifact.selector-drift"}}
+```
+<!-- direct-fix-policy:end -->
+
+`batch_fingerprint` is the lowercase hexadecimal SHA-256 digest of one canonical JSON value, encoded by the same UTF-8, sorted-key, compact-separator, preserved-array-order, one-trailing-LF rules:
+
+```json
+{"direct_fix_schema_version":2,"policy_sha256":"64hex","tasks":[]}
+```
+
+`tasks` follows deterministic execution order. Each task object has exactly the policy block's `task_fields`: canonical `task_id`; final-table `conclusion`; deduplicated `root_concern_identity`; `behavioral_outcome`; `change_mode`; `locus_kind`, `locus_id`, and `locus_evidence`; lexically sorted `expected_paths`; `changed_locus_selectors` in artifact order; `verification_paths` in artifact order; independent `expected_result_oracle`; `blocker_dispositions`; `depends_on_task_ids` in artifact order; `exact_change`; lexically sorted `reply_target_ids`; and `scope_resolution`. `scope_resolution` is exactly `resolved-commented-file-only` or `unresolved-global-scope`. `blocker_dispositions` follows the current canonical blocker order, with one object per blocker and exactly the policy block's `blocker_disposition_fields`: `blocker_id`, `disposition`, resolvable current-checkout `evidence`, and `delta_locus_justification`. Preserve every other array order. No field may be omitted, inferred, renamed, or accepted through an alias.
+
+Final disclosure, Direct Fix consent record, and newly generated Direct Fix Brief each carry identical `direct_fix_schema_version: 2`, `policy_sha256`, and `batch_fingerprint`. Recompute the policy digest and batch fingerprint before route authorization. Missing or malformed disclosure/consent version or policy digest produces `route.policy-binding`; a missing or mismatched disclosure/consent fingerprint produces `route.batch-fingerprint`; missing consent produces `route.authorization`. These are authorization failures, not eligibility failures, so an otherwise eligible batch keeps `Fallback reason inventory: none`. A newly generated Brief with any missing, malformed, or mismatched binding produces `artifact.policy-binding`. Every binding failure permits zero edit, commit, push, reply POST, and read-back side effects. No compatibility parsing or alternate field name is valid.
+
 ### Direct Fix Eligibility
 
 The preflight evaluates every batch-level and task-level condition. It records every failed condition before choosing a fallback. It must not stop at the first failed check.
 
 All conditions must be true for the batch and for each Section A task:
 - Section A contains one through five tasks. More than five tasks, including six or more, is ineligible and falls back to a Review Dossier.
-- One task represents one deduplicated root concern, one behavioral outcome, and one production implementation locus. `Behavioral outcome` is exactly one canonical slug `outcome-N::lower_snake_case`; `Implementation locus` is exactly one canonical slug `locus-N::lower_snake_case`. Free-form prose, conjunctions, lists, multiple slugs, spaces, and missing IDs are ineligible in these certificate fields; descriptive detail stays in Reviewer concern, Fix direction, and Exact change. Keep implementation and direct test/spec/fixture companions in the same task. Multiple production paths are eligible only when they form one mechanically enumerated locus; two independent production responsibilities or behavioral outcomes are ineligible. File count alone does not determine eligibility, and file type alone does not determine eligibility.
+- `direct_fix_schema_version` is integer `2`. A task has one deduplicated root concern, one behavioral outcome (`Behavioral outcome`), and one `Locus ID`. `Behavioral outcome` is exactly one canonical slug `outcome-N::lower_snake_case`; `Locus ID` is exactly one canonical slug `locus-N::lower_snake_case`. Free-form prose, conjunctions, lists, multiple slugs, spaces, and missing IDs are ineligible in these certificate fields. Descriptive detail stays in Reviewer concern, Fix direction, and Exact change.
+- `Change mode` is exactly `locus-change` or `verification-only`. A `locus-change` has at least one `Changed locus selectors` entry, and every expected change maps to the task's single outcome and locus. A `verification-only` task has an empty `Changed locus selectors` list and a non-empty independent `Expected-result oracle`; current implementation evidence alone is not a correctness oracle. Shared runner, helper, or matcher changes are `verification-infrastructure` locus changes, never `verification-only`.
+- `Locus kind`, `Locus evidence`, and every changed selector use one matching catalog form: `runtime-code` -> `code:PATH:LINE::SYMBOL`; `declarative-config` -> `config:PATH::KEY`; `tooling-automation` -> `automation:PATH::TARGET`; `documentation-contract` -> `doc:PATH::ANCHOR`; `verification-infrastructure` -> `verification:PATH::SYMBOL`. A kind outside this catalog or a selector whose typed form does not match its kind is ineligible.
+- `expected_paths` is the sole scope authority and exactly covers paths named by changed selectors plus `Verification paths`, without duplicates or extras. Keep direct test/spec/fixture paths in the same task. Multiple changed paths are eligible only when their typed selectors form one mechanically enumerated locus; two independent responsibilities or behavioral outcomes are ineligible. File count alone does not determine eligibility, and file type alone does not determine eligibility.
 - `Complexity class` is exactly `mechanical` or `local-behavior`. Clear local runtime behavior fixes remain eligible when scope, derivation, risk, verification, outcome, and locus are unambiguous.
-- Every task carries a mechanically auditable complexity certificate. `Hard blockers checked` contains every member of this closed fail-closed enum exactly once and in canonical order: `architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `unclear-verification`. `Hard blocker evidence` contains exactly one typed citation per member in the same canonical order. Citation forms are `code:PATH:LINE` with a positive line, `comment:POSITIVE_ID`, or `test:PATH::TEST_NAME`; arbitrary prose and malformed citations are ineligible. `Hard blocker result` is exactly `none`. The serialized shape is `Hard blockers checked: [canonical enum]`, `Hard blocker evidence: one typed citation per member`, and `Hard blocker result: none`. Missing, duplicate, unknown, reordered, empty-evidence, malformed-evidence, or contradictory values are ineligible.
+- Every task carries exactly eleven `Blocker dispositions` objects in this canonical order: `architecture`, `cross-module-state`, `public-interface`, `security-or-authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `deployment-or-release`, `unclear-verification`. Each object has exactly `blocker_id`, `disposition`, `evidence`, and `delta_locus_justification`. `disposition` is exactly `not-triggered`, `triggered`, or `uncertain`. Before evaluating them, capture resolvable current-checkout code/test citations and collected positive comment IDs, then resolve every `evidence` value against that inventory; citation syntax alone never proves resolution. Code and test paths must also belong to task `expected_paths`. Independently intersect fingerprint-bound `changed_locus_selectors` and actual task delta with the protected locus catalog for every blocker. Ambient protected code outside the delta does not trigger; a protected intersection blocks even when the task claims `not-triggered`. `delta_locus_justification` is exactly `delta:none|intersects|uncertain; locus:LOCUS_ID; evidence:CITATION`, repeats task `Locus ID` and the same citation, and records the independently derived result rather than supplying it. Only eleven valid `not-triggered` objects permit eligibility, and each must be resolved and independently confirmed. A malformed non-list container leaves all eleven blockers unresolved and emits all eleven canonical `task.hard-blocker.<blocker-name>` reasons in order. Missing, duplicate, unknown, reordered, malformed, irrelevant, `triggered`, or `uncertain` entries block with their corresponding canonical reason.
 - Task identity is canonical: heading `### Task N` maps exactly to positive unique ID `task-N`. In `depends_on_task_ids: [task-X]`, `task-X -> task-N` means the prerequisite points to its dependent. Targets must be existing Section A IDs. Duplicate edges, self-edges, missing or external targets, and Section B dependencies are invalid.
 - Direct Fix topology uses total Section A hard cap `5`, ordered-chain hard cap `3`, and ordered-chain count cap `1`. A singleton has in-degree `0` and out-degree `0`. The sole ordered component, when present, is a simple directed path of 2 through 3 nodes with no branch, merge, or cycle. Every remaining component is an independent singleton. A second ordered chain, a four-node chain, or any cross-component dependency is ineligible.
-- Shared production symbols/hunks across tasks are ineligible. Direct test/spec/fixture companions do not create a shared-production conflict when they belong to their task's single implementation locus.
+- Shared locus selectors across tasks are ineligible. Direct verification paths do not create a shared-locus conflict when they belong to their task's single locus.
 - Every eligible batch records a deterministic topological order: respect dependency edges first, preserve final-table concern order among simultaneously ready nodes, then use numeric task ID as tie-break when table order is unavailable. Execution remains serial; eligibility never authorizes concurrent Direct Fix execution.
-- No unresolved duplicate ambiguity, conflict, or cross-file escalation exists.
+- No unresolved duplicate ambiguity or conflict exists. Cross-file scope is exactly `unresolved-global-scope` or `resolved-commented-file-only`; only `unresolved-global-scope` blocks Direct Fix by itself with `batch.scope`.
 - The evidence ledger is complete: reviewer concern, current code evidence, local pattern evidence, suggestion fit, and fix direction derived from code evidence rather than copied from the raw suggestion.
-- Verification is exact and clear enough for direct execution. Unclear verification is ineligible.
-- Each task has an exact change, implementation paths, verification companion paths, production symbols/hunks, dependency IDs, guardrails, verification target, commit message, task-specific commit SHA slot, and complete reply target data: `source_comment_id`, `root_comment_id`, `comment_kind`, `reply_mode`, `endpoint`, and `read_back_endpoint`.
-- Suggestion fit is `accept` or mechanically safe `modify` with full explanation.
+- Verification is one deterministic executable contract with exactly five ordered, unique assignments: `command`, specific `scope` or test name, `expected_exit`, `expected_output`, and `behavioral_assertion`. Parse field values structurally. The exact command/scope/output tuple must resolve to a targeted executable check in the current checkout; `expected_exit` must be its exact success exit. `behavioral_assertion` is exactly `observable:TYPED_ORACLE`, where `TYPED_ORACLE` equals the task's independent `Expected-result oracle` and resolves through `Verification paths`. This provenance rule rejects broad run-tests commands, retries or reruns, timeout inflation, skips, blind snapshot updates, assertion weakening, nondeterminism, self-derived oracles, and paraphrases of those mechanisms with `task.verification`; free prose keyword recognition never establishes validity.
+- Each task has the exact v2 fields: `Conclusion`, `Reviewer suggestion fit`, `Scope resolution`, `Behavioral outcome`, `Complexity class`, `Change mode`, `Locus kind`, `Locus ID`, `Locus evidence`, `expected_paths`, `Changed locus selectors`, `Verification paths`, `Expected-result oracle`, `depends_on_task_ids`, `Exact change`, `Blocker dispositions`, `Verification`, commit fields, and complete canonical reply fields. `Scope resolution` is exactly `unresolved-global-scope` or `resolved-commented-file-only`; missing, unknown, or unresolved scope produces `batch.scope` and cannot report eligible success.
+- Suggestion fit is `accept` or mechanically safe `modify` with full explanation. A `reject` is eligible only when the exact mechanical alternate appears in the final disclosure, receives explicit user confirmation, and then re-enters and passes a fresh preflight with every other gate unchanged.
 
-Before Dossier fallback, the summary lists every failed eligibility condition. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
+Before Dossier fallback, collect every failed eligibility condition; never stop at first failure. Inventory entries use exactly `task-N|batch: reason-id -- observed evidence`. Batch IDs are `batch.task-count`, `batch.topology`, `batch.execution-order`, `batch.shared-locus`, and `batch.scope`. Task IDs are `task.classification`, `task.root-concern`, `task.behavioral-outcome`, `task.locus`, `task.change-mode`, `task.expected-paths`, `task.selector-mapping`, `task.verification-paths`, `task.expected-result-oracle`, `task.complexity`, `task.evidence-ledger`, `task.verification`, `task.suggestion-fit`, `task.reply-contract`, and `task.hard-blocker.<blocker-name>`. Authorization invalidation IDs (`route.policy-binding`, `route.batch-fingerprint`, `route.authorization`) and execution integrity IDs (`artifact.policy-binding`, `artifact.scope-drift`, `artifact.selector-drift`) are separate namespaces and never fabricate eligibility failures. If any batch or task check fails, `All eligibility checks passed: no` and the workflow generates a full Review Dossier. A successful preflight reports `All eligibility checks passed: yes`.
 
 ### Direct Fix Summary
 
@@ -949,6 +972,9 @@ Section B Reply-Only entries remain a separate inventory. They are outside Secti
 <!-- artifact-execution-status:end -->
 
 ## Summary
+direct_fix_schema_version: 2
+policy_sha256: POLICY_SHA256_64HEX
+batch_fingerprint: BATCH_FINGERPRINT_64HEX
 Section A tasks: N/5
 Ordered chains: N/1
 Maximum chain length: N/3
@@ -960,26 +986,30 @@ All eligibility checks passed: yes|no
 Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and Task 5 as applicable. Do not merge task entries or omit fields.
 
 ### Task N: Comment #COMMENT_ID - SUMMARY
+- **direct_fix_schema_version**: 2
 - **Source**: @AUTHOR | KIND | FILE_PATH:LINE
-- **Conclusion**: `valid`
+- **Conclusion**: `valid` or `partially_addressed` (preserve the final-table conclusion exactly)
 - **Reviewer concern**: CONCERN
 - **Current code evidence**: EVIDENCE
 - **Local pattern evidence**: PATTERN
 - **Reviewer suggestion fit**: `FIT` - REASON
+- **Scope resolution**: `unresolved-global-scope` or `resolved-commented-file-only`
 - **Fix direction**: DIRECTION
 - **Behavioral outcome**: outcome-N::lower_snake_case
 - **Complexity class**: `mechanical` or `local-behavior`
-- **Implementation locus**: locus-N::lower_snake_case
-- **Implementation paths**: [PRODUCTION_PATH, ...]
-- **Verification companion paths**: [DIRECT_TEST_SPEC_OR_FIXTURE_PATH, ...]
-- **Production symbols/hunks**: [PATH::SYMBOL#HUNK, ...]
+- **Change mode**: `locus-change` or `verification-only`
+- **Locus kind**: `runtime-code`, `declarative-config`, `tooling-automation`, `documentation-contract`, or `verification-infrastructure`
+- **Locus ID**: locus-N::lower_snake_case
+- **Locus evidence**: TYPED_LOCUS_SELECTOR
+- **expected_paths**: [CHANGED_OR_VERIFICATION_PATH, ...]
+- **Changed locus selectors**: [TYPED_LOCUS_SELECTOR, ...] or []
+- **Verification paths**: [DIRECT_TEST_SPEC_OR_FIXTURE_PATH, ...]
+- **Expected-result oracle**: INDEPENDENT_EXPECTED_RESULT_ORACLE
 - **depends_on_task_ids**: [task-X, ...] or []
 - **Exact change**: DEV_CHANGES
-- **Hard blockers checked**: [`architecture`, `cross-module-state`, `public-interface`, `authorization`, `schema-or-data`, `dependency-introduction`, `concurrency`, `transaction`, `retry-or-recovery`, `unclear-verification`]
-- **Hard blocker evidence**: architecture=code:PATH:LINE; cross-module-state=comment:POSITIVE_ID; public-interface=test:PATH::TEST_NAME; authorization=code:PATH:LINE; schema-or-data=code:PATH:LINE; dependency-introduction=code:PATH:LINE; concurrency=code:PATH:LINE; transaction=code:PATH:LINE; retry-or-recovery=code:PATH:LINE; unclear-verification=test:PATH::TEST_NAME
-- **Hard blocker result**: none
+- **Blocker dispositions**: [{"blocker_id":"architecture","disposition":"not-triggered","evidence":"code:PATH:LINE","delta_locus_justification":"delta:none; locus:LOCUS_ID; evidence:code:PATH:LINE"}, ... eleven objects in canonical order]
 - **Guardrails**: GUARDRAIL
-- **Verification**: TEST_STRATEGY
+- **Verification**: command=EXACT_COMMAND; scope=SPECIFIC_TEST_OR_CHECK; expected_exit=EXPECTED_EXIT; expected_output=EXPECTED_OUTPUT; behavioral_assertion=observable:EXPECTED_BEHAVIOR
 - **Commit message**: `SUGGESTED_COMMIT_MESSAGE`
 - **Commit SHA**: TASK_SPECIFIC_COMMIT_SHA
 - **Reply targets**: Repeat this complete route block once per source author
@@ -989,7 +1019,7 @@ Repeat this complete entry independently for Task 1, Task 2, Task 3, Task 4, and
 - **reply_mode**: `threaded_inline`, `sibling_inline`, or `timeline`
 - **endpoint**: POST_ENDPOINT
 - **read_back_endpoint**: READ_BACK_ENDPOINT
-- **Reply kind**: `REPLY_KIND`
+- **Reply kind**: `fixed` for `valid`; `partially_addressed` for `partially_addressed`. Preserve this posture exactly.
 - **Reply body template**: REPLY_TEMPLATE with `{commit_sha}` placeholder
 - **Read-back**: READ_BACK_ENDPOINT and expected body, author, thread relationship
 - **Execution order**: edit -> verify -> commit -> push -> remote-reachability -> reply -> read-back

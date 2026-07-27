@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import pathlib
 import re
 import unittest
-from typing import TypeVar
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from typing import TypeGuard, TypeVar
+
+
+class _DuplicateJSONKeyError(ValueError):
+    pass
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    parsed: dict[str, object] = {}
+    for key, value in pairs:
+        if key in parsed:
+            raise _DuplicateJSONKeyError(key)
+        parsed[key] = value
+    return parsed
 
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -18,6 +37,7 @@ _SKILL = pathlib.Path("skills/address-pr-comments-review/SKILL.md")
 _CROSS_REFERENCE = pathlib.Path(
     "skills/address-pr-comments-review/references/cross-reference.md"
 )
+_CLASSIFY = pathlib.Path("skills/address-pr-comments-review/references/classify.md")
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
@@ -26,33 +46,87 @@ _REPLY_ONLY_TASK_RE = re.compile(
     r"^### Reply-Only Task ([1-9][0-9]*)\b.*$", re.MULTILINE
 )
 _REQUIRED_TASK_FIELDS = (
+    "direct_fix_schema_version",
+    "Conclusion",
+    "Reviewer suggestion fit",
+    "Scope resolution",
     "Behavioral outcome",
     "Complexity class",
-    "Implementation locus",
-    "Implementation paths",
-    "Verification companion paths",
-    "Production symbols/hunks",
+    "Change mode",
+    "Locus kind",
+    "Locus ID",
+    "Locus evidence",
+    "expected_paths",
+    "Changed locus selectors",
+    "Verification paths",
+    "Expected-result oracle",
     "depends_on_task_ids",
     "Exact change",
-    "Hard blockers checked",
-    "Hard blocker evidence",
-    "Hard blocker result",
+    "Blocker dispositions",
     "Verification",
     "Commit message",
+    "Reply kind",
     "Reply targets",
     "Read-back",
 )
+_DIRECT_FIX_V2_TASK_FIELDS = (
+    "task_id",
+    "conclusion",
+    "root_concern_identity",
+    "behavioral_outcome",
+    "change_mode",
+    "locus_kind",
+    "locus_id",
+    "locus_evidence",
+    "expected_paths",
+    "changed_locus_selectors",
+    "verification_paths",
+    "expected_result_oracle",
+    "blocker_dispositions",
+    "depends_on_task_ids",
+    "exact_change",
+    "reply_target_ids",
+    "scope_resolution",
+)
+_DIRECT_FIX_SCOPE_RESOLUTIONS = frozenset(
+    {"resolved-commented-file-only", "unresolved-global-scope"}
+)
+_LEGACY_SCOPE_FIELDS = (
+    "Implementation paths",
+    "Change paths",
+    "Verification companion paths",
+)
+_LOCUS_SELECTOR_PATTERNS = {
+    "runtime-code": re.compile(
+        r"code:(?P<path>[^:\s]+):[1-9][0-9]*::[A-Za-z_][A-Za-z0-9_.#:-]*"
+    ),
+    "declarative-config": re.compile(r"config:(?P<path>[^:\s]+)::[A-Za-z0-9_.-]+"),
+    "tooling-automation": re.compile(
+        r"automation:(?P<path>[^:\s]+)::[A-Za-z0-9_.:/-]+"
+    ),
+    "documentation-contract": re.compile(r"doc:(?P<path>[^:\s]+)::[A-Za-z0-9_.-]+"),
+    "verification-infrastructure": re.compile(
+        r"verification:(?P<path>[^:\s]+)::[A-Za-z_][A-Za-z0-9_.:-]*"
+    ),
+}
 _HARD_BLOCKERS = (
     "architecture",
     "cross-module-state",
     "public-interface",
-    "authorization",
+    "security-or-authorization",
     "schema-or-data",
     "dependency-introduction",
     "concurrency",
     "transaction",
     "retry-or-recovery",
+    "deployment-or-release",
     "unclear-verification",
+)
+_BLOCKER_DISPOSITIONS = frozenset({"not-triggered", "triggered", "uncertain"})
+_BLOCKER_CITATION_RE = re.compile(
+    r"(?:code:(?P<code_path>[^;=\s]+):[1-9][0-9]*"
+    + r"|comment:[1-9][0-9]*"
+    + r"|test:(?P<test_path>[^;=\s]+)::[A-Za-z_][A-Za-z0-9_.]*)"
 )
 _ROUTE_FIELDS = (
     "source_comment_id",
@@ -77,7 +151,214 @@ _CONSENT_MATRIX_ROW_RE = re.compile(
     re.MULTILINE,
 )
 _DIRECT_FIX_SIDE_EFFECTS = ("edit", "commit", "push", "reply POST", "read-back")
+_POLICY_BLOCK_RE = re.compile(
+    r"<!-- direct-fix-policy:start -->\s*```json\s*\n(?P<json>\{[^\n]+\}\n)```\s*"
+    + r"<!-- direct-fix-policy:end -->",
+    re.MULTILINE,
+)
+_POLICY_TASK_FIELDS_RE = re.compile(
+    r'"task_fields":\[(?P<fields>"[a-z_]+"(?:,"[a-z_]+")*)\]'
+)
 _AnyStr = TypeVar("_AnyStr", str, bytes)
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixV2Task:
+    conclusion: str = "valid"
+    suggestion_fit: str = "accept"
+    scope_resolution: str = "resolved-commented-file-only"
+    locus_kind: str = "runtime-code"
+    locus_evidence: str = "code:app/file-1.rb:10::Order#call"
+    expected_paths: tuple[str, ...] = ("app/file-1.rb", "spec/file-1_spec.rb")
+    changed_locus_selectors: tuple[str, ...] = ("code:app/file-1.rb:10::Order#call",)
+    verification_paths: tuple[str, ...] = ("spec/file-1_spec.rb",)
+    expected_result_oracle: str = "test:spec/file-1_spec.rb::test_order_call"
+    change_mode: str = "locus-change"
+    behavioral_outcome: str = "outcome-1::return_correct_order"
+    reply_kind: str = "fixed"
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplyEvidence:
+    author_is_human: bool
+    is_self: bool
+    is_substantive: bool
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixRoutingState:
+    alternate_fix: str | None = None
+    alternate_fix_disclosed: bool = False
+    alternate_fix_confirmed: bool = False
+    fresh_preflight_passed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixBinding:
+    direct_fix_schema_version: int | None
+    policy_sha256: str | None
+    batch_fingerprint: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixScope:
+    expected_paths: tuple[str, ...]
+    changed_selectors: tuple[str, ...]
+    verification_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixAuthorizationRequest:
+    policy_json: str
+    batch_tasks: tuple[Mapping[str, object], ...]
+    canonical_scopes: tuple[_DirectFixScope, ...]
+    disclosure: _DirectFixBinding
+    consent: _DirectFixBinding | None
+    brief: _DirectFixBinding
+    fingerprint_preimage: _DirectFixScope
+    brief_scope: _DirectFixScope
+    actual_diff_paths: tuple[str, ...]
+    actual_selectors: tuple[str, ...]
+    commit_paths: tuple[str, ...]
+    task_start_clean: bool
+    task_start_scope: _DirectFixScope
+    preimage_path_hashes: tuple[tuple[str, str], ...]
+    current_path_hashes: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixAuthorizationDecision:
+    reason_ids: tuple[str, ...]
+    eligibility_inventory: tuple[str, ...]
+    authorized_handoffs: int
+    side_effect_counts: tuple[int, ...]
+    blocked_phase: str | None
+    authorization_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectFixValidationContext:
+    resolvable_citations: frozenset[str]
+    bound_delta_selectors: tuple[str, ...] = ()
+    actual_delta_paths: frozenset[str] = frozenset()
+    protected_delta_selectors: tuple[tuple[str, str], ...] = ()
+    targeted_verifications: tuple[tuple[str, str, str], ...] = (
+        (
+            "python3 -m unittest tests.test_direct_fix_routing_contract."
+            + "TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible",
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible",
+            "unittest:OK",
+        ),
+        (
+            "python3 -m unittest tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_singleton_fixture_is_eligible",
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_singleton_fixture_is_eligible",
+            "unittest:OK",
+        ),
+        (
+            "python3 -m unittest tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check",
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check",
+            "unittest:OK",
+        ),
+    )
+
+
+def _default_validation_context() -> _DirectFixValidationContext:
+    synthetic_citations = {
+        *(f"code:app/file-{number}.rb:{number}" for number in range(1, 7)),
+        "code:app/controllers/orders_controller.rb:1",
+        "code:app/order.rb:1",
+        "code:config/app.yml:1",
+        "code:.github/workflows/ci.yml:1",
+        "code:docs/contract.md:1",
+        "code:spec/file-1_spec.rb:1",
+    }
+    return _DirectFixValidationContext(frozenset(synthetic_citations))
+
+
+def _classify_reply_signal(
+    has_replies: bool,
+    replies: tuple[_ReplyEvidence, ...],
+    actionable_conclusion: str = "valid",
+) -> str:
+    reply_is_sufficient = has_replies and any(
+        reply.author_is_human and not reply.is_self and reply.is_substantive
+        for reply in replies
+    )
+    return "already_replied" if reply_is_sufficient else actionable_conclusion
+
+
+def _canonical_blocker_dispositions(locus_id: str, evidence: str) -> str:
+    return json.dumps(
+        [
+            {
+                "blocker_id": blocker,
+                "disposition": "not-triggered",
+                "evidence": evidence,
+                "delta_locus_justification": (
+                    f"delta:none; locus:{locus_id}; evidence:{evidence}"
+                ),
+            }
+            for blocker in _HARD_BLOCKERS
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _exact_verification(scope: str, oracle: str) -> str:
+    return (
+        f"command=python3 -m unittest {scope}; scope={scope}; "
+        + "expected_exit=0; expected_output=unittest:OK; "
+        + f"behavioral_assertion=observable:{oracle}"
+    )
+
+
+def _direct_fix_v2_task(task: _DirectFixV2Task | None = None) -> str:
+    task = task or _DirectFixV2Task()
+    blocker_evidence = f"code:{task.expected_paths[0]}:1"
+    blocker_dispositions = _canonical_blocker_dispositions(
+        "locus-1::order_call", blocker_evidence
+    )
+    return f"""### Task 1: focused v2 change
+- **direct_fix_schema_version**: 2
+- **Conclusion**: {task.conclusion}
+- **Reviewer suggestion fit**: {task.suggestion_fit}
+- **Scope resolution**: {task.scope_resolution}
+- **Behavioral outcome**: {task.behavioral_outcome}
+- **Complexity class**: local-behavior
+- **Change mode**: {task.change_mode}
+- **Locus kind**: {task.locus_kind}
+- **Locus ID**: locus-1::order_call
+- **Locus evidence**: {task.locus_evidence}
+- **expected_paths**: [{", ".join(task.expected_paths)}]
+- **Changed locus selectors**: [{", ".join(task.changed_locus_selectors)}]
+- **Verification paths**: [{", ".join(task.verification_paths)}]
+- **Expected-result oracle**: {task.expected_result_oracle}
+- **depends_on_task_ids**: []
+- **Exact change**: update only the selected locus
+- **Blocker dispositions**: {blocker_dispositions}
+- **Verification**: {_exact_verification("tests.test_direct_fix_routing_contract.TestDirectFixV2TaskContract.test_valid_v2_task_is_eligible", task.expected_result_oracle)}
+- **Commit message**: fix focused v2 change
+- **Reply kind**: {task.reply_kind}
+- **Reply targets**: reply-1
+- **source_comment_id**: 1001
+- **root_comment_id**: 1001
+- **comment_kind**: inline
+- **reply_mode**: threaded_inline
+- **endpoint**: repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments/1001/replies
+- **read_back_endpoint**: repos/{{owner}}/{{repo}}/pulls/{{pr}}/comments
+- **Read-back**: exact actor/body/PR/root match
+"""
 
 
 def extract_markdown_section(markdown: str, heading: str) -> str:
@@ -188,6 +469,198 @@ def _direct_fix_side_effect_counts(
     return {effect: count for effect in _DIRECT_FIX_SIDE_EFFECTS}
 
 
+def _extract_direct_fix_policy(markdown: str) -> str:
+    match = _POLICY_BLOCK_RE.search(markdown)
+    if match is None:
+        return ""
+    return match.group("json")
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+
+
+def _policy_sha256(policy_json: str) -> str:
+    return hashlib.sha256(policy_json.encode("utf-8")).hexdigest()
+
+
+def _policy_task_fields(policy_json: str) -> tuple[str, ...]:
+    match = _POLICY_TASK_FIELDS_RE.search(policy_json)
+    if match is None:
+        return ()
+    return tuple(field[1:-1] for field in match.group("fields").split(","))
+
+
+def _batch_fingerprint(
+    policy_sha256: str,
+    tasks: tuple[Mapping[str, object], ...],
+) -> str:
+    batch = {
+        "policy_sha256": policy_sha256,
+        "direct_fix_schema_version": 2,
+        "tasks": list(tasks),
+    }
+    return hashlib.sha256(_canonical_json_bytes(batch)).hexdigest()
+
+
+def _canonical_batch_tasks(
+    tasks: tuple[Mapping[str, object], ...],
+    canonical_scopes: tuple[_DirectFixScope, ...],
+    task_fields: tuple[str, ...],
+) -> tuple[Mapping[str, object], ...]:
+    canonical_tasks: list[Mapping[str, object]] = []
+    for task, scope in zip(tasks, canonical_scopes, strict=True):
+        canonical_task = {field: task[field] for field in task_fields}
+        canonical_task["expected_paths"] = list(scope.expected_paths)
+        canonical_task["changed_locus_selectors"] = list(scope.changed_selectors)
+        canonical_task["verification_paths"] = list(scope.verification_paths)
+        canonical_tasks.append(canonical_task)
+    return tuple(canonical_tasks)
+
+
+def _task_scope_reason_ids(
+    tasks: tuple[Mapping[str, object], ...],
+    canonical_scopes: tuple[_DirectFixScope, ...],
+) -> tuple[str, ...]:
+    reason_ids: list[str] = []
+    for task, scope in zip(tasks, canonical_scopes, strict=True):
+        if task.get("expected_paths") != list(scope.expected_paths) or task.get(
+            "verification_paths"
+        ) != list(scope.verification_paths):
+            reason_ids.append("artifact.scope-drift")
+        if task.get("changed_locus_selectors") != list(scope.changed_selectors):
+            reason_ids.append("artifact.selector-drift")
+    return tuple(dict.fromkeys(reason_ids))
+
+
+def _authorize_direct_fix(
+    request: _DirectFixAuthorizationRequest,
+) -> _DirectFixAuthorizationDecision:
+    if (
+        not request.task_start_clean
+        or request.task_start_scope != request.fingerprint_preimage
+        or request.current_path_hashes != request.preimage_path_hashes
+    ):
+        return _DirectFixAuthorizationDecision(
+            reason_ids=("artifact.scope-drift",),
+            eligibility_inventory=(),
+            authorized_handoffs=0,
+            side_effect_counts=tuple(0 for _effect in _DIRECT_FIX_SIDE_EFFECTS),
+            blocked_phase="task-start",
+            authorization_attempts=0,
+        )
+
+    policy_task_fields = _policy_task_fields(request.policy_json)
+    task_count = len(request.batch_tasks)
+    task_cardinality_matches = 1 <= task_count <= 5 and task_count == len(
+        request.canonical_scopes
+    )
+    task_schema_matches = task_cardinality_matches and all(
+        policy_task_fields == _DIRECT_FIX_V2_TASK_FIELDS
+        and frozenset(task) == frozenset(policy_task_fields)
+        and task.get("scope_resolution") in _DIRECT_FIX_SCOPE_RESOLUTIONS
+        for task in request.batch_tasks
+    )
+    if not task_schema_matches:
+        return _DirectFixAuthorizationDecision(
+            reason_ids=("artifact.policy-binding",),
+            eligibility_inventory=(),
+            authorized_handoffs=0,
+            side_effect_counts=tuple(0 for _effect in _DIRECT_FIX_SIDE_EFFECTS),
+            blocked_phase="preflight",
+            authorization_attempts=0,
+        )
+    if any(
+        task["scope_resolution"] == "unresolved-global-scope"
+        for task in request.batch_tasks
+    ):
+        return _DirectFixAuthorizationDecision(
+            reason_ids=("batch.scope",),
+            eligibility_inventory=(),
+            authorized_handoffs=0,
+            side_effect_counts=tuple(0 for _effect in _DIRECT_FIX_SIDE_EFFECTS),
+            blocked_phase="preflight",
+            authorization_attempts=0,
+        )
+
+    reason_ids: list[str] = []
+    expected_policy_sha = _policy_sha256(request.policy_json)
+    canonical_batch_tasks = _canonical_batch_tasks(
+        request.batch_tasks,
+        request.canonical_scopes,
+        policy_task_fields,
+    )
+    expected_batch_fingerprint = _batch_fingerprint(
+        expected_policy_sha, canonical_batch_tasks
+    )
+    if (
+        request.disclosure.direct_fix_schema_version != 2
+        or request.disclosure.policy_sha256 != expected_policy_sha
+    ):
+        reason_ids.append("route.policy-binding")
+    if request.disclosure.batch_fingerprint != expected_batch_fingerprint:
+        reason_ids.append("route.batch-fingerprint")
+
+    consent = request.consent
+    if consent is None:
+        reason_ids.append("route.authorization")
+    else:
+        if (
+            consent.direct_fix_schema_version != 2
+            or consent.policy_sha256 != expected_policy_sha
+        ):
+            reason_ids.append("route.policy-binding")
+        if consent.batch_fingerprint != expected_batch_fingerprint:
+            reason_ids.append("route.batch-fingerprint")
+
+    if (
+        request.brief.direct_fix_schema_version != 2
+        or request.brief.policy_sha256 != expected_policy_sha
+        or request.brief.batch_fingerprint != expected_batch_fingerprint
+    ):
+        reason_ids.append("artifact.policy-binding")
+    reason_ids.extend(
+        _task_scope_reason_ids(request.batch_tasks, request.canonical_scopes)
+    )
+    if (
+        request.brief_scope.expected_paths
+        != request.fingerprint_preimage.expected_paths
+        or request.brief_scope.verification_paths
+        != request.fingerprint_preimage.verification_paths
+    ):
+        reason_ids.append("artifact.scope-drift")
+    if (
+        request.brief_scope.changed_selectors
+        != request.fingerprint_preimage.changed_selectors
+    ):
+        reason_ids.append("artifact.selector-drift")
+    if (
+        tuple(sorted(request.actual_diff_paths))
+        != request.fingerprint_preimage.expected_paths
+        or tuple(sorted(request.commit_paths))
+        != request.fingerprint_preimage.expected_paths
+    ):
+        reason_ids.append("artifact.scope-drift")
+    if request.actual_selectors != request.fingerprint_preimage.changed_selectors:
+        reason_ids.append("artifact.selector-drift")
+
+    unique_reason_ids = tuple(dict.fromkeys(reason_ids))
+    side_effect_count = 0 if unique_reason_ids else 1
+    return _DirectFixAuthorizationDecision(
+        reason_ids=unique_reason_ids,
+        eligibility_inventory=(),
+        authorized_handoffs=side_effect_count,
+        side_effect_counts=tuple(
+            side_effect_count for _effect in _DIRECT_FIX_SIDE_EFFECTS
+        ),
+        blocked_phase=None if side_effect_count else "authorization",
+        authorization_attempts=1,
+    )
+
+
 def extract_markdown_fixture(section: str) -> str:
     fixtures: list[str] = re.findall(
         r"^```markdown[ \t]*\r?\n(.*?)^```[ \t]*$",
@@ -199,7 +672,10 @@ def extract_markdown_fixture(section: str) -> str:
     return fixtures[0]
 
 
-def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
+def validate_direct_fix_brief_fixture(
+    brief: str, *, context: _DirectFixValidationContext | None = None
+) -> list[str]:
+    context = context or _default_validation_context()
     task_matches = list(_TASK_RE.finditer(brief))
     errors: list[str] = []
     if not 1 <= len(task_matches) <= 5:
@@ -210,7 +686,8 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         errors.append("Section A task IDs must be unique")
 
     dependencies: dict[int, list[int]] = {}
-    shared_symbols: dict[str, int] = {}
+    shared_selectors: dict[str, int] = {}
+    scope_failures: list[str] = []
     for index, task_match in enumerate(task_matches):
         end = (
             task_matches[index + 1].start()
@@ -225,29 +702,211 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
             if value is None:
                 errors.append(f"{task_label} missing {field}")
 
+        if values["direct_fix_schema_version"] != "2":
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.classification",
+                    "direct_fix_schema_version must be integer 2",
+                )
+            )
+        if values["Conclusion"] not in {"valid", "partially_addressed"}:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.classification",
+                    "Conclusion must be valid or partially_addressed",
+                )
+            )
+        scope_resolution = values["Scope resolution"]
+        if scope_resolution is None:
+            scope_failures.append(f"task-{task_number} missing scope resolution")
+        elif scope_resolution == "unresolved-global-scope":
+            scope_failures.append(f"task-{task_number} has unresolved global scope")
+        elif scope_resolution != "resolved-commented-file-only":
+            scope_failures.append(
+                f"task-{task_number} has unknown scope resolution {scope_resolution}"
+            )
+        expected_reply_kind = (
+            "partially_addressed"
+            if values["Conclusion"] == "partially_addressed"
+            else "fixed"
+        )
+        if values["Reply kind"] != expected_reply_kind:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.reply-contract",
+                    f"Reply kind must preserve {values['Conclusion']} posture",
+                )
+            )
         complexity_class = values["Complexity class"]
         if complexity_class not in {"mechanical", "local-behavior"}:
             errors.append(f"{task_label} has invalid Complexity class")
-        singleton_fields = {
-            "Behavioral outcome": r"outcome-[1-9][0-9]*::[a-z][a-z0-9_]*",
-            "Implementation locus": r"locus-[1-9][0-9]*::[a-z][a-z0-9_]*",
-        }
-        for field, pattern in singleton_fields.items():
-            value = values[field]
-            if value is not None and re.fullmatch(pattern, value) is None:
-                errors.append(f"{task_label} must have exactly one {field.lower()}")
+        outcome = values["Behavioral outcome"]
+        if (
+            outcome is not None
+            and re.fullmatch(r"outcome-[1-9][0-9]*::[a-z][a-z0-9_]*", outcome) is None
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.behavioral-outcome",
+                    f"invalid Behavioral outcome {outcome}",
+                )
+            )
 
-        implementation_paths = _parse_list_field(
-            values["Implementation paths"], task_label, "Implementation paths", errors
+        locus_id = values["Locus ID"]
+        locus_kind = values["Locus kind"]
+        locus_evidence = values["Locus evidence"]
+        selector_pattern = (
+            _LOCUS_SELECTOR_PATTERNS.get(locus_kind) if locus_kind is not None else None
         )
-        _ = _parse_list_field(
-            values["Verification companion paths"],
+        if (
+            locus_id is not None
+            and re.fullmatch(r"locus-[1-9][0-9]*::[a-z][a-z0-9_]*", locus_id) is None
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", "task.locus", f"invalid Locus ID {locus_id}"
+                )
+            )
+        if selector_pattern is None:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.locus",
+                    f"Locus kind {locus_kind} is not in selector catalog",
+                )
+            )
+        elif (
+            locus_evidence is None or selector_pattern.fullmatch(locus_evidence) is None
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.locus",
+                    f"Locus evidence does not match {locus_kind}",
+                )
+            )
+
+        expected_paths = _parse_list_field(
+            values["expected_paths"], task_label, "expected_paths", errors
+        )
+        changed_selectors = _parse_list_field(
+            values["Changed locus selectors"],
             task_label,
-            "Verification companion paths",
+            "Changed locus selectors",
             errors,
         )
-        if implementation_paths == []:
-            errors.append(f"{task_label} requires one implementation locus path")
+        verification_paths = _parse_list_field(
+            values["Verification paths"], task_label, "Verification paths", errors
+        )
+        for legacy_field in _LEGACY_SCOPE_FIELDS:
+            if _field_value(task, legacy_field) is not None:
+                errors.append(
+                    _inventory_error(
+                        f"task-{task_number}",
+                        "task.expected-paths",
+                        f"legacy scope field {legacy_field} is forbidden",
+                    )
+                )
+
+        change_mode = values["Change mode"]
+        if change_mode not in {"locus-change", "verification-only"}:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.change-mode",
+                    f"unknown Change mode {change_mode}",
+                )
+            )
+        elif change_mode == "locus-change" and not changed_selectors:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.selector-mapping",
+                    "locus-change requires at least one selector",
+                )
+            )
+        elif change_mode == "verification-only" and changed_selectors:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.change-mode",
+                    "verification-only requires an empty selector list",
+                )
+            )
+
+        changed_paths: list[str] = []
+        for selector in changed_selectors:
+            selector_match = (
+                selector_pattern.fullmatch(selector)
+                if selector_pattern is not None
+                else None
+            )
+            if selector_match is None:
+                errors.append(
+                    _inventory_error(
+                        f"task-{task_number}",
+                        "task.selector-mapping",
+                        f"selector {selector} does not match {locus_kind}",
+                    )
+                )
+            else:
+                changed_paths.append(selector_match.group("path"))
+            if (
+                selector in shared_selectors
+                and shared_selectors[selector] != task_number
+            ):
+                errors.append(
+                    _inventory_error(
+                        "batch",
+                        "batch.shared-locus",
+                        f"tasks {shared_selectors[selector]} and {task_number} share {selector}",
+                    )
+                )
+            shared_selectors[selector] = task_number
+
+        authoritative_paths = set(changed_paths) | set(verification_paths)
+        if set(expected_paths) != authoritative_paths or len(expected_paths) != len(
+            authoritative_paths
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.expected-paths",
+                    "expected_paths must exactly equal selector and verification paths",
+                )
+            )
+        if not verification_paths:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.verification-paths",
+                    "Verification paths must be non-empty",
+                )
+            )
+
+        oracle = values["Expected-result oracle"]
+        oracle_is_locus_selector = oracle is not None and any(
+            pattern.fullmatch(oracle) is not None
+            for pattern in _LOCUS_SELECTOR_PATTERNS.values()
+        )
+        if (
+            oracle is None
+            or not oracle.strip()
+            or oracle == locus_evidence
+            or oracle in changed_selectors
+            or oracle_is_locus_selector
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    "task.expected-result-oracle",
+                    "Expected-result oracle must be non-empty and independent",
+                )
+            )
 
         dependencies[task_number] = [
             int(value.removeprefix("task-"))
@@ -273,26 +932,29 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         if len(dependency_values) != len(set(dependency_values)):
             errors.append(f"{task_label} has duplicate dependency edge")
 
-        symbols = _parse_list_field(
-            values["Production symbols/hunks"],
-            task_label,
-            "Production symbols/hunks",
+        _validate_blocker_dispositions(
+            values,
+            task_number,
+            expected_paths,
+            locus_id,
+            context,
             errors,
         )
-        for symbol in symbols:
-            if symbol in shared_symbols and shared_symbols[symbol] != task_number:
-                errors.append(
-                    f"Tasks {shared_symbols[symbol]} and {task_number} share production symbol/hunk {symbol}"
-                )
-            shared_symbols[symbol] = task_number
-
-        _validate_hard_blocker_certificate(values, task_label, errors)
         verification = values["Verification"]
-        if verification is not None and re.search(
-            r"(?i)\b(?:unclear|tbd|unknown)\b", verification
-        ):
-            errors.append(f"{task_label} has unclear verification")
+        _validate_exact_verification(
+            verification,
+            task_number,
+            oracle,
+            verification_paths,
+            context,
+            errors,
+        )
         errors.extend(_validate_route_fields(task, task_label))
+
+    if scope_failures:
+        errors.append(
+            _inventory_error("batch", "batch.scope", "; ".join(scope_failures))
+        )
 
     section_b_match = re.search(r"^### Reply-Only Task\b", brief, re.MULTILINE)
     section_b = brief[section_b_match.start() :] if section_b_match is not None else ""
@@ -302,6 +964,35 @@ def validate_direct_fix_brief_fixture(brief: str) -> list[str]:
         errors.append("Section B dependencies are invalid")
     errors.extend(_validate_direct_fix_topology(task_numbers, dependencies))
     return errors
+
+
+def validate_direct_fix_routing_state(
+    brief: str, state: _DirectFixRoutingState
+) -> list[str]:
+    errors = validate_direct_fix_brief_fixture(brief)
+    suggestion_fit = _field_value(brief, "Reviewer suggestion fit")
+    alternate_is_exact = (
+        state.alternate_fix is not None
+        and re.fullmatch(r"mechanical:[a-z][a-z0-9_]*", state.alternate_fix) is not None
+    )
+    if suggestion_fit == "reject" and not (
+        alternate_is_exact
+        and state.alternate_fix_disclosed
+        and state.alternate_fix_confirmed
+        and state.fresh_preflight_passed
+    ):
+        errors.append(
+            _inventory_error(
+                "task-1",
+                "task.suggestion-fit",
+                "reject requires disclosed and confirmed exact mechanical alternate plus fresh preflight",
+            )
+        )
+    return errors
+
+
+def _inventory_error(scope: str, reason_id: str, evidence: str) -> str:
+    return f"{scope}: {reason_id} -- {evidence}"
 
 
 def _parse_list_field(
@@ -320,45 +1011,215 @@ def _parse_list_field(
     return [item.strip().strip("`") for item in content.split(",") if item.strip()]
 
 
-def _validate_hard_blocker_certificate(
-    values: dict[str, str | None], task_label: str, errors: list[str]
+def _validate_blocker_dispositions(
+    values: dict[str, str | None],
+    task_number: int,
+    expected_paths: list[str],
+    locus_id: str | None,
+    context: _DirectFixValidationContext,
+    errors: list[str],
 ) -> None:
-    checked = _parse_list_field(
-        values["Hard blockers checked"],
-        task_label,
-        "Hard blockers checked",
-        errors,
-    )
-    if checked != list(_HARD_BLOCKERS):
+    raw = values["Blocker dispositions"]
+    try:
+        parsed: object = (
+            json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+            if raw is not None
+            else None
+        )
+    except (json.JSONDecodeError, _DuplicateJSONKeyError):
+        parsed = None
+    if not _is_object_list(parsed):
+        for blocker in _HARD_BLOCKERS:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    f"task.hard-blocker.{blocker}",
+                    "Blocker dispositions must be a JSON array",
+                )
+            )
+        return
+    parsed_items = parsed
+    protected_blockers: set[str] = set()
+    for selector, blocker in context.protected_delta_selectors:
+        if selector not in context.bound_delta_selectors:
+            continue
+        selector_match = next(
+            (
+                match
+                for pattern in _LOCUS_SELECTOR_PATTERNS.values()
+                if (match := pattern.fullmatch(selector)) is not None
+            ),
+            None,
+        )
+        if (
+            selector_match is not None
+            and selector_match.group("path") in context.actual_delta_paths
+        ):
+            protected_blockers.add(blocker)
+
+    for index, blocker in enumerate(_HARD_BLOCKERS):
+        reason_id = f"task.hard-blocker.{blocker}"
+        if index >= len(parsed_items):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "missing canonical disposition"
+                )
+            )
+            continue
+        candidate = parsed_items[index]
+        if not _is_string_object_mapping(candidate):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "disposition must be an object"
+                )
+            )
+            continue
+        raw_item = candidate
+        required_fields = {
+            "blocker_id",
+            "delta_locus_justification",
+            "disposition",
+            "evidence",
+        }
+        if set(raw_item) != required_fields:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "disposition fields are invalid"
+                )
+            )
+            continue
+        blocker_id = raw_item.get("blocker_id")
+        disposition = raw_item.get("disposition")
+        evidence = raw_item.get("evidence")
+        justification = raw_item.get("delta_locus_justification")
+        if not all(
+            isinstance(value, str)
+            for value in (blocker_id, disposition, evidence, justification)
+        ):
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "disposition values are invalid"
+                )
+            )
+            continue
+        assert isinstance(blocker_id, str)
+        assert isinstance(disposition, str)
+        assert isinstance(evidence, str)
+        assert isinstance(justification, str)
+        if blocker_id != blocker:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}", reason_id, "canonical blocker order mismatch"
+                )
+            )
+            continue
+        citation_match = _BLOCKER_CITATION_RE.fullmatch(evidence)
+        cited_path = (
+            citation_match.group("code_path") or citation_match.group("test_path")
+            if citation_match is not None
+            else None
+        )
+        expected_delta = {
+            "not-triggered": "none",
+            "triggered": "intersects",
+            "uncertain": "uncertain",
+        }.get(disposition)
+        expected_justification = (
+            f"delta:{expected_delta}; locus:{locus_id}; evidence:{evidence}"
+        )
+        malformed = (
+            disposition not in _BLOCKER_DISPOSITIONS
+            or citation_match is None
+            or evidence not in context.resolvable_citations
+            or (cited_path is not None and cited_path not in expected_paths)
+            or justification != expected_justification
+        )
+        derived_intersection = blocker in protected_blockers
+        if malformed or disposition != "not-triggered" or derived_intersection:
+            errors.append(
+                _inventory_error(
+                    f"task-{task_number}",
+                    reason_id,
+                    "malformed disposition"
+                    if malformed
+                    else (
+                        "bound delta intersects protected locus"
+                        if derived_intersection
+                        else f"disposition is {disposition}"
+                    ),
+                )
+            )
+    if len(parsed_items) > len(_HARD_BLOCKERS):
         errors.append(
-            f"{task_label} Hard blockers checked must match canonical enum order"
+            _inventory_error(
+                f"task-{task_number}",
+                f"task.hard-blocker.{_HARD_BLOCKERS[-1]}",
+                "unknown extra disposition",
+            )
         )
 
-    evidence_value = values["Hard blocker evidence"]
-    evidence_names: list[str] = []
-    has_malformed_citation = False
-    if evidence_value is not None:
-        for item in evidence_value.split(";"):
-            name, separator, citation = item.strip().partition("=")
-            evidence_names.append(name)
-            if not separator or not citation.strip():
-                errors.append(f"{task_label} Hard blocker evidence must be non-empty")
-            elif (
-                re.fullmatch(
-                    r"(?:code:[^;=\s]+:[1-9][0-9]*|comment:[1-9][0-9]*|test:[^;=\s]+::[A-Za-z_][A-Za-z0-9_.]*)",
-                    citation,
-                )
-                is None
-            ):
-                has_malformed_citation = True
-    if has_malformed_citation:
-        errors.append(f"{task_label} Hard blocker evidence contains malformed citation")
-    if evidence_names != list(_HARD_BLOCKERS):
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
+def _is_string_object_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
+    return isinstance(value, Mapping)
+
+
+def _validate_exact_verification(
+    verification: str | None,
+    task_number: int,
+    oracle: str | None,
+    verification_paths: list[str],
+    context: _DirectFixValidationContext,
+    errors: list[str],
+) -> None:
+    reason_id = "task.verification"
+    parts: dict[str, str] = {}
+    segments_are_unique_assignments = verification is not None
+    if verification is not None:
+        for segment in verification.split(";"):
+            key, separator, value = segment.strip().partition("=")
+            if not separator or not key or key in parts:
+                segments_are_unique_assignments = False
+                continue
+            parts[key] = value.strip()
+    required = (
+        "command",
+        "scope",
+        "expected_exit",
+        "expected_output",
+        "behavioral_assertion",
+    )
+    oracle_match = (
+        _BLOCKER_CITATION_RE.fullmatch(oracle) if oracle is not None else None
+    )
+    oracle_path = oracle_match.group("test_path") if oracle_match is not None else None
+    targeted_verification = (
+        parts.get("command", ""),
+        parts.get("scope", ""),
+        parts.get("expected_output", ""),
+    )
+    valid = (
+        segments_are_unique_assignments
+        and tuple(parts) == required
+        and all(parts.values())
+        and parts.get("expected_exit") == "0"
+        and targeted_verification in context.targeted_verifications
+        and oracle_match is not None
+        and oracle_path is not None
+        and oracle_path in verification_paths
+        and parts.get("behavioral_assertion") == f"observable:{oracle}"
+    )
+    if not valid:
         errors.append(
-            f"{task_label} Hard blocker evidence must match canonical enum order"
+            _inventory_error(
+                f"task-{task_number}",
+                reason_id,
+                "Verification must be deterministic command, scope, expected result, and observable assertion",
+            )
         )
-    if values["Hard blocker result"] != "none":
-        errors.append(f"{task_label} Hard blocker result must be exactly none")
 
 
 def _validate_direct_fix_topology(
@@ -561,37 +1422,46 @@ def _complete_task(
     *,
     depends_on: tuple[int, ...] = (),
     complexity_class: str = "local-behavior",
-    implementation_paths: tuple[str, ...] | None = None,
-    companion_paths: tuple[str, ...] | None = None,
+    changed_paths: tuple[str, ...] | None = None,
+    verification_paths: tuple[str, ...] | None = None,
     behavioral_outcome: str | None = None,
-    implementation_locus: str | None = None,
-    production_symbols: tuple[str, ...] | None = None,
+    locus_id: str | None = None,
+    changed_locus_selectors: tuple[str, ...] | None = None,
 ) -> str:
     comment_id = 1000 + number
-    implementation_paths = implementation_paths or (f"app/file-{number}.rb",)
-    companion_paths = companion_paths or (f"spec/file-{number}_spec.rb",)
-    production_symbols = production_symbols or (
-        f"app/file-{number}.rb::responsibility-{number}#behavior-hunk",
+    changed_paths = changed_paths or (f"app/file-{number}.rb",)
+    verification_paths = verification_paths or (f"spec/file-{number}_spec.rb",)
+    changed_locus_selectors = changed_locus_selectors or tuple(
+        f"code:{path}:{number}::responsibility-{number}#behavior-hunk"
+        for path in changed_paths
     )
+    expected_paths = (*changed_paths, *verification_paths)
     dependencies = ", ".join(f"task-{task_number}" for task_number in depends_on)
-    blockers = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
-    blocker_evidence = "; ".join(
-        f"{blocker}=code:app/file-{number}.rb:{number}" for blocker in _HARD_BLOCKERS
+    blocker_dispositions = _canonical_blocker_dispositions(
+        locus_id or f"locus-{number}::responsibility_{number}",
+        f"code:{changed_paths[0]}:{number}",
     )
     return f"""### Task {number}: focused change
+- **direct_fix_schema_version**: 2
+- **Conclusion**: valid
+- **Reviewer suggestion fit**: accept
+- **Scope resolution**: resolved-commented-file-only
 - **Behavioral outcome**: {behavioral_outcome or f"outcome-{number}::correct_outcome_{number}"}
 - **Complexity class**: {complexity_class}
-- **Implementation locus**: {implementation_locus or f"locus-{number}::responsibility_{number}"}
-- **Implementation paths**: [{", ".join(implementation_paths)}]
-- **Verification companion paths**: [{", ".join(companion_paths)}]
-- **Production symbols/hunks**: [{", ".join(production_symbols)}]
+- **Change mode**: locus-change
+- **Locus kind**: runtime-code
+- **Locus ID**: {locus_id or f"locus-{number}::responsibility_{number}"}
+- **Locus evidence**: {changed_locus_selectors[0]}
+- **expected_paths**: [{", ".join(expected_paths)}]
+- **Changed locus selectors**: [{", ".join(changed_locus_selectors)}]
+- **Verification paths**: [{", ".join(verification_paths)}]
+- **Expected-result oracle**: test:{verification_paths[0]}::test_behavior_{number}
 - **depends_on_task_ids**: [{dependencies}]
 - **Exact change**: mechanically update the named locus
-- **Hard blockers checked**: [{blockers}]
-- **Hard blocker evidence**: {blocker_evidence}
-- **Hard blocker result**: none
-- **Verification**: python3 -m unittest
+- **Blocker dispositions**: {blocker_dispositions}
+- **Verification**: {_exact_verification(f"tests.test_direct_fix_routing_contract.TestDirectFixComplexityAndTopologyFixtures.test_singleton_fixture_is_eligible", f"test:{verification_paths[0]}::test_behavior_{number}")}
 - **Commit message**: fix task {number}
+- **Reply kind**: fixed
 - **Reply targets**: reply-{number}
 - **source_comment_id**: {comment_id}
 - **root_comment_id**: {comment_id}
@@ -722,6 +1592,289 @@ generate a plan
         self.assertIn("Task 1 missing Read-back", errors)
 
 
+class TestDirectFixLocusContract(unittest.TestCase):
+    def test_locus_change_and_verification_only_are_distinct(self) -> None:
+        locus_change = _direct_fix_v2_task()
+        verification_only = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                locus_kind="verification-infrastructure",
+                locus_evidence="verification:spec/file-1_spec.rb::test_order_call",
+                expected_paths=("spec/file-1_spec.rb",),
+                changed_locus_selectors=(),
+                verification_paths=("spec/file-1_spec.rb",),
+                expected_result_oracle="test:spec/file-1_spec.rb::test_expected_order",
+                change_mode="verification-only",
+            )
+        )
+        production_hunk_in_verification_only = verification_only.replace(
+            "- **Changed locus selectors**: []",
+            "- **Changed locus selectors**: [code:app/file-1.rb:10::Order#call]",
+        )
+
+        self.assertEqual(validate_direct_fix_brief_fixture(locus_change), [])
+        self.assertEqual(validate_direct_fix_brief_fixture(verification_only), [])
+        self.assertIn(
+            "task.change-mode",
+            "\n".join(
+                validate_direct_fix_brief_fixture(production_hunk_in_verification_only)
+            ),
+        )
+
+    def test_all_locus_kinds_require_matching_typed_selectors(self) -> None:
+        cases = (
+            ("runtime-code", "code:app/file-1.rb:10::Order#call", "app/file-1.rb"),
+            (
+                "declarative-config",
+                "config:config/app.yml::feature.enabled",
+                "config/app.yml",
+            ),
+            (
+                "tooling-automation",
+                "automation:.github/workflows/ci.yml::test",
+                ".github/workflows/ci.yml",
+            ),
+            (
+                "documentation-contract",
+                "doc:docs/contract.md::direct-fix",
+                "docs/contract.md",
+            ),
+            (
+                "verification-infrastructure",
+                "verification:spec/file-1_spec.rb::test_order_call",
+                "spec/file-1_spec.rb",
+            ),
+        )
+        for locus_kind, selector, changed_path in cases:
+            with self.subTest(locus_kind=locus_kind):
+                fixture = _direct_fix_v2_task(
+                    _DirectFixV2Task(
+                        locus_kind=locus_kind,
+                        locus_evidence=selector,
+                        expected_paths=(changed_path, "spec/oracle_spec.rb"),
+                        changed_locus_selectors=(selector,),
+                        verification_paths=("spec/oracle_spec.rb",),
+                        expected_result_oracle=(
+                            "test:spec/oracle_spec.rb::test_order_call"
+                        ),
+                    )
+                )
+                self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
+
+        mismatched = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                locus_kind="runtime-code",
+                locus_evidence="code:app/file-1.rb:10::Order#call",
+                expected_paths=("config/app.yml", "spec/file-1_spec.rb"),
+                changed_locus_selectors=("config:config/app.yml::feature.enabled",),
+            )
+        )
+        nonexistent = _direct_fix_v2_task(
+            _DirectFixV2Task(locus_kind="database-trigger")
+        )
+
+        self.assertIn(
+            "task.selector-mapping",
+            "\n".join(validate_direct_fix_brief_fixture(mismatched)),
+        )
+        self.assertIn(
+            "task.locus", "\n".join(validate_direct_fix_brief_fixture(nonexistent))
+        )
+
+    def test_expected_paths_is_the_only_scope_authority(self) -> None:
+        canonical = _direct_fix_v2_task()
+        extra_path = canonical.replace(
+            "[app/file-1.rb, spec/file-1_spec.rb]",
+            "[app/file-1.rb, spec/file-1_spec.rb, app/unrelated.rb]",
+        )
+        legacy_alias = canonical + "- **Implementation paths**: [app/file-1.rb]\n"
+
+        self.assertEqual(validate_direct_fix_brief_fixture(canonical), [])
+        self.assertIn(
+            "task.expected-paths",
+            "\n".join(validate_direct_fix_brief_fixture(extra_path)),
+        )
+        self.assertIn(
+            "task.expected-paths",
+            "\n".join(validate_direct_fix_brief_fixture(legacy_alias)),
+        )
+
+        direct_fix = read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        generic_task_schema = read_runtime_section(_DOSSIER_OUTPUT, "Task Schema")
+        for legacy_field in _LEGACY_SCOPE_FIELDS:
+            with self.subTest(legacy_field=legacy_field):
+                self.assertNotIn(legacy_field, direct_fix)
+        self.assertIn('"expected_paths": ["path"]', generic_task_schema)
+
+    def test_validator_reports_all_stable_semantic_reason_ids(self) -> None:
+        fixture = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                behavioral_outcome="persist order and notify customer",
+                expected_paths=("spec/file-1_spec.rb",),
+                changed_locus_selectors=(),
+                expected_result_oracle="code:app/file-1.rb:10::Order#call",
+            )
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+        reason_ids: list[str] = []
+        for error in errors:
+            match = re.fullmatch(r"task-1: (?P<reason>task\.[a-z.-]+) -- .+", error)
+            if match is not None:
+                reason_ids.append(match.group("reason"))
+
+        self.assertEqual(
+            reason_ids,
+            [
+                "task.behavioral-outcome",
+                "task.selector-mapping",
+                "task.expected-result-oracle",
+                "task.verification",
+            ],
+        )
+
+    def test_implementation_selector_cannot_be_expected_result_oracle(self) -> None:
+        fixture = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                expected_result_oracle="code:app/file-1.rb:11::Order#computed_total"
+            )
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertIn("task.expected-result-oracle", "\n".join(errors))
+
+
+class TestDirectFixRoutingStateContract(RuntimeContractTestCase):
+    def test_bot_self_and_non_substantive_replies_remain_actionable(self) -> None:
+        cases = {
+            "bot-only": (
+                _ReplyEvidence(False, False, True, "Automated analysis complete"),
+            ),
+            "self reply": (
+                _ReplyEvidence(True, True, True, "Addressed in prior pass"),
+            ),
+            "non-substantive": (_ReplyEvidence(True, False, False, "I will check"),),
+        }
+
+        for name, replies in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(_classify_reply_signal(True, replies), "valid")
+
+    def test_partially_addressed_persists_through_artifact_and_reply_posture(
+        self,
+    ) -> None:
+        fixture = _direct_fix_v2_task(
+            _DirectFixV2Task(
+                conclusion="partially_addressed",
+                reply_kind="partially_addressed",
+            )
+        )
+
+        self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
+
+        classify = (_REPO_ROOT / _CLASSIFY).read_text(encoding="utf-8")
+        direct_fix = read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        self.assertContractRegex(
+            classify,
+            re.compile(
+                r"final table[^\n]*preserve[^\n]*`valid`[^\n]*`partially_addressed`",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertContractRegex(
+            direct_fix,
+            r"(?i)Conclusion[^\n]*`valid`[^\n]*`partially_addressed`",
+        )
+        self.assertContractRegex(
+            direct_fix,
+            r"(?is)`partially_addressed`.*Reply kind[^\n]*`partially_addressed`",
+        )
+
+    def test_scope_resolution_blocks_only_unresolved_global_scope(self) -> None:
+        fixture = _direct_fix_v2_task()
+
+        self.assertEqual(
+            validate_direct_fix_routing_state(fixture, _DirectFixRoutingState()), []
+        )
+        unresolved_errors = validate_direct_fix_routing_state(
+            _direct_fix_v2_task(
+                _DirectFixV2Task(scope_resolution="unresolved-global-scope")
+            ),
+            _DirectFixRoutingState(),
+        )
+        self.assertIn("batch.scope", "\n".join(unresolved_errors))
+
+        cross_reference = (_REPO_ROOT / _CROSS_REFERENCE).read_text(encoding="utf-8")
+        self.assertContractRegex(
+            cross_reference,
+            r"(?i)`unresolved-global-scope`[^\n]*blocks[^\n]*Direct Fix",
+        )
+        self.assertContractRegex(
+            cross_reference,
+            r"(?i)`resolved-commented-file-only`[^\n]*does not block[^\n]*by itself",
+        )
+
+    def test_missing_scope_resolution_is_ineligible(self) -> None:
+        fixture = re.sub(
+            r"(?m)^- \*\*Scope resolution\*\*:.*\n", "", _direct_fix_v2_task()
+        )
+
+        self.assertIn(
+            "batch.scope",
+            "\n".join(
+                validate_direct_fix_routing_state(fixture, _DirectFixRoutingState())
+            ),
+        )
+
+    def test_rejected_suggestion_without_alternate_is_ineligible(self) -> None:
+        fixture = _direct_fix_v2_task(_DirectFixV2Task(suggestion_fit="reject"))
+
+        self.assertIn(
+            "task.suggestion-fit",
+            "\n".join(
+                validate_direct_fix_routing_state(fixture, _DirectFixRoutingState())
+            ),
+        )
+
+    def test_confirmed_mechanical_alternate_reenters_fresh_preflight(self) -> None:
+        fixture = _direct_fix_v2_task(_DirectFixV2Task(suggestion_fit="reject"))
+        confirmed = _DirectFixRoutingState(
+            alternate_fix="mechanical:update_selected_order_branch",
+            alternate_fix_disclosed=True,
+            alternate_fix_confirmed=True,
+            fresh_preflight_passed=True,
+        )
+        stale_preflight = _DirectFixRoutingState(
+            alternate_fix="mechanical:update_selected_order_branch",
+            alternate_fix_disclosed=True,
+            alternate_fix_confirmed=True,
+        )
+
+        self.assertEqual(validate_direct_fix_routing_state(fixture, confirmed), [])
+        self.assertIn(
+            "task.suggestion-fit",
+            "\n".join(validate_direct_fix_routing_state(fixture, stale_preflight)),
+        )
+
+        direct_fix = read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        self.assertContractRegex(
+            direct_fix,
+            re.compile(
+                r"suggestion fit[^\n]*`reject`.*exact mechanical alternate.*"
+                + r"final disclosure.*explicit user confirmation.*fresh preflight",
+                re.IGNORECASE | re.DOTALL,
+            ),
+        )
+
+    def test_already_fixed_remains_section_b(self) -> None:
+        classify = (_REPO_ROOT / _CLASSIFY).read_text(encoding="utf-8")
+
+        self.assertContractRegex(
+            classify,
+            r"(?m)^\| actionable \| `already_fixed` \| Section B \|",
+        )
+
+
 class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
     def assertEligible(self, fixture: str) -> None:
         self.assertEqual(validate_direct_fix_brief_fixture(fixture), [])
@@ -730,19 +1883,441 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
         errors = validate_direct_fix_brief_fixture(fixture)
         self.assertIn(expected, errors, errors)
 
-    def test_hard_blocker_evidence_requires_typed_citations(self) -> None:
-        malformed_evidence = "; ".join(
-            f"{blocker}=not-a-citation" for blocker in _HARD_BLOCKERS
+    def _todo4_dispositions(
+        self,
+        *,
+        dispositions: Mapping[str, str] | None = None,
+        justification_overrides: Mapping[str, str] | None = None,
+    ) -> list[dict[str, str]]:
+        dispositions = dispositions or {}
+        justification_overrides = justification_overrides or {}
+        return [
+            {
+                "blocker_id": blocker,
+                "disposition": dispositions.get(blocker, "not-triggered"),
+                "evidence": "code:app/file-1.rb:1",
+                "delta_locus_justification": justification_overrides.get(
+                    blocker,
+                    "delta:none; locus:locus-1::responsibility_1; "
+                    + "evidence:code:app/file-1.rb:1",
+                ),
+            }
+            for blocker in (
+                "architecture",
+                "cross-module-state",
+                "public-interface",
+                "security-or-authorization",
+                "schema-or-data",
+                "dependency-introduction",
+                "concurrency",
+                "transaction",
+                "retry-or-recovery",
+                "deployment-or-release",
+                "unclear-verification",
+            )
+        ]
+
+    def _todo4_fixture(
+        self,
+        dispositions: list[dict[str, str]] | None = None,
+        verification: str | None = None,
+    ) -> str:
+        blocker_json = json.dumps(
+            dispositions or self._todo4_dispositions(),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        exact_verification = verification or (
+            "command=python3 -m unittest "
+            + "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check; "
+            + "scope=tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check; "
+            + "expected_exit=0; expected_output=unittest:OK; "
+            + "behavioral_assertion=observable:"
+            + "test:spec/file-1_spec.rb::test_behavior_1"
         )
         fixture = re.sub(
-            r"(?m)^- \*\*Hard blocker evidence\*\*:.*$",
-            f"- **Hard blocker evidence**: {malformed_evidence}",
+            r"(?m)^- \*\*Blocker dispositions\*\*:.*$",
+            f"- **Blocker dispositions**: {blocker_json}",
             _complete_task(1),
         )
+        return re.sub(
+            r"(?m)^- \*\*Verification\*\*:.*$",
+            f"- **Verification**: {exact_verification}",
+            fixture,
+        )
+
+    def test_all_eleven_blockers_are_delta_sensitive(self) -> None:
+        blocker_names = tuple(
+            disposition["blocker_id"] for disposition in self._todo4_dispositions()
+        )
+
+        for blocker in blocker_names:
+            with self.subTest(blocker=blocker, context="ambient"):
+                self.assertEqual(
+                    validate_direct_fix_brief_fixture(self._todo4_fixture()), []
+                )
+
+            with self.subTest(blocker=blocker, context="delta-intersection"):
+                dispositions = self._todo4_dispositions(
+                    dispositions={blocker: "triggered"},
+                    justification_overrides={
+                        blocker: "delta:intersects; "
+                        + "locus:locus-1::responsibility_1; "
+                        + "evidence:code:app/file-1.rb:1"
+                    },
+                )
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(dispositions)
+                )
+                self.assertIn(f"task.hard-blocker.{blocker}", "\n".join(errors))
+
+    def test_blocker_dispositions_reject_invalid_shapes_and_relevance(self) -> None:
+        canonical = self._todo4_dispositions()
+        cases = {
+            "missing": canonical[1:],
+            "reordered": [canonical[1], canonical[0], *canonical[2:]],
+            "malformed": [
+                {**canonical[0], "disposition": "clear"},
+                *canonical[1:],
+            ],
+            "irrelevant": [
+                {
+                    **canonical[0],
+                    "delta_locus_justification": "nearby code looks safe",
+                },
+                *canonical[1:],
+            ],
+        }
+
+        for name, dispositions in cases.items():
+            with self.subTest(name=name):
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(dispositions)
+                )
+                self.assertIn("task.hard-blocker.", "\n".join(errors))
+
+    def test_triggered_and_uncertain_dispositions_use_per_blocker_reason(self) -> None:
+        for disposition, delta in (
+            ("triggered", "intersects"),
+            ("uncertain", "uncertain"),
+        ):
+            with self.subTest(disposition=disposition):
+                blockers = self._todo4_dispositions(
+                    dispositions={"security-or-authorization": disposition},
+                    justification_overrides={
+                        "security-or-authorization": f"delta:{delta}; "
+                        + "locus:locus-1::responsibility_1; "
+                        + "evidence:code:app/file-1.rb:1"
+                    },
+                )
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(blockers)
+                )
+                self.assertIn(
+                    "task-1: task.hard-blocker.security-or-authorization",
+                    "\n".join(errors),
+                )
+
+    def test_exact_verification_accepts_deterministic_observable_check(self) -> None:
+        self.assertEqual(validate_direct_fix_brief_fixture(self._todo4_fixture()), [])
+
+    def test_verification_rejects_masking_and_self_derived_oracles(self) -> None:
+        cases = {
+            "broad run-tests": "run tests",
+            "retry": "command=retry python3 -m unittest; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "rerun": "command=rerun until pass; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "timeout inflation": "command=python3 -m unittest --timeout 600; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "skip": "command=python3 -m unittest test_x --skip; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "blind snapshot": "command=python3 -m unittest test_x --update-snapshots; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable:x",
+            "assertion weakening": "command=python3 -m unittest test_x; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=weaken assertion",
+            "nondeterminism": "command=python3 -m unittest test_x; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable: random output accepted",
+            "self-derived oracle": "command=python3 -m unittest test_x; scope=test_x; expected_exit=0; expected_output=OK; behavioral_assertion=observable: expected value derived from implementation output",
+        }
+
+        for name, verification in cases.items():
+            with self.subTest(name=name):
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(verification=verification)
+                )
+                self.assertIn("task.verification", "\n".join(errors))
+
+    def test_todo4_combined_failures_report_complete_inventory(self) -> None:
+        dispositions = self._todo4_dispositions(
+            dispositions={
+                "security-or-authorization": "triggered",
+                "deployment-or-release": "triggered",
+                "unclear-verification": "uncertain",
+            },
+            justification_overrides={
+                "security-or-authorization": "delta:intersects; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:code:app/file-1.rb:1",
+                "deployment-or-release": "delta:intersects; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:code:app/file-1.rb:1",
+                "unclear-verification": "delta:uncertain; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:code:app/file-1.rb:1",
+            },
+        )
+        retry_verification = (
+            "command=retry python3 -m unittest test_x; scope=test_x; "
+            + "expected_exit=0; expected_output=OK; "
+            + "behavioral_assertion=observable:test_x passes"
+        )
+
+        errors = validate_direct_fix_brief_fixture(
+            self._todo4_fixture(dispositions, retry_verification)
+        )
+
+        self.assertEqual(
+            errors,
+            [
+                "task-1: task.hard-blocker.security-or-authorization -- "
+                + "disposition is triggered",
+                "task-1: task.hard-blocker.deployment-or-release -- "
+                + "disposition is triggered",
+                "task-1: task.hard-blocker.unclear-verification -- "
+                + "disposition is uncertain",
+                "task-1: task.verification -- Verification must be deterministic "
+                + "command, scope, expected result, and observable assertion",
+            ],
+        )
+
+    def test_blocker_disposition_evidence_requires_typed_citations(self) -> None:
+        dispositions = self._todo4_dispositions()
+        dispositions[0] = {**dispositions[0], "evidence": "not-a-citation"}
 
         self.assertIneligible(
-            fixture, "Task 1 Hard blocker evidence contains malformed citation"
+            self._todo4_fixture(dispositions),
+            "task-1: task.hard-blocker.architecture -- malformed disposition",
         )
+
+    def test_protected_delta_overrides_not_triggered_self_attestation(self) -> None:
+        cases = (
+            (
+                "security-or-authorization",
+                "code:app/tenant_policy.rb:20::TenantBoundary#authorize",
+                "app/tenant_policy.rb",
+                "spec/tenant_policy_spec.rb",
+            ),
+            (
+                "deployment-or-release",
+                "automation:.github/workflows/deploy.yml::production-rollout",
+                ".github/workflows/deploy.yml",
+                "spec/deploy_workflow_spec.rb",
+            ),
+        )
+
+        for blocker, protected_selector, changed_path, verification_path in cases:
+            with self.subTest(blocker=blocker, context="ambient"):
+                ambient = _complete_task(
+                    1,
+                    changed_paths=("app/file-1.rb",),
+                    verification_paths=("spec/file-1_spec.rb",),
+                )
+                context = _DirectFixValidationContext(
+                    resolvable_citations=frozenset(
+                        {
+                            "code:app/file-1.rb:1",
+                            "test:spec/file-1_spec.rb::test_behavior_1",
+                            f"code:{changed_path}:1",
+                            f"test:{verification_path}::test_behavior_1",
+                        }
+                    ),
+                    bound_delta_selectors=(
+                        "code:app/file-1.rb:1::responsibility-1#behavior-hunk",
+                    ),
+                    actual_delta_paths=frozenset({"app/file-1.rb"}),
+                    protected_delta_selectors=((protected_selector, blocker),),
+                )
+                self.assertEqual(
+                    validate_direct_fix_brief_fixture(ambient, context=context), []
+                )
+
+            with self.subTest(blocker=blocker, context="delta-intersection"):
+                delta = _complete_task(
+                    1,
+                    changed_paths=(changed_path,),
+                    verification_paths=(verification_path,),
+                    changed_locus_selectors=(protected_selector,),
+                )
+                delta_context = replace(
+                    context,
+                    bound_delta_selectors=(protected_selector,),
+                    actual_delta_paths=frozenset({changed_path}),
+                )
+                errors = validate_direct_fix_brief_fixture(delta, context=delta_context)
+                self.assertIn(f"task.hard-blocker.{blocker}", "\n".join(errors))
+
+    def test_bound_delta_inventory_outvotes_artifact_selector(self) -> None:
+        protected_selector = "code:app/tenant_policy.rb:20::TenantBoundary#authorize"
+        context = _DirectFixValidationContext(
+            resolvable_citations=frozenset({"code:app/file-1.rb:1"}),
+            bound_delta_selectors=(protected_selector,),
+            actual_delta_paths=frozenset({"app/tenant_policy.rb"}),
+            protected_delta_selectors=(
+                (protected_selector, "security-or-authorization"),
+            ),
+        )
+
+        errors = validate_direct_fix_brief_fixture(
+            self._todo4_fixture(), context=context
+        )
+
+        self.assertIn("task.hard-blocker.security-or-authorization", "\n".join(errors))
+
+    def test_unresolvable_citations_fail_while_ambient_citations_resolve(self) -> None:
+        context = _DirectFixValidationContext(
+            resolvable_citations=frozenset(
+                {
+                    "code:app/file-1.rb:1",
+                    "test:spec/file-1_spec.rb::test_behavior_1",
+                    "comment:1001",
+                }
+            )
+        )
+        self.assertEqual(
+            validate_direct_fix_brief_fixture(self._todo4_fixture(), context=context),
+            [],
+        )
+
+        stale = self._todo4_dispositions()
+        stale = [
+            {
+                **item,
+                "evidence": "comment:999999999",
+                "delta_locus_justification": "delta:none; "
+                + "locus:locus-1::responsibility_1; "
+                + "evidence:comment:999999999",
+            }
+            for item in stale
+        ]
+        errors = validate_direct_fix_brief_fixture(
+            self._todo4_fixture(stale), context=context
+        )
+
+        for blocker in _HARD_BLOCKERS:
+            self.assertIn(f"task.hard-blocker.{blocker}", "\n".join(errors))
+
+    def test_malformed_blocker_container_reports_all_canonical_reasons(self) -> None:
+        fixture = re.sub(
+            r"(?m)^- \*\*Blocker dispositions\*\*:.*$",
+            "- **Blocker dispositions**: not-json",
+            self._todo4_fixture(),
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertEqual(
+            [
+                error.split(": ", 1)[1].split(" --", 1)[0]
+                for error in errors
+                if "task.hard-blocker." in error
+            ],
+            [f"task.hard-blocker.{blocker}" for blocker in _HARD_BLOCKERS],
+        )
+
+    def test_duplicate_blocker_disposition_key_reports_all_reasons(self) -> None:
+        fixture = self._todo4_fixture().replace(
+            '"disposition":"not-triggered"',
+            '"disposition":"triggered","disposition":"not-triggered"',
+            1,
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertEqual(
+            [
+                error.split(": ", 1)[1].split(" --", 1)[0]
+                for error in errors
+                if "task.hard-blocker." in error
+            ],
+            [f"task.hard-blocker.{blocker}" for blocker in _HARD_BLOCKERS],
+        )
+
+    def test_duplicate_later_blocker_id_reports_all_reasons(self) -> None:
+        fixture = self._todo4_fixture().replace(
+            '"blocker_id":"unclear-verification"',
+            '"blocker_id":"architecture","blocker_id":"unclear-verification"',
+            1,
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertEqual(
+            [
+                error.split(": ", 1)[1].split(" --", 1)[0]
+                for error in errors
+                if "task.hard-blocker." in error
+            ],
+            [f"task.hard-blocker.{blocker}" for blocker in _HARD_BLOCKERS],
+        )
+
+    def test_verification_rejects_structurally_invalid_paraphrases(self) -> None:
+        scope = (
+            "tests.test_direct_fix_routing_contract."
+            + "TestDirectFixComplexityAndTopologyFixtures."
+            + "test_exact_verification_accepts_deterministic_observable_check"
+        )
+        cases = {
+            "broad discover": (
+                "command=python3 -m unittest discover; scope=all tests; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "attempt again": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=attempt again on failure; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "execute repeatedly": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=execute repeatedly until green; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "excluding failure": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=excluding failing case; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "deadline inflation": (
+                f"command=python3 -m unittest {scope} --deadline 600; "
+                + f"scope={scope}; expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "regenerate golden": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=regenerate golden files; "
+                + "behavioral_assertion=observable: fixture accepted"
+            ),
+            "weak assertion": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable:process-returned-a-value"
+            ),
+            "seed dependent": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable:shuffled-seed-dependent-output"
+            ),
+            "self oracle": (
+                f"command=python3 -m unittest {scope}; scope={scope}; "
+                + "expected_exit=0; expected_output=OK; "
+                + "behavioral_assertion=observable:expected-equals-actual-output"
+            ),
+        }
+
+        for name, verification in cases.items():
+            with self.subTest(name=name):
+                errors = validate_direct_fix_brief_fixture(
+                    self._todo4_fixture(verification=verification)
+                )
+                self.assertIn("task.verification", "\n".join(errors))
 
     def test_natural_language_multiple_outcomes_and_loci_are_rejected(self) -> None:
         cases = {
@@ -752,8 +2327,8 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                 _complete_task(1),
             ),
             "multiple loci": re.sub(
-                r"(?m)^- \*\*Implementation locus\*\*:.*$",
-                "- **Implementation locus**: order persistence and notification delivery",
+                r"(?m)^- \*\*Locus ID\*\*:.*$",
+                "- **Locus ID**: order persistence and notification delivery",
                 _complete_task(1),
             ),
         }
@@ -773,10 +2348,10 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
     def test_pr_1431_implementation_and_spec_are_one_local_behavior_task(self) -> None:
         fixture = _complete_task(
             1,
-            implementation_paths=("app/controllers/orders_controller.rb",),
-            companion_paths=("spec/controllers/orders_controller_spec.rb",),
+            changed_paths=("app/controllers/orders_controller.rb",),
+            verification_paths=("spec/controllers/orders_controller_spec.rb",),
             behavioral_outcome="outcome-1::return_correct_controller_result",
-            implementation_locus="locus-1::orders_controller_result_computation",
+            locus_id="locus-1::orders_controller_result_computation",
         )
 
         self.assertEligible(fixture)
@@ -839,19 +2414,20 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
     def test_multiple_paths_are_allowed_only_with_one_locus_and_outcome(self) -> None:
         eligible = _complete_task(
             1,
-            implementation_paths=("app/order.rb", "app/order_status.rb"),
-            companion_paths=("spec/order_spec.rb", "fixtures/order.yml"),
-            implementation_locus="locus-1::order_status_responsibility",
+            changed_paths=("app/order.rb", "app/order_status.rb"),
+            verification_paths=("spec/order_spec.rb", "fixtures/order.yml"),
+            locus_id="locus-1::order_status_responsibility",
             behavioral_outcome="outcome-1::publish_corrected_order_status",
         )
         ineligible = _complete_task(
             1,
-            implementation_locus="order persistence and notification delivery",
+            locus_id="order persistence and notification delivery",
         )
 
         self.assertEligible(eligible)
         self.assertIneligible(
-            ineligible, "Task 1 must have exactly one implementation locus"
+            ineligible,
+            "task-1: task.locus -- invalid Locus ID order persistence and notification delivery",
         )
 
     def test_non_linear_or_oversized_topologies_fail_closed(self) -> None:
@@ -961,9 +2537,12 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
             ),
             "missing certificate field": (
                 re.sub(
-                    r"^- \*\*Hard blocker result\*\*:.*\n", "", base, flags=re.MULTILINE
+                    r"^- \*\*Blocker dispositions\*\*:.*\n",
+                    "",
+                    base,
+                    flags=re.MULTILINE,
                 ),
-                "Task 1 missing Hard blocker result",
+                "Task 1 missing Blocker dispositions",
             ),
             "multiple outcomes": (
                 re.sub(
@@ -971,93 +2550,31 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                     "- **Behavioral outcome**: persist order and notify customer",
                     base,
                 ),
-                "Task 1 must have exactly one behavioral outcome",
+                "task-1: task.behavioral-outcome -- invalid Behavioral outcome persist order and notify customer",
             ),
             "shared production symbol": (
                 base
                 + _complete_task(
                     2,
-                    production_symbols=(
-                        "app/file-1.rb::responsibility-1#behavior-hunk",
+                    changed_paths=("app/file-1.rb",),
+                    changed_locus_selectors=(
+                        "code:app/file-1.rb:1::responsibility-1#behavior-hunk",
                     ),
                 ),
-                "Tasks 1 and 2 share production symbol/hunk app/file-1.rb::responsibility-1#behavior-hunk",
+                "batch: batch.shared-locus -- tasks 1 and 2 share code:app/file-1.rb:1::responsibility-1#behavior-hunk",
             ),
             "unclear verification": (
-                base.replace(
-                    "- **Verification**: python3 -m unittest", "- **Verification**: TBD"
+                re.sub(
+                    r"(?m)^- \*\*Verification\*\*:.*$",
+                    "- **Verification**: TBD",
+                    base,
                 ),
-                "Task 1 has unclear verification",
+                "task-1: task.verification -- Verification must be deterministic command, scope, expected result, and observable assertion",
             ),
         }
         for name, (fixture, expected) in cases.items():
             with self.subTest(name=name):
                 self.assertIneligible(fixture, expected)
-
-    def test_hard_blocker_certificate_rejects_every_malformed_shape(self) -> None:
-        base = _complete_task(1)
-        checked_line = re.search(
-            r"^- \*\*Hard blockers checked\*\*:.*$", base, re.MULTILINE
-        )
-        evidence_line = re.search(
-            r"^- \*\*Hard blocker evidence\*\*:.*$", base, re.MULTILINE
-        )
-        assert checked_line is not None
-        assert evidence_line is not None
-        cases = {
-            "missing enum": base.replace("`architecture`, ", "", 1),
-            "duplicate enum": base.replace(
-                "`architecture`, ", "`architecture`, `architecture`, ", 1
-            ),
-            "unknown enum": base.replace("`architecture`", "`unknown`", 1),
-            "reordered enum": base.replace(
-                "`architecture`, `cross-module-state`",
-                "`cross-module-state`, `architecture`",
-                1,
-            ),
-            "empty evidence": base.replace(
-                "architecture=code:app/file-1.rb:1",
-                "architecture=",
-                1,
-            ),
-            "missing evidence member": base.replace(
-                "architecture=code:app/file-1.rb:1; ",
-                "",
-                1,
-            ),
-            "duplicate evidence member": base.replace(
-                "architecture=code:app/file-1.rb:1; ",
-                "architecture=code:app/file-1.rb:1; architecture=code:app/file-1.rb:1; ",
-                1,
-            ),
-            "unknown evidence member": base.replace(
-                "architecture=code:app/file-1.rb:1",
-                "unknown=code:app/file-1.rb:1",
-                1,
-            ),
-            "reordered evidence": base.replace(
-                "architecture=code:app/file-1.rb:1; cross-module-state=code:app/file-1.rb:1",
-                "cross-module-state=code:app/file-1.rb:1; architecture=code:app/file-1.rb:1",
-                1,
-            ),
-            "contradictory result": base.replace(
-                "- **Hard blocker result**: none",
-                "- **Hard blocker result**: architecture",
-            ),
-        }
-        for name, fixture in cases.items():
-            with self.subTest(name=name):
-                self.assertTrue(validate_direct_fix_brief_fixture(fixture), name)
-
-        for blocker in _HARD_BLOCKERS:
-            with self.subTest(hard_blocker=blocker):
-                fixture = base.replace(
-                    "- **Hard blocker result**: none",
-                    f"- **Hard blocker result**: {blocker}",
-                )
-                self.assertIneligible(
-                    fixture, "Task 1 Hard blocker result must be exactly none"
-                )
 
     def test_validator_reports_all_failed_conditions(self) -> None:
         fixture = "\n".join(
@@ -1065,9 +2582,10 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
                 _complete_task(1, complexity_class="architectural"),
                 _complete_task(2, depends_on=(1,)),
                 _complete_task(3, depends_on=(2,)),
-                _complete_task(4, depends_on=(3,)).replace(
-                    "- **Verification**: python3 -m unittest",
+                re.sub(
+                    r"(?m)^- \*\*Verification\*\*:.*$",
                     "- **Verification**: unclear",
+                    _complete_task(4, depends_on=(3,)),
                 ),
             )
         )
@@ -1075,7 +2593,7 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
         errors = validate_direct_fix_brief_fixture(fixture)
 
         self.assertIn("Task 1 has invalid Complexity class", errors)
-        self.assertIn("Task 4 has unclear verification", errors)
+        self.assertIn("task-4: task.verification", "\n".join(errors))
         self.assertIn("Direct Fix ordered-chain length must be 2-3 tasks", errors)
 
 
@@ -1098,13 +2616,11 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
     def test_direct_fix_removes_old_single_task_override(self) -> None:
         self.assertTextNotIn("exactly one task", self.direct_fix().lower())
 
-    def test_task_is_one_root_concern_outcome_and_implementation_locus(self) -> None:
+    def test_task_is_one_root_concern_outcome_and_locus(self) -> None:
         section = self.direct_fix()
         self.assertContractRegex(section, r"(?i)one deduplicated root concern")
         self.assertContractRegex(section, r"(?i)one behavioral outcome")
-        self.assertContractRegex(
-            section, r"(?i)one (?:production )?implementation locus"
-        )
+        self.assertContractRegex(section, r"(?i)one `?Locus ID`?")
 
     def test_only_certified_mechanical_or_local_behavior_tasks_are_eligible(
         self,
@@ -1119,11 +2635,11 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
     def test_direct_companions_stay_with_implementation_task(self) -> None:
         section = self.direct_fix()
         self.assertContractRegex(
-            section, r"(?i)(?:test|spec|fixture) companions?[^\n]*same task"
+            section, r"(?i)(?:test|spec|fixture) paths?[^\n]*same task"
         )
         self.assertContractRegex(
             section,
-            r"(?i)multiple production paths[^\n]*one mechanically enumerated locus",
+            r"(?i)multiple changed paths[^\n]*one mechanically enumerated locus",
         )
 
     def test_topology_caps_and_component_grammar_are_explicit(self) -> None:
@@ -1140,13 +2656,13 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
             with self.subTest(pattern=pattern):
                 self.assertContractRegex(section, pattern)
 
-    def test_canonical_identity_edge_direction_and_shared_hunks_are_explicit(
+    def test_canonical_identity_edge_direction_and_shared_loci_are_explicit(
         self,
     ) -> None:
         section = self.direct_fix()
         self.assertContractRegex(section, r"(?i)heading `### Task N`[^\n]*`task-N`")
         self.assertContractRegex(section, r"(?i)`task-X -> task-N`[^\n]*prerequisite")
-        self.assertContractRegex(section, r"(?i)shared production symbols?/hunks?")
+        self.assertContractRegex(section, r"(?i)shared locus selectors?")
 
     def test_deterministic_topological_order_is_serial(self) -> None:
         section = self.direct_fix()
@@ -1175,19 +2691,29 @@ class TestDirectFixEligibilityContract(RuntimeContractTestCase):
     def test_conflict_is_forbidden(self) -> None:
         self.assertContractRegex(self.direct_fix(), r"(?i)\bconflict\b")
 
-    def test_cross_file_escalation_is_forbidden(self) -> None:
-        self.assertContractRegex(self.direct_fix(), r"(?i)cross-file escalation")
+    def test_only_unresolved_cross_file_scope_is_forbidden(self) -> None:
+        section = self.direct_fix()
 
-    def test_complexity_hard_blocker_enum_is_closed_and_canonical(self) -> None:
+        self.assertContractRegex(
+            section,
+            r"(?i)`unresolved-global-scope`[^\n]*blocks Direct Fix[^\n]*`batch.scope`",
+        )
+        self.assertContractRegex(
+            section,
+            r"(?i)`resolved-commented-file-only`[^\n]*only `unresolved-global-scope` blocks",
+        )
+
+    def test_blocker_dispositions_are_closed_delta_sensitive_and_canonical(
+        self,
+    ) -> None:
         section = self.direct_fix()
         canonical = ", ".join(f"`{blocker}`" for blocker in _HARD_BLOCKERS)
         self.assertTextIn(canonical, section)
-        self.assertContractRegex(section, r"(?i)closed fail-closed enum")
-        self.assertContractRegex(section, r"Hard blockers checked:\s*\[[^\n]+\]")
-        self.assertContractRegex(section, r"Hard blocker evidence:\s*[^\n]+")
-        self.assertContractRegex(section, r"Hard blocker result:\s*`?none`?")
+        self.assertTextIn("exactly eleven `Blocker dispositions` objects", section)
+        self.assertTextIn("Only eleven valid `not-triggered` objects", section)
+        self.assertContractRegex(section, r"task\.hard-blocker\.<blocker-name>")
 
-    def test_direct_fix_template_contains_complexity_certificate_fields(self) -> None:
+    def test_direct_fix_template_contains_blocker_disposition_field(self) -> None:
         template = extract_markdown_fixture(self.direct_fix())
         section_a = extract_markdown_section(template, "Section A: Code Change + Reply")
         for field in _REQUIRED_TASK_FIELDS:
@@ -1694,6 +3220,604 @@ class TestDirectFixExecutionContract(RuntimeContractTestCase):
         self.assertTextIn("never authorizes another POST or resume", unreconciled_write)
 
 
+class TestDirectFixPolicyBindingContract(unittest.TestCase):
+    def _request(self) -> _DirectFixAuthorizationRequest:
+        dossier = (_REPO_ROOT / _DOSSIER_OUTPUT).read_text(encoding="utf-8")
+        policy_json = _extract_direct_fix_policy(dossier)
+        policy_sha = _policy_sha256(policy_json)
+        task: Mapping[str, object] = {
+            "behavioral_outcome": "outcome-1::order_call_persists_state",
+            "blocker_dispositions": [
+                {
+                    "blocker_id": blocker,
+                    "delta_locus_justification": f"DF-1 does not intersect {blocker}",
+                    "disposition": "not-triggered",
+                    "evidence": f"checkout:{blocker}",
+                }
+                for blocker in _HARD_BLOCKERS
+            ],
+            "change_mode": "locus-change",
+            "changed_locus_selectors": [
+                "code:app/file-1.rb:10::Order#call",
+                "code:app/file-1.rb:20::Order#persist",
+            ],
+            "conclusion": "valid",
+            "depends_on_task_ids": [],
+            "exact_change": "Persist state before returning",
+            "expected_paths": ["app/file-1.rb", "spec/file-1_spec.rb"],
+            "expected_result_oracle": "spec:file-1:persists-state",
+            "locus_evidence": "code:app/file-1.rb:10::Order#call",
+            "locus_id": "locus-1::order_call",
+            "locus_kind": "runtime-code",
+            "reply_target_ids": ["discussion_r1"],
+            "root_concern_identity": "order-state-persistence",
+            "scope_resolution": "resolved-commented-file-only",
+            "task_id": "DF-1",
+            "verification_paths": ["spec/file-1_spec.rb"],
+        }
+        fingerprint = _batch_fingerprint(policy_sha, (task,))
+        binding = _DirectFixBinding(2, policy_sha, fingerprint)
+        scope = _DirectFixScope(
+            expected_paths=("app/file-1.rb", "spec/file-1_spec.rb"),
+            changed_selectors=(
+                "code:app/file-1.rb:10::Order#call",
+                "code:app/file-1.rb:20::Order#persist",
+            ),
+            verification_paths=("spec/file-1_spec.rb",),
+        )
+        path_hashes = (
+            ("app/file-1.rb", "app-hash"),
+            ("spec/file-1_spec.rb", "spec-hash"),
+        )
+        return _DirectFixAuthorizationRequest(
+            policy_json=policy_json,
+            batch_tasks=(task,),
+            canonical_scopes=(scope,),
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+            fingerprint_preimage=scope,
+            brief_scope=scope,
+            actual_diff_paths=scope.expected_paths,
+            actual_selectors=scope.changed_selectors,
+            commit_paths=scope.expected_paths,
+            task_start_clean=True,
+            task_start_scope=scope,
+            preimage_path_hashes=path_hashes,
+            current_path_hashes=path_hashes,
+        )
+
+    def assertZeroSideEffects(self, decision: _DirectFixAuthorizationDecision) -> None:
+        self.assertEqual(decision.authorized_handoffs, 0)
+        self.assertEqual(decision.side_effect_counts, (0, 0, 0, 0, 0))
+
+    def _rebind_batch(
+        self,
+        request: _DirectFixAuthorizationRequest,
+        tasks: tuple[Mapping[str, object], ...],
+    ) -> _DirectFixAuthorizationRequest:
+        fingerprint = _batch_fingerprint(
+            _policy_sha256(request.policy_json),
+            tasks,
+        )
+        binding = replace(request.disclosure, batch_fingerprint=fingerprint)
+        return replace(
+            request,
+            batch_tasks=tasks,
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+        )
+
+    def test_policy_block_is_canonical_utf8_json_with_one_trailing_lf(self) -> None:
+        policy_json = self._request().policy_json
+        expected_policy = {
+            "authorization": {
+                "artifact_policy_binding": "artifact.policy-binding",
+                "missing_consent": "route.authorization",
+                "route_batch_fingerprint": "route.batch-fingerprint",
+                "route_policy_binding": "route.policy-binding",
+            },
+            "batch": {
+                "blocker_disposition_fields": [
+                    "blocker_id",
+                    "disposition",
+                    "evidence",
+                    "delta_locus_justification",
+                ],
+                "task_fields": list(_DIRECT_FIX_V2_TASK_FIELDS),
+            },
+            "canonicalization": {
+                "array_order": "preserved unless field rule sorts",
+                "encoding": "UTF-8",
+                "object_keys": "sorted",
+                "separators": ",:",
+                "trailing_lf": 1,
+            },
+            "eligibility": {
+                "blocker_dispositions": [
+                    "not-triggered",
+                    "triggered",
+                    "uncertain",
+                ],
+                "blocker_order": list(_HARD_BLOCKERS),
+                "verification_fields": [
+                    "command",
+                    "scope",
+                    "expected_exit",
+                    "expected_output",
+                    "behavioral_assertion",
+                ],
+            },
+            "execution_scope": {
+                "authority": "expected_paths",
+                "path_drift": "artifact.scope-drift",
+                "selector_drift": "artifact.selector-drift",
+            },
+            "direct_fix_schema_version": 2,
+        }
+
+        self.assertTrue(policy_json)
+        self.assertEqual(policy_json.count("\n"), 1)
+        self.assertEqual(
+            policy_json.encode("utf-8"),
+            _canonical_json_bytes(expected_policy),
+        )
+
+    def test_policy_projected_task_with_recomputed_bindings_authorizes(self) -> None:
+        request = self._request()
+        policy_task_fields = _policy_task_fields(request.policy_json)
+        projected_task = {
+            field: request.batch_tasks[0][field] for field in policy_task_fields
+        }
+        policy_sha = _policy_sha256(request.policy_json)
+        fingerprint = _batch_fingerprint(policy_sha, (projected_task,))
+        binding = _DirectFixBinding(2, policy_sha, fingerprint)
+        projected_request = replace(
+            request,
+            batch_tasks=(projected_task,),
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+        )
+
+        decision = _authorize_direct_fix(projected_request)
+
+        self.assertEqual(decision.reason_ids, ())
+        self.assertEqual(decision.authorized_handoffs, 1)
+        self.assertEqual(decision.side_effect_counts, (1, 1, 1, 1, 1))
+
+    def test_policy_task_schema_drift_blocks_recomputed_bindings(self) -> None:
+        request = self._request()
+        drifted_policy = request.policy_json.replace(',"scope_resolution"]', "]")
+        self.assertNotEqual(drifted_policy, request.policy_json)
+        drifted_fields = _policy_task_fields(drifted_policy)
+        drifted_task = {
+            field: request.batch_tasks[0][field] for field in drifted_fields
+        }
+        policy_sha = _policy_sha256(drifted_policy)
+        fingerprint = _batch_fingerprint(policy_sha, (drifted_task,))
+        binding = _DirectFixBinding(2, policy_sha, fingerprint)
+        drifted_request = replace(
+            request,
+            policy_json=drifted_policy,
+            batch_tasks=(drifted_task,),
+            disclosure=binding,
+            consent=binding,
+            brief=binding,
+        )
+
+        decision = _authorize_direct_fix(drifted_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_missing_schema_version_blocks_route_before_side_effects(self) -> None:
+        request = self._request()
+        malformed_disclosure = replace(
+            request.disclosure, direct_fix_schema_version=None
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=malformed_disclosure)
+        )
+
+        self.assertIn("route.policy-binding", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("direct_fix_schema_version: 2", interaction)
+
+    def test_policy_sha_mismatch_blocks_route_before_side_effects(self) -> None:
+        request = self._request()
+        mismatched_disclosure = replace(request.disclosure, policy_sha256="a" * 64)
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=mismatched_disclosure)
+        )
+
+        self.assertIn("route.policy-binding", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        self.assertTrue(request.policy_json)
+
+    def test_batch_mismatch_blocks_route_before_side_effects(self) -> None:
+        request = self._request()
+        mismatched_disclosure = replace(request.disclosure, batch_fingerprint="c" * 64)
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=mismatched_disclosure)
+        )
+
+        self.assertIn("route.batch-fingerprint", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("batch_fingerprint:", interaction)
+
+    def test_self_consistent_unsorted_or_extra_batch_paths_cannot_authorize(
+        self,
+    ) -> None:
+        request = self._request()
+        for forged_paths in (
+            ["spec/file-1_spec.rb", "app/file-1.rb"],
+            ["app/file-1.rb", "app/unrelated.rb", "spec/file-1_spec.rb"],
+        ):
+            with self.subTest(forged_paths=forged_paths):
+                forged_task = dict(request.batch_tasks[0])
+                forged_task["expected_paths"] = forged_paths
+                forged_request = self._rebind_batch(request, (forged_task,))
+
+                decision = _authorize_direct_fix(forged_request)
+
+                self.assertIn("artifact.scope-drift", decision.reason_ids)
+                self.assertZeroSideEffects(decision)
+
+    def test_self_consistent_unsorted_or_extra_batch_selectors_cannot_authorize(
+        self,
+    ) -> None:
+        request = self._request()
+        for forged_selectors in (
+            [
+                "code:app/file-1.rb:20::Order#persist",
+                "code:app/file-1.rb:10::Order#call",
+            ],
+            [
+                "code:app/file-1.rb:10::Order#call",
+                "code:app/file-1.rb:20::Order#persist",
+                "code:app/unrelated.rb:20::Unrelated#call",
+            ],
+        ):
+            with self.subTest(forged_selectors=forged_selectors):
+                forged_task = dict(request.batch_tasks[0])
+                forged_task["changed_locus_selectors"] = forged_selectors
+                forged_request = self._rebind_batch(request, (forged_task,))
+
+                decision = _authorize_direct_fix(forged_request)
+
+                self.assertIn("artifact.selector-drift", decision.reason_ids)
+                self.assertZeroSideEffects(decision)
+
+    def test_self_consistent_extra_verification_path_cannot_authorize(self) -> None:
+        request = self._request()
+        forged_task = dict(request.batch_tasks[0])
+        forged_task["verification_paths"] = [
+            "spec/file-1_spec.rb",
+            "spec/unrelated_spec.rb",
+        ]
+        forged_request = self._rebind_batch(request, (forged_task,))
+
+        decision = _authorize_direct_fix(forged_request)
+
+        self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_task_and_canonical_scope_cardinality_mismatch_cannot_authorize(
+        self,
+    ) -> None:
+        request = self._request()
+        original_task = request.batch_tasks[0]
+        original_scope = request.canonical_scopes[0]
+        extra_task = dict(original_task)
+        extra_task["task_id"] = "DF-2"
+        extra_task["expected_paths"] = ["app/forged.rb"]
+        extra_task["changed_locus_selectors"] = ["code:app/forged.rb:1::Forged#call"]
+        extra_task["verification_paths"] = []
+        extra_scope = _DirectFixScope(
+            expected_paths=("app/forged.rb",),
+            changed_selectors=("code:app/forged.rb:1::Forged#call",),
+            verification_paths=(),
+        )
+        cases = (
+            (
+                "extra-task",
+                (original_task, extra_task),
+                (original_scope,),
+                (original_task,),
+            ),
+            ("missing-task", (), (original_scope,), ()),
+            (
+                "extra-canonical-scope",
+                (original_task,),
+                (original_scope, extra_scope),
+                (original_task,),
+            ),
+            ("missing-canonical-scope", (original_task,), (), ()),
+        )
+        policy_sha = _policy_sha256(request.policy_json)
+        for label, tasks, scopes, vulnerable_preimage in cases:
+            with self.subTest(label=label):
+                fingerprint = _batch_fingerprint(policy_sha, vulnerable_preimage)
+                binding = replace(request.disclosure, batch_fingerprint=fingerprint)
+                malformed_request = replace(
+                    request,
+                    batch_tasks=tasks,
+                    canonical_scopes=scopes,
+                    disclosure=binding,
+                    consent=binding,
+                    brief=binding,
+                )
+
+                decision = _authorize_direct_fix(malformed_request)
+
+                self.assertIn("artifact.policy-binding", decision.reason_ids)
+                self.assertZeroSideEffects(decision)
+
+    def test_empty_batch_cannot_authorize(self) -> None:
+        request = self._request()
+        empty_request = replace(
+            self._rebind_batch(request, ()),
+            canonical_scopes=(),
+        )
+
+        decision = _authorize_direct_fix(empty_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_six_task_batch_cannot_authorize(self) -> None:
+        request = self._request()
+        tasks = tuple(
+            {**request.batch_tasks[0], "task_id": f"DF-{index}"}
+            for index in range(1, 7)
+        )
+        oversized_request = replace(
+            self._rebind_batch(request, tasks),
+            canonical_scopes=request.canonical_scopes * 6,
+        )
+
+        decision = _authorize_direct_fix(oversized_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_unknown_task_field_is_malformed_artifact_policy_binding(self) -> None:
+        request = self._request()
+        malformed_task = dict(request.batch_tasks[0])
+        malformed_task["unexpected_scope_carrier"] = ["app/forged.rb"]
+        malformed_request = self._rebind_batch(request, (malformed_task,))
+
+        decision = _authorize_direct_fix(malformed_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+
+    def test_missing_scope_resolution_is_malformed_artifact_policy_binding(
+        self,
+    ) -> None:
+        request = self._request()
+        malformed_task = dict(request.batch_tasks[0])
+        del malformed_task["scope_resolution"]
+        malformed_request = self._rebind_batch(request, (malformed_task,))
+
+        decision = _authorize_direct_fix(malformed_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+
+    def test_valid_scope_resolution_binding_authorizes_one_handoff(self) -> None:
+        decision = _authorize_direct_fix(self._request())
+
+        self.assertEqual(decision.reason_ids, ())
+        self.assertEqual(decision.authorized_handoffs, 1)
+        self.assertEqual(decision.side_effect_counts, (1, 1, 1, 1, 1))
+
+    def test_scope_resolution_changes_canonical_batch_fingerprint(self) -> None:
+        request = self._request()
+        unresolved_task = dict(request.batch_tasks[0])
+        unresolved_task["scope_resolution"] = "unresolved-global-scope"
+        policy_task_fields = _policy_task_fields(request.policy_json)
+        resolved_preimage = _canonical_batch_tasks(
+            request.batch_tasks,
+            request.canonical_scopes,
+            policy_task_fields,
+        )
+        unresolved_preimage = _canonical_batch_tasks(
+            (unresolved_task,),
+            request.canonical_scopes,
+            policy_task_fields,
+        )
+        policy_sha = _policy_sha256(request.policy_json)
+
+        resolved_fingerprint = _batch_fingerprint(policy_sha, resolved_preimage)
+        unresolved_fingerprint = _batch_fingerprint(policy_sha, unresolved_preimage)
+
+        self.assertNotEqual(resolved_preimage, unresolved_preimage)
+        self.assertNotEqual(resolved_fingerprint, unresolved_fingerprint)
+
+    def test_unresolved_scope_resolution_blocks_at_batch_scope_preflight(
+        self,
+    ) -> None:
+        request = self._request()
+        unresolved_task = dict(request.batch_tasks[0])
+        unresolved_task["scope_resolution"] = "unresolved-global-scope"
+        unresolved_request = self._rebind_batch(request, (unresolved_task,))
+
+        decision = _authorize_direct_fix(unresolved_request)
+
+        self.assertEqual(decision.reason_ids, ("batch.scope",))
+        self.assertEqual(decision.blocked_phase, "preflight")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_unknown_scope_resolution_is_malformed_artifact_policy_binding(
+        self,
+    ) -> None:
+        request = self._request()
+        malformed_task = dict(request.batch_tasks[0])
+        malformed_task["scope_resolution"] = "unknown-scope"
+        malformed_request = self._rebind_batch(request, (malformed_task,))
+
+        decision = _authorize_direct_fix(malformed_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+
+    def test_missing_disclosure_fingerprint_and_consent_collect_both_reasons(
+        self,
+    ) -> None:
+        request = self._request()
+        missing_fingerprint = replace(
+            request.disclosure,
+            batch_fingerprint=None,
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, disclosure=missing_fingerprint, consent=None)
+        )
+
+        self.assertEqual(
+            decision.reason_ids,
+            ("route.batch-fingerprint", "route.authorization"),
+        )
+        self.assertZeroSideEffects(decision)
+
+    def test_dirty_task_start_blocks_before_authorization(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(replace(request, task_start_clean=False))
+
+        self.assertEqual(decision.reason_ids, ("artifact.scope-drift",))
+        self.assertEqual(decision.blocked_phase, "task-start")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_task_start_preimage_hash_mismatch_blocks_before_authorization(
+        self,
+    ) -> None:
+        request = self._request()
+        changed_hashes = (
+            ("app/file-1.rb", "changed-app-hash"),
+            ("spec/file-1_spec.rb", "spec-hash"),
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, current_path_hashes=changed_hashes)
+        )
+
+        self.assertEqual(decision.reason_ids, ("artifact.scope-drift",))
+        self.assertEqual(decision.blocked_phase, "task-start")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_task_start_scope_mismatch_blocks_before_authorization(self) -> None:
+        request = self._request()
+        changed_scope = replace(
+            request.fingerprint_preimage,
+            expected_paths=("app/file-1.rb",),
+        )
+
+        decision = _authorize_direct_fix(
+            replace(request, task_start_scope=changed_scope)
+        )
+
+        self.assertEqual(decision.reason_ids, ("artifact.scope-drift",))
+        self.assertEqual(decision.blocked_phase, "task-start")
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_consent_bound_to_another_batch_blocks_authorization(self) -> None:
+        request = self._request()
+        other_batch_consent = _DirectFixBinding(
+            direct_fix_schema_version=2,
+            policy_sha256=request.disclosure.policy_sha256,
+            batch_fingerprint="d" * 64,
+        )
+
+        decision = _authorize_direct_fix(replace(request, consent=other_batch_consent))
+
+        self.assertEqual(decision.eligibility_inventory, ())
+        self.assertIn("route.batch-fingerprint", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("direct_fix_consent:", interaction)
+
+    def test_missing_consent_preserves_empty_eligibility_inventory(self) -> None:
+        decision = _authorize_direct_fix(replace(self._request(), consent=None))
+
+        self.assertEqual(decision.eligibility_inventory, ())
+        self.assertEqual(decision.reason_ids, ("route.authorization",))
+        self.assertZeroSideEffects(decision)
+        interaction = (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
+        self.assertIn("route.authorization", interaction)
+
+    def test_malformed_brief_binding_uses_artifact_namespace(self) -> None:
+        request = self._request()
+        malformed_brief = replace(request.brief, policy_sha256="e" * 64)
+
+        decision = _authorize_direct_fix(replace(request, brief=malformed_brief))
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertZeroSideEffects(decision)
+        template = extract_markdown_fixture(
+            read_runtime_section(_DOSSIER_OUTPUT, "Direct Fix Brief")
+        )
+        self.assertIn("policy_sha256:", template)
+        self.assertIn("batch_fingerprint:", template)
+
+    def test_actual_expected_paths_drift_blocks_before_edit(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(
+            replace(request, actual_diff_paths=("app/file-1.rb",))
+        )
+
+        self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_commit_expected_paths_drift_blocks_before_push(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(
+            replace(request, commit_paths=("app/file-1.rb", "app/unrelated.rb"))
+        )
+
+        self.assertIn("artifact.scope-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_actual_selector_drift_blocks_before_edit(self) -> None:
+        request = self._request()
+
+        decision = _authorize_direct_fix(
+            replace(
+                request,
+                actual_selectors=("code:app/file-1.rb:11::Order#other",),
+            )
+        )
+
+        self.assertIn("artifact.selector-drift", decision.reason_ids)
+        self.assertZeroSideEffects(decision)
+
+    def test_matching_disclosure_consent_and_artifact_authorize_one_handoff(
+        self,
+    ) -> None:
+        decision = _authorize_direct_fix(self._request())
+
+        self.assertEqual(decision.reason_ids, ())
+        self.assertEqual(decision.authorized_handoffs, 1)
+        self.assertEqual(decision.side_effect_counts, (1, 1, 1, 1, 1))
+
+
 class TestRouteSelectionContract(RuntimeContractTestCase):
     def interaction(self) -> str:
         return (_REPO_ROOT / _INTERACTION).read_text(encoding="utf-8")
@@ -1713,13 +3837,16 @@ class TestRouteSelectionContract(RuntimeContractTestCase):
         interaction = self.interaction()
         for field in (
             "Recommended route",
+            "direct_fix_schema_version: 2",
+            "policy_sha256:",
+            "batch_fingerprint:",
             "Batch shape",
             "Section A tasks: N/5",
             "Ordered chains: N/1",
             "Maximum chain length: N/3",
             "Eligible complexity classes: `mechanical`, `local-behavior`",
-            "Implementation paths",
-            "Verification companion paths",
+            "expected_paths:",
+            "changed_locus_selectors:",
             "Execution: serial",
             "Plan approval: no second plan approval",
             "Fallback reason inventory",

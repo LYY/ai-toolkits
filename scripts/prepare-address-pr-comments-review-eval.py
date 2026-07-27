@@ -5,7 +5,7 @@ Receipt CLI (--receipt):
   Parses a session-read-v2 transcript and emits a Local Receipt.
 
 Score CLI (--score):
-  Reads a task() response JSON and emits mechanical Score verdicts (EN-01–EN-07).
+  Reads a task() response JSON and emits mechanical Score verdicts (EN-01–EN-08).
 
 stdlib only. No external dependencies.
 """
@@ -65,6 +65,24 @@ def _file_sha256(path: str) -> str:
 # ---------------------------------------------------------------------------
 # Canonical JSON
 # ---------------------------------------------------------------------------
+
+JSONScalar: TypeAlias = str | int | float | bool | None
+JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+
+
+class _DuplicateJSONKeyError(ValueError):
+    pass
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, JSONValue]],
+) -> dict[str, JSONValue]:
+    parsed: dict[str, JSONValue] = {}
+    for key, value in pairs:
+        if key in parsed:
+            raise _DuplicateJSONKeyError(key)
+        parsed[key] = value
+    return parsed
 
 
 def _canonical_json(obj: object) -> bytes:
@@ -354,10 +372,16 @@ _EN_EXPECTED: dict[str, tuple[list[str], list[str]]] = {
     "direct-fix-pr1431": (["direct-fix"], ["direct-fix-brief"]),
     "direct-fix-mixed": (["direct-fix"], ["direct-fix-brief"]),
     "direct-fix-chain-four": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-change-mode-mismatch": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-confirmed-alternate": (["direct-fix"], ["direct-fix-brief"]),
     "direct-fix-two-chains": (["review-dossier"], ["review-dossier"]),
     "direct-fix-branch": (["review-dossier"], ["review-dossier"]),
     "direct-fix-merge": (["review-dossier"], ["review-dossier"]),
     "direct-fix-hard-blocker": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-locus-kinds": (["direct-fix"], ["direct-fix-brief"]),
+    "direct-fix-security-deployment": (["review-dossier"], ["review-dossier"]),
+    "direct-fix-verification-only": (["direct-fix"], ["direct-fix-brief"]),
+    "direct-fix-verification-unsafe": (["review-dossier"], ["review-dossier"]),
     "interrupted-recovery": (["review-dossier"], ["review-dossier"]),
     "neutral-handoff": (
         sorted(["direct-fix", "no-action", "reply-only", "review-dossier"]),
@@ -368,8 +392,10 @@ _EN_EXPECTED: dict[str, tuple[list[str], list[str]]] = {
 _EN03_ORDER = ["edit", "verify", "commit", "remote-reachability", "reply", "read-back"]
 _EN_CRITERION_IDS = [f"EN-0{i}" for i in range(1, 8)]
 DirectFixPolicyValue: TypeAlias = int | str | bool | list[str]
+DirectFixCaseValue: TypeAlias = str | bool | list[str]
 
 _EXPECTED_DIRECT_FIX_POLICY: dict[str, DirectFixPolicyValue] = {
+    "direct_fix_schema_version": 2,
     "min_tasks": 1,
     "max_tasks": 5,
     "max_ordered_chains": 1,
@@ -377,7 +403,66 @@ _EXPECTED_DIRECT_FIX_POLICY: dict[str, DirectFixPolicyValue] = {
     "mixed_batches_allowed": True,
     "serial_execution_required": True,
     "eligible_complexity_classes": ["mechanical", "local-behavior"],
-    "verification_companions_share_task": True,
+    "change_modes": ["locus-change", "verification-only"],
+    "locus_kinds": [
+        "runtime-code",
+        "declarative-config",
+        "tooling-automation",
+        "documentation-contract",
+        "verification-infrastructure",
+    ],
+    "scope_authority": "expected_paths",
+    "verification_paths_share_task": True,
+    "blocker_order": [
+        "architecture",
+        "cross-module-state",
+        "public-interface",
+        "security-or-authorization",
+        "schema-or-data",
+        "dependency-introduction",
+        "concurrency",
+        "transaction",
+        "retry-or-recovery",
+        "deployment-or-release",
+        "unclear-verification",
+    ],
+    "policy_binding_reason_ids": [
+        "route.policy-binding",
+        "artifact.policy-binding",
+    ],
+    "batch_fingerprint_binding_reason_id": "route.batch-fingerprint",
+    "eligibility_reason_ids": [
+        "batch.task-count",
+        "batch.topology",
+        "batch.execution-order",
+        "batch.shared-locus",
+        "batch.scope",
+        "task.classification",
+        "task.root-concern",
+        "task.behavioral-outcome",
+        "task.locus",
+        "task.change-mode",
+        "task.expected-paths",
+        "task.selector-mapping",
+        "task.verification-paths",
+        "task.expected-result-oracle",
+        "task.complexity",
+        "task.evidence-ledger",
+        "task.verification",
+        "task.suggestion-fit",
+        "task.reply-contract",
+        "task.hard-blocker.<blocker-name>",
+    ],
+    "authorization_reason_ids": [
+        "route.policy-binding",
+        "route.batch-fingerprint",
+        "route.authorization",
+    ],
+    "integrity_reason_ids": [
+        "artifact.policy-binding",
+        "artifact.scope-drift",
+        "artifact.selector-drift",
+    ],
     "informed_route_confirmation_required": True,
     "prior_direct_fix_preference_carried_forward": True,
     "summary_format": "N/5",
@@ -387,17 +472,177 @@ _EXPECTED_DIRECT_FIX_POLICY: dict[str, DirectFixPolicyValue] = {
     "report_all_failures": True,
     "local_runtime_behavior_eligible_when_clear": True,
 }
+_DIRECT_FIX_CASE_FIELDS = {
+    "change_mode",
+    "locus_kind",
+    "eligible",
+    "reason_ids",
+    "policy_binding",
+    "batch_binding",
+}
+_DIRECT_FIX_CHANGE_MODES = {"locus-change", "verification-only"}
+_DIRECT_FIX_LOCUS_KINDS = {
+    "runtime-code",
+    "declarative-config",
+    "tooling-automation",
+    "documentation-contract",
+    "verification-infrastructure",
+}
+_DIRECT_FIX_POLICY_BINDINGS = {"matched", "missing", "mismatched"}
+_DIRECT_FIX_BATCH_BINDINGS = {"matched", "mismatched", "not-applicable"}
+_DIRECT_FIX_ELIGIBILITY_REASONS = {
+    "batch.task-count",
+    "batch.topology",
+    "batch.execution-order",
+    "batch.shared-locus",
+    "batch.scope",
+    "task.classification",
+    "task.root-concern",
+    "task.behavioral-outcome",
+    "task.locus",
+    "task.change-mode",
+    "task.expected-paths",
+    "task.selector-mapping",
+    "task.verification-paths",
+    "task.expected-result-oracle",
+    "task.complexity",
+    "task.evidence-ledger",
+    "task.verification",
+    "task.suggestion-fit",
+    "task.reply-contract",
+}
+_DIRECT_FIX_AUTHORIZATION_REASONS = {
+    "route.policy-binding",
+    "route.batch-fingerprint",
+    "route.authorization",
+}
+_DIRECT_FIX_INTEGRITY_REASONS = {
+    "artifact.policy-binding",
+    "artifact.scope-drift",
+    "artifact.selector-drift",
+}
+_DIRECT_FIX_BLOCKERS = {
+    "architecture",
+    "cross-module-state",
+    "public-interface",
+    "security-or-authorization",
+    "schema-or-data",
+    "dependency-introduction",
+    "concurrency",
+    "transaction",
+    "retry-or-recovery",
+    "deployment-or-release",
+    "unclear-verification",
+}
+_DEFAULT_CASES_MANIFEST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "tests",
+    "address-pr-comments-review-eval",
+    "cases.json",
+)
 _EXPECTED_HANDOFF_PROMPT_COUNTS = {
     "review_dossier": 1,
     "direct_fix_brief": 1,
 }
 
 
-def _verdicts_for_all(reason_code: str) -> list[dict[str, str]]:
+def _verdicts_for_all(
+    reason_code: str, criterion_ids: list[str]
+) -> list[dict[str, str]]:
     return [
         {"criterion_id": criterion_id, "status": "FAIL", "reason_code": reason_code}
-        for criterion_id in _EN_CRITERION_IDS
+        for criterion_id in criterion_ids
     ]
+
+
+def _load_expected_direct_fix_case(
+    manifest_path: str, case_id: str
+) -> dict[str, DirectFixCaseValue] | None:
+    try:
+        with open(manifest_path, "rb") as manifest_file:
+            manifest_raw = manifest_file.read()
+    except OSError as error:
+        _die(f"Cannot read score manifest: {error}", 2)
+    try:
+        manifest_text = manifest_raw.decode("utf-8")
+    except UnicodeDecodeError:
+        _die("Invalid score manifest: expected UTF-8 JSON", 2)
+    try:
+        manifest = json.loads(
+            manifest_text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except _DuplicateJSONKeyError:
+        return {}
+    except json.JSONDecodeError:
+        _die("Invalid score manifest: malformed JSON", 2)
+    if not isinstance(manifest, dict):
+        _die("Invalid score manifest: root must be a JSON object", 2)
+    cases = manifest.get("cases", [])
+    if not isinstance(cases, list):
+        _die("Invalid score manifest: cases must be an array", 2)
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            _die(f"Invalid score manifest: case {index} must be a JSON object", 2)
+        if case.get("case_id") != case_id:
+            continue
+        expected = case.get("expected", {})
+        if not isinstance(expected, dict):
+            _die(
+                f"Invalid score manifest: case {index} expected must be a JSON object",
+                2,
+            )
+        if "direct_fix_case" not in expected:
+            return None
+        direct_fix_case = expected["direct_fix_case"]
+        return direct_fix_case if isinstance(direct_fix_case, dict) else {}
+    return None
+
+
+def _is_stable_direct_fix_reason(reason_id: str) -> bool:
+    if reason_id in _DIRECT_FIX_ELIGIBILITY_REASONS:
+        return True
+    if reason_id in _DIRECT_FIX_AUTHORIZATION_REASONS:
+        return True
+    if reason_id in _DIRECT_FIX_INTEGRITY_REASONS:
+        return True
+    prefix = "task.hard-blocker."
+    return reason_id.startswith(prefix) and reason_id.removeprefix(prefix) in (
+        _DIRECT_FIX_BLOCKERS
+    )
+
+
+def _is_valid_direct_fix_case(
+    direct_fix_case: dict[str, DirectFixCaseValue],
+) -> bool:
+    if set(direct_fix_case) != _DIRECT_FIX_CASE_FIELDS:
+        return False
+    change_mode = direct_fix_case["change_mode"]
+    if not isinstance(change_mode, str) or change_mode not in _DIRECT_FIX_CHANGE_MODES:
+        return False
+    locus_kind = direct_fix_case["locus_kind"]
+    if not isinstance(locus_kind, str) or locus_kind not in _DIRECT_FIX_LOCUS_KINDS:
+        return False
+    if type(direct_fix_case["eligible"]) is not bool:
+        return False
+    reason_ids = direct_fix_case["reason_ids"]
+    if not isinstance(reason_ids, list):
+        return False
+    if not all(
+        isinstance(reason_id, str) and _is_stable_direct_fix_reason(reason_id)
+        for reason_id in reason_ids
+    ):
+        return False
+    policy_binding = direct_fix_case["policy_binding"]
+    if (
+        not isinstance(policy_binding, str)
+        or policy_binding not in _DIRECT_FIX_POLICY_BINDINGS
+    ):
+        return False
+    batch_binding = direct_fix_case["batch_binding"]
+    return (
+        isinstance(batch_binding, str) and batch_binding in _DIRECT_FIX_BATCH_BINDINGS
+    )
 
 
 def _check_en01(runtime_specific_terms: list, response_text: str) -> tuple[str, str]:
@@ -479,7 +724,9 @@ def _check_en05(handoff_complete: bool) -> tuple[str, str]:
 def _check_en06(
     direct_fix_policy: dict[str, DirectFixPolicyValue],
 ) -> tuple[str, str]:
-    if direct_fix_policy != _EXPECTED_DIRECT_FIX_POLICY:
+    if _canonical_json(direct_fix_policy) != _canonical_json(
+        _EXPECTED_DIRECT_FIX_POLICY
+    ):
         return ("FAIL", "policy-mismatch")
     return ("PASS", "ok")
 
@@ -490,11 +737,30 @@ def _check_en07(handoff_prompt_counts: dict[str, int]) -> tuple[str, str]:
     return ("PASS", "ok")
 
 
+def _check_en08(
+    expected_direct_fix_case: dict[str, DirectFixCaseValue],
+    actual_direct_fix_case: dict[str, DirectFixCaseValue] | None,
+) -> tuple[str, str]:
+    if not _is_valid_direct_fix_case(expected_direct_fix_case):
+        return ("FAIL", "direct-fix-case-mismatch")
+    if actual_direct_fix_case is None:
+        return ("FAIL", "direct-fix-case-mismatch")
+    if _canonical_json(actual_direct_fix_case) != _canonical_json(
+        expected_direct_fix_case
+    ):
+        return ("FAIL", "direct-fix-case-mismatch")
+    return ("PASS", "ok")
+
+
 def _do_score(args: argparse.Namespace) -> None:
     phase: str = args.phase
     case_id: str = args.case_id
     response_path: str = args.response
     output_path: str = args.output
+    expected_direct_fix_case = _load_expected_direct_fix_case(args.manifest, case_id)
+    criterion_ids = list(_EN_CRITERION_IDS)
+    if expected_direct_fix_case is not None:
+        criterion_ids.append("EN-08")
 
     # Read response file
     try:
@@ -507,54 +773,65 @@ def _do_score(args: argparse.Namespace) -> None:
     try:
         response_text = response_raw.decode("utf-8")
     except UnicodeDecodeError:
-        verdicts = _verdicts_for_all("parse-error")
+        verdicts = _verdicts_for_all("parse-error", criterion_ids)
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
     # Parse JSON
     try:
-        response_obj = json.loads(response_text)
-    except (json.JSONDecodeError, ValueError) as e:
+        response_obj = json.loads(
+            response_text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (json.JSONDecodeError, _DuplicateJSONKeyError):
         # Parse failure → all parse-error
-        verdicts = _verdicts_for_all("parse-error")
+        verdicts = _verdicts_for_all("parse-error", criterion_ids)
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
     # Schema check: must be dict with required fields
     if not isinstance(response_obj, dict):
-        verdicts = _verdicts_for_all("schema-error")
+        verdicts = _verdicts_for_all("schema-error", criterion_ids)
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
     # Extract fields with defaults for missing
-    try:
-        routes: list = response_obj.get("routes", [])
-        artifacts: list = response_obj.get("persisted_artifacts", [])
-        section_a_order: list = response_obj.get("section_a_order", [])
-        push_authorized = response_obj.get("push_authorized")
-        recovery: dict = response_obj.get("recovery", {})
-        runtime_specific_terms: list = response_obj.get("runtime_specific_terms", [])
-        handoff_complete = response_obj.get("handoff_complete")
-        direct_fix_policy: dict[str, DirectFixPolicyValue] = response_obj.get(
-            "direct_fix_policy", {}
-        )
-        handoff_prompt_counts: dict[str, int] = response_obj.get(
-            "handoff_prompt_counts", {}
-        )
-    except Exception:
-        verdicts = _verdicts_for_all("schema-error")
-        _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
-        return
+    routes = response_obj.get("routes", [])
+    artifacts = response_obj.get("persisted_artifacts", [])
+    section_a_order = response_obj.get("section_a_order", [])
+    push_authorized = response_obj.get("push_authorized")
+    recovery = response_obj.get("recovery", {})
+    runtime_specific_terms = response_obj.get("runtime_specific_terms", [])
+    handoff_complete = response_obj.get("handoff_complete")
+    direct_fix_policy = response_obj.get("direct_fix_policy", {})
+    handoff_prompt_counts = response_obj.get("handoff_prompt_counts", {})
+    actual_direct_fix_case = response_obj.get("direct_fix_case")
 
     # Check for missing required fields (None values for critical fields)
     if (
-        push_authorized is None
+        not isinstance(routes, list)
+        or not all(isinstance(route, str) for route in routes)
+        or not isinstance(artifacts, list)
+        or not all(isinstance(artifact, str) for artifact in artifacts)
+        or not isinstance(section_a_order, list)
+        or not all(isinstance(section, str) for section in section_a_order)
+        or type(push_authorized) is not bool
         or not isinstance(recovery, dict)
-        or handoff_complete is None
+        or not isinstance(runtime_specific_terms, list)
+        or not all(isinstance(term, str) for term in runtime_specific_terms)
+        or type(handoff_complete) is not bool
         or not isinstance(direct_fix_policy, dict)
         or not isinstance(handoff_prompt_counts, dict)
+        or not all(
+            isinstance(prompt_name, str) and type(count) is int
+            for prompt_name, count in handoff_prompt_counts.items()
+        )
+        or (
+            actual_direct_fix_case is not None
+            and not isinstance(actual_direct_fix_case, dict)
+        )
     ):
-        verdicts = _verdicts_for_all("schema-error")
+        verdicts = _verdicts_for_all("schema-error", criterion_ids)
         _write_score_output(output_sha256, phase, case_id, verdicts, output_path)
         return
 
@@ -605,6 +882,19 @@ def _do_score(args: argparse.Namespace) -> None:
         verdicts.append(
             {"criterion_id": "EN-07", "status": en07_status, "reason_code": en07_reason}
         )
+
+        if expected_direct_fix_case is not None:
+            en08_status, en08_reason = _check_en08(
+                expected_direct_fix_case,
+                actual_direct_fix_case,
+            )
+            verdicts.append(
+                {
+                    "criterion_id": "EN-08",
+                    "status": en08_status,
+                    "reason_code": en08_reason,
+                }
+            )
     else:
         # EN-01 failed: remaining criteria not evaluated
         verdicts.extend(
@@ -613,7 +903,7 @@ def _do_score(args: argparse.Namespace) -> None:
                 "status": "FAIL",
                 "reason_code": "forbidden-term",
             }
-            for criterion_id in _EN_CRITERION_IDS[1:]
+            for criterion_id in criterion_ids[1:]
         )
 
     # Sort verdicts by criterion_id
@@ -688,6 +978,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output", type=str, help="Output path for receipt or score JSON"
+    )
+    parser.add_argument(
+        "--manifest",
+        type=str,
+        default=_DEFAULT_CASES_MANIFEST,
+        help="Case manifest path (score only)",
     )
 
     return parser

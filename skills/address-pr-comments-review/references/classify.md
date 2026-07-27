@@ -108,7 +108,7 @@ The suggestion fit is independent from the concern verdict. A reviewer can ident
 |-----|---------|--------------------|
 | `accept` | The suggested fix matches current code evidence and local patterns. | Use the suggestion as the fix direction. |
 | `modify` | The concern is real, but the implementation should differ. | Use the evidence-derived fix direction and explain the difference. |
-| `reject` | The suggestion is stale, harmful, conflicts with local patterns, or does not address the concern. | Do not use the suggestion. If the concern is real, provide an alternate fix direction; otherwise use Section B. |
+| `reject` | The suggestion is stale, harmful, conflicts with local patterns, or does not address the concern. | Do not use the suggestion. If the concern is real, provide an alternate fix direction; otherwise use Section B. A Direct Fix candidate may continue only when the alternate is exact and mechanical, appears in the final disclosure, receives explicit user confirmation, and passes a fresh preflight. |
 
 Any `modify` or `reject` fit on an actionable comment must be visible in the Step 3 table evidence column. Flag it for discussion when the alternate fix direction is non-mechanical, behavior-changing, or scope-sensitive.
 
@@ -150,7 +150,7 @@ Any `modify` or `reject` fit on an actionable comment must be visible in the Ste
 
 **When to apply:** The comment thread already has a human reply that substantively addresses the concern. No further action is needed from this pass.
 
-**Evidence required:** Primary signal is `has_replies: true` from the JSON output. However, you must verify:
+**Evidence required:** `has_replies: true` is a signal only; it never produces `already_replied` by itself. Assign `already_replied` only after verifying all of these conditions:
 
 - The reply author is human (bot replies to bot comments do not count)
 - The reply is not your own previous reply from an earlier pass
@@ -243,7 +243,7 @@ Follow this three-step process:
 
 **Definition:** The `has_replies` field from `list_comments.py` is `true`. The comment thread has one or more replies in addition to the original comment.
 
-**Primary classification:** `already_replied`. However, you must verify these conditions:
+**Classification rule:** `has_replies` is a signal only. Preserve the actionable conclusion unless at least one reply satisfies all three conditions:
 
 1. **Author is human.** If the only reply is from a bot, do NOT classify as `already_replied`. Bot replies to bot comments do not resolve the thread.
 2. **Reply is substantive.** A reply that says "Good point" or "I'll check this" does not actually address the concern. Such replies should result in a `needs_clarification` or `valid` classification depending on whether you can proceed without the author's input.
@@ -274,6 +274,8 @@ Follow this three-step process:
 ## Dossier Section Mapping
 
 The following table maps every classification conclusion to its dossier section and required action:
+
+The final table must preserve the exact actionable conclusion: keep `valid` as `valid` and `partially_addressed` as `partially_addressed` through artifact generation and reply posture. Never normalize either state into the other.
 
 | Intent | Conclusion | Dossier Section | Action |
 |--------|-----------|-----------------|--------|

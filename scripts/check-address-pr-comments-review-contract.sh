@@ -29,6 +29,29 @@ DESIGN_MD="$REPO_ROOT/docs/address-pr-comments-review/executor-neutral-design.md
 ARCH_MD="$REPO_ROOT/docs/address-pr-comments-review/architecture.md"
 EVAL_MD="$REPO_ROOT/docs/address-pr-comments-review/eval-matrix.md"
 RUBRIC_MD="$REPO_ROOT/tests/address-pr-comments-review-eval/rubric.md"
+REQUIRED_PRODUCT_FILES=(
+    "$SKILL_MD"
+    "$DOSSIER_MD"
+    "$INTERACTION_MD"
+    "$EXECUTION_MD"
+    "$README_MD"
+    "$DESIGN_MD"
+    "$ARCH_MD"
+    "$EVAL_MD"
+    "$RUBRIC_MD"
+)
+
+check_required_product_files() {
+    local found=0
+    local file
+    for file in "${REQUIRED_PRODUCT_FILES[@]}"; do
+        if [ ! -f "$file" ]; then
+            echo "APR010: missing required product file ${file#$REPO_ROOT/}" >&2
+            found=1
+        fi
+    done
+    return $found
+}
 
 # --- helper: scan a file for forbidden tokens ---
 scan_file_tokens() {
@@ -222,6 +245,143 @@ check_marker_order() {
     return $found
 }
 
+check_direct_fix_v2_contract() {
+    local file="$1"
+    local found=0
+    local section
+    local section_start_count section_end_count section_start section_end
+    local policy_start_count policy_end_count policy_start policy_end
+    local policy_block policy_json expected_policy
+    [ -f "$file" ] || return 0
+
+    section_start_count="$(awk '$0 == "## Direct Fix Brief" { count++ } END { print count + 0 }' "$file")"
+    section_end_count="$(awk '$0 == "## Reply Policy" { count++ } END { print count + 0 }' "$file")"
+    if [ "$section_start_count" -ne 1 ] || [ "$section_end_count" -ne 1 ]; then
+        echo "APR005: Direct Fix Brief section requires one start and one end heading; found start=${section_start_count} end=${section_end_count}" >&2
+        return 1
+    else
+        section_start="$(awk '$0 == "## Direct Fix Brief" { print NR }' "$file")"
+        section_end="$(awk '$0 == "## Reply Policy" { print NR }' "$file")"
+        if [ "$section_start" -ge "$section_end" ]; then
+            echo 'APR005: Direct Fix Brief section headings are misordered' >&2
+            return 1
+        else
+            section="$(awk -v start="$section_start" -v end="$section_end" 'NR >= start && NR < end' "$file")"
+        fi
+    fi
+
+    policy_start_count="$(awk '$0 == "<!-- direct-fix-policy:start -->" { count++ } END { print count + 0 }' "$file")"
+    policy_end_count="$(awk '$0 == "<!-- direct-fix-policy:end -->" { count++ } END { print count + 0 }' "$file")"
+    if [ "$policy_start_count" -eq 0 ]; then
+        echo 'APR003: missing marker "<!-- direct-fix-policy:start -->" in dossier-output.md' >&2
+        found=1
+    elif [ "$policy_start_count" -ne 1 ]; then
+        echo "APR003: duplicate marker \"<!-- direct-fix-policy:start -->\" in dossier-output.md; count=${policy_start_count}" >&2
+        found=1
+    fi
+    if [ "$policy_end_count" -eq 0 ]; then
+        echo 'APR003: missing marker "<!-- direct-fix-policy:end -->" in dossier-output.md' >&2
+        found=1
+    elif [ "$policy_end_count" -ne 1 ]; then
+        echo "APR003: duplicate marker \"<!-- direct-fix-policy:end -->\" in dossier-output.md; count=${policy_end_count}" >&2
+        found=1
+    fi
+
+    if [ "$policy_start_count" -eq 1 ] && [ "$policy_end_count" -eq 1 ]; then
+        policy_start="$(awk '$0 == "<!-- direct-fix-policy:start -->" { print NR }' "$file")"
+        policy_end="$(awk '$0 == "<!-- direct-fix-policy:end -->" { print NR }' "$file")"
+        if [ "$section_start_count" -eq 1 ] && [ "$section_end_count" -eq 1 ] \
+            && [ "$section_start" -lt "$section_end" ] \
+            && { [ "$policy_start" -le "$section_start" ] || [ "$policy_end" -ge "$section_end" ]; }; then
+            echo 'APR004: Direct Fix policy markers must be inside bounded Direct Fix Brief section' >&2
+            found=1
+        fi
+        if [ "$policy_start" -ge "$policy_end" ]; then
+            echo 'APR004: marker "<!-- direct-fix-policy:end -->" appears before preceding marker in dossier-output.md' >&2
+            found=1
+        else
+            policy_block="$(awk -v start="$policy_start" -v end="$policy_end" 'NR > start && NR < end' "$file")"
+            policy_json="$(printf '%s\n' "$policy_block" | awk 'NR == 2 { print }')"
+            expected_policy='{"authorization":{"artifact_policy_binding":"artifact.policy-binding","missing_consent":"route.authorization","route_batch_fingerprint":"route.batch-fingerprint","route_policy_binding":"route.policy-binding"},"batch":{"blocker_disposition_fields":["blocker_id","disposition","evidence","delta_locus_justification"],"task_fields":["task_id","conclusion","root_concern_identity","behavioral_outcome","change_mode","locus_kind","locus_id","locus_evidence","expected_paths","changed_locus_selectors","verification_paths","expected_result_oracle","blocker_dispositions","depends_on_task_ids","exact_change","reply_target_ids","scope_resolution"]},"canonicalization":{"array_order":"preserved unless field rule sorts","encoding":"UTF-8","object_keys":"sorted","separators":",:","trailing_lf":1},"direct_fix_schema_version":2,"eligibility":{"blocker_dispositions":["not-triggered","triggered","uncertain"],"blocker_order":["architecture","cross-module-state","public-interface","security-or-authorization","schema-or-data","dependency-introduction","concurrency","transaction","retry-or-recovery","deployment-or-release","unclear-verification"],"verification_fields":["command","scope","expected_exit","expected_output","behavioral_assertion"]},"execution_scope":{"authority":"expected_paths","path_drift":"artifact.scope-drift","selector_drift":"artifact.selector-drift"}}'
+            if [ "$(printf '%s\n' "$policy_block" | awk 'END { print NR }')" -ne 3 ] \
+                || [ "$(printf '%s\n' "$policy_block" | awk 'NR == 1 { print }')" != '```json' ] \
+                || [ "$(printf '%s\n' "$policy_block" | awk 'NR == 3 { print }')" != '```' ] \
+                || [ "$policy_json" != "$expected_policy" ]; then
+                echo 'APR005: canonical Direct Fix policy JSON mismatch' >&2
+                found=1
+            fi
+        fi
+    fi
+
+    while IFS= read -r literal; do
+        [ -z "$literal" ] && continue
+        if ! grep -qF -- "$literal" <<< "$section"; then
+            echo "APR005: missing Direct Fix v2 contract literal \"${literal}\"" >&2
+            found=1
+        fi
+    done <<'LITERALS'
+`locus-change`
+`verification-only`
+`runtime-code`
+`declarative-config`
+`tooling-automation`
+`documentation-contract`
+`verification-infrastructure`
+`architecture`
+`cross-module-state`
+`public-interface`
+`security-or-authorization`
+`schema-or-data`
+`dependency-introduction`
+`concurrency`
+`transaction`
+`retry-or-recovery`
+`deployment-or-release`
+`unclear-verification`
+`expected_paths`
+`batch.task-count`
+`batch.topology`
+`batch.execution-order`
+`batch.shared-locus`
+`batch.scope`
+`task.classification`
+`task.root-concern`
+`task.behavioral-outcome`
+`task.locus`
+`task.change-mode`
+`task.expected-paths`
+`task.selector-mapping`
+`task.verification-paths`
+`task.expected-result-oracle`
+`task.complexity`
+`task.evidence-ledger`
+`task.verification`
+`task.suggestion-fit`
+`task.reply-contract`
+`task.hard-blocker.<blocker-name>`
+`route.policy-binding`
+`route.batch-fingerprint`
+`route.authorization`
+`artifact.policy-binding`
+`artifact.scope-drift`
+`artifact.selector-drift`
+LITERALS
+
+    while IFS= read -r legacy_field; do
+        [ -z "$legacy_field" ] && continue
+        if grep -qE "^[[:space:]]*-[[:space:]]+\\*\\*${legacy_field}\\*\\*:" <<< "$section"; then
+            echo "APR005: legacy Direct Fix field \"${legacy_field}\" found in bounded section" >&2
+            found=1
+        fi
+    done <<'LEGACY_FIELDS'
+Implementation paths
+Change paths
+Verification companion paths
+LEGACY_FIELDS
+
+    return $found
+}
+
 # --- check old-name references (platform.md must not appear in skill runtime files) ---
 check_platform_alias() {
     local found=0
@@ -240,6 +400,8 @@ check_platform_alias() {
 # ================================================================
 # MAIN SCAN
 # ================================================================
+
+check_required_product_files || errors=1
 
 # --- 1. Scan skill/reference files for forbidden tokens/substrings ---
 for file_label in \
@@ -282,6 +444,8 @@ check_marker_order "$DOSSIER_MD" "dossier-output.md" \
     '<!-- artifact-execution-inventory:start -->' \
     '<!-- artifact-execution-inventory:end -->' || errors=1
 
+check_direct_fix_v2_contract "$DOSSIER_MD" || errors=1
+
 check_marker_order "$INTERACTION_MD" "interaction.md" \
     '<!-- route-confirmation-contract:start -->' \
     '<!-- route-confirmation-contract:end -->' || errors=1
@@ -306,21 +470,22 @@ fi
 check_symlinks() {
     local found=0
     while IFS= read -r -d '' link; do
-        local target
+        local target resolved
         target="$(readlink "$link" 2>/dev/null)" || continue
-        if [[ "$target" == /* ]]; then
-            case "$target" in
-                "$REPO_ROOT"/*|"$REPO_ROOT") ;;
-                *)
-                    echo "APR008: absolute symlink $link -> $target escapes root" >&2
-                    found=1
-                    ;;
-            esac
-        fi
-        if [[ "$target" == ../* ]]; then
-            echo "APR008: relative symlink $link -> $target may escape root" >&2
-            found=1
-        fi
+        resolved="$(python3 - "$link" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)"
+        case "$resolved" in
+            "$REPO_ROOT"/*|"$REPO_ROOT") ;;
+            *)
+                echo "APR008: symlink $link -> $target resolves outside root: $resolved" >&2
+                found=1
+                ;;
+        esac
     done < <(find "$REPO_ROOT" -type l -not -path '*/.git/*' -print0 2>/dev/null)
     return $found
 }
