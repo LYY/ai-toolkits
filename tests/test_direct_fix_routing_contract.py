@@ -10,6 +10,21 @@ from dataclasses import dataclass, replace
 from typing import TypeGuard, TypeVar
 
 
+class _DuplicateJSONKeyError(ValueError):
+    pass
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    parsed: dict[str, object] = {}
+    for key, value in pairs:
+        if key in parsed:
+            raise _DuplicateJSONKeyError(key)
+        parsed[key] = value
+    return parsed
+
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _DOSSIER_OUTPUT = pathlib.Path(
     "skills/address-pr-comments-review/references/dossier-output.md"
@@ -539,7 +554,10 @@ def _authorize_direct_fix(
         )
 
     policy_task_fields = _policy_task_fields(request.policy_json)
-    task_cardinality_matches = len(request.batch_tasks) == len(request.canonical_scopes)
+    task_count = len(request.batch_tasks)
+    task_cardinality_matches = 1 <= task_count <= 5 and task_count == len(
+        request.canonical_scopes
+    )
     task_schema_matches = task_cardinality_matches and all(
         policy_task_fields == _DIRECT_FIX_V2_TASK_FIELDS
         and frozenset(task) == frozenset(policy_task_fields)
@@ -1003,8 +1021,12 @@ def _validate_blocker_dispositions(
 ) -> None:
     raw = values["Blocker dispositions"]
     try:
-        parsed: object = json.loads(raw) if raw is not None else None
-    except json.JSONDecodeError:
+        parsed: object = (
+            json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+            if raw is not None
+            else None
+        )
+    except (json.JSONDecodeError, _DuplicateJSONKeyError):
         parsed = None
     if not _is_object_list(parsed):
         for blocker in _HARD_BLOCKERS:
@@ -2187,6 +2209,42 @@ class TestDirectFixComplexityAndTopologyFixtures(unittest.TestCase):
             r"(?m)^- \*\*Blocker dispositions\*\*:.*$",
             "- **Blocker dispositions**: not-json",
             self._todo4_fixture(),
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertEqual(
+            [
+                error.split(": ", 1)[1].split(" --", 1)[0]
+                for error in errors
+                if "task.hard-blocker." in error
+            ],
+            [f"task.hard-blocker.{blocker}" for blocker in _HARD_BLOCKERS],
+        )
+
+    def test_duplicate_blocker_disposition_key_reports_all_reasons(self) -> None:
+        fixture = self._todo4_fixture().replace(
+            '"disposition":"not-triggered"',
+            '"disposition":"triggered","disposition":"not-triggered"',
+            1,
+        )
+
+        errors = validate_direct_fix_brief_fixture(fixture)
+
+        self.assertEqual(
+            [
+                error.split(": ", 1)[1].split(" --", 1)[0]
+                for error in errors
+                if "task.hard-blocker." in error
+            ],
+            [f"task.hard-blocker.{blocker}" for blocker in _HARD_BLOCKERS],
+        )
+
+    def test_duplicate_later_blocker_id_reports_all_reasons(self) -> None:
+        fixture = self._todo4_fixture().replace(
+            '"blocker_id":"unclear-verification"',
+            '"blocker_id":"architecture","blocker_id":"unclear-verification"',
+            1,
         )
 
         errors = validate_direct_fix_brief_fixture(fixture)
@@ -3502,6 +3560,36 @@ class TestDirectFixPolicyBindingContract(unittest.TestCase):
 
                 self.assertIn("artifact.policy-binding", decision.reason_ids)
                 self.assertZeroSideEffects(decision)
+
+    def test_empty_batch_cannot_authorize(self) -> None:
+        request = self._request()
+        empty_request = replace(
+            self._rebind_batch(request, ()),
+            canonical_scopes=(),
+        )
+
+        decision = _authorize_direct_fix(empty_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
+
+    def test_six_task_batch_cannot_authorize(self) -> None:
+        request = self._request()
+        tasks = tuple(
+            {**request.batch_tasks[0], "task_id": f"DF-{index}"}
+            for index in range(1, 7)
+        )
+        oversized_request = replace(
+            self._rebind_batch(request, tasks),
+            canonical_scopes=request.canonical_scopes * 6,
+        )
+
+        decision = _authorize_direct_fix(oversized_request)
+
+        self.assertEqual(decision.reason_ids, ("artifact.policy-binding",))
+        self.assertEqual(decision.authorization_attempts, 0)
+        self.assertZeroSideEffects(decision)
 
     def test_unknown_task_field_is_malformed_artifact_policy_binding(self) -> None:
         request = self._request()
