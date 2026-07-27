@@ -58,6 +58,21 @@ class RegressionManifest(TypedDict):
     cases: list[RegressionCase]
 
 
+class _DuplicateJSONKeyError(ValueError):
+    pass
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, JsonValue]],
+) -> dict[str, JsonValue]:
+    parsed: dict[str, JsonValue] = {}
+    for key, value in pairs:
+        if key in parsed:
+            raise _DuplicateJSONKeyError(key)
+        parsed[key] = value
+    return parsed
+
+
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -208,7 +223,22 @@ def load_manifest() -> JsonValue:
     if not manifest_path.exists():
         _die(f"Manifest not found: {manifest_path}")
     try:
-        value = cast(JsonValue, json.loads(manifest_path.read_bytes().decode("utf-8")))
-        return value
-    except (json.JSONDecodeError, OSError) as error:
+        manifest_raw = manifest_path.read_bytes()
+    except OSError as error:
+        _die(f"Failed to load manifest: {error}")
+    try:
+        manifest_text = manifest_raw.decode("utf-8")
+    except UnicodeDecodeError:
+        _die("Failed to load manifest: invalid UTF-8")
+    try:
+        return cast(
+            JsonValue,
+            json.loads(
+                manifest_text,
+                object_pairs_hook=_reject_duplicate_json_keys,
+            ),
+        )
+    except _DuplicateJSONKeyError as error:
+        _die(f"Failed to load manifest: duplicate JSON key: {error}")
+    except json.JSONDecodeError as error:
         _die(f"Failed to load manifest: {error}")

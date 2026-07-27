@@ -78,6 +78,85 @@ class RegressionRunnerTestCase(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fixture_sha256 mismatch", result.stderr)
 
+    def test_manifest_rejects_duplicate_root_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest_raw = manifest_path.read_text(encoding="utf-8").replace(
+                '  "schema_version": 1,',
+                '  "schema_version": 999,\n  "schema_version": 1,',
+                1,
+            )
+            manifest_path.write_text(manifest_raw, encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "Failed to load manifest: duplicate JSON key: schema_version\n",
+        )
+
+    def test_manifest_rejects_duplicate_nested_case_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest_raw = manifest_path.read_text(encoding="utf-8").replace(
+                '      "case_id": "route-review-dossier",',
+                '      "case_id": "renamed",\n      "case_id": "route-review-dossier",',
+                1,
+            )
+            manifest_path.write_text(manifest_raw, encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            result.stderr,
+            "Failed to load manifest: duplicate JSON key: case_id\n",
+        )
+
+    def test_manifest_rejects_invalid_utf8_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            self.manifest_path(isolated_root).write_bytes(b"\xff")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stderr, "Failed to load manifest: invalid UTF-8\n")
+
+    def test_manifest_rejects_non_object_root_deterministically(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            self.manifest_path(isolated_root).write_text("[]", encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stderr,
+            "Manifest validation errors:\n  - Manifest is not a JSON object\n",
+        )
+
+    def test_manifest_rejects_non_object_case_deterministically(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            manifest_path = self.manifest_path(isolated_root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["cases"][0] = []
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_runner(isolated_root, "--validate-manifest-only")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stderr,
+            "Manifest validation errors:\n"
+            "  - Case 0: not a JSON object\n"
+            "  - case_id inventory mismatch\n",
+        )
+
     def test_manifest_rejects_case_count_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
