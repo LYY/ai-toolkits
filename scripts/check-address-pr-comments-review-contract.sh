@@ -258,7 +258,7 @@ check_direct_fix_v2_contract() {
     section_end_count="$(awk '$0 == "## Reply Policy" { count++ } END { print count + 0 }' "$file")"
     if [ "$section_start_count" -ne 1 ] || [ "$section_end_count" -ne 1 ]; then
         echo "APR005: Direct Fix Brief section requires one start and one end heading; found start=${section_start_count} end=${section_end_count}" >&2
-        found=1
+        return 1
     else
         section_start="$(awk '$0 == "## Direct Fix Brief" { print NR }' "$file")"
         section_end="$(awk '$0 == "## Reply Policy" { print NR }' "$file")"

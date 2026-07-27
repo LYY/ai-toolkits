@@ -147,6 +147,26 @@ class ContractCheckerTestCase(unittest.TestCase):
                     result.stderr,
                 )
 
+    def test_missing_reply_policy_heading_emits_one_stable_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            isolated_root = self.copy_isolated_root(temp_dir)
+            dossier_path = self.dossier_path(isolated_root)
+            dossier = dossier_path.read_text(encoding="utf-8").replace(
+                "## Reply Policy\n", "", 1
+            )
+            dossier_path.write_text(dossier, encoding="utf-8")
+
+            result = self.run_checker(isolated_root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stderr.splitlines(),
+            [
+                "APR005: Direct Fix Brief section requires one start and one end "
+                "heading; found start=1 end=0"
+            ],
+        )
+
     def test_checker_rejects_normalized_relative_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             isolated_root = self.copy_isolated_root(temp_dir)
