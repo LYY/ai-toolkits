@@ -1,5 +1,5 @@
 ---
-name: GitHub CLI
+name: github-cli
 description: >-
   Use when a task touches GitHub issues, pull requests, review comments,
   Actions runs/logs, releases, repository metadata, GitHub URLs, or GitHub API
@@ -16,14 +16,14 @@ Use `gh` for GitHub state. GitHub issues, PRs, review comments, Actions runs, re
 
 When the user provides a GitHub URL or asks to read/manage GitHub state, use `gh` first:
 
-| User target | Default command |
-|-------------|-----------------|
-| Issue URL or number | `gh issue view <url-or-number> --comments --json number,title,state,author,body,comments,labels,url` |
+| User target               | Default command                                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Issue URL or number       | `gh issue view <url-or-number> --comments --json number,title,state,author,body,comments,labels,url`                         |
 | PR URL, number, or branch | `gh pr view <url-or-number-or-branch> --comments --json number,title,state,author,body,comments,headRefName,baseRefName,url` |
-| PR diff | `gh pr diff <pr>` |
-| Actions run | `gh run view <run-id> --json status,conclusion,headSha,url` |
-| Failed Actions logs | `gh run view <run-id> --log-failed` |
-| Release | `gh release view <tag>` |
+| PR diff                   | `gh pr diff <pr>`                                                                                                            |
+| Actions run               | `gh run view <run-id> --json status,conclusion,headSha,url`                                                                  |
+| Failed Actions logs       | `gh run view <run-id> --log-failed`                                                                                          |
+| Release                   | `gh release view <tag>`                                                                                                      |
 
 Do not use `webfetch` for GitHub issues, PRs, reviews, comments, checks, runs, releases, or API state when `gh` can read it. Use `webfetch` only for ordinary web content outside GitHub's CLI/API surface, or after `gh` proves the state is inaccessible.
 

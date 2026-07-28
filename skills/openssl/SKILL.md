@@ -1,5 +1,5 @@
 ---
-name: OpenSSL
+name: openssl
 description: >-
   Use when a task needs certificate, key, CSR, TLS inspection, or format
   conversion work with openssl from the terminal.
