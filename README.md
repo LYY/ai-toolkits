@@ -19,13 +19,6 @@ npx skills add LYY/ai-toolkits -g -y
 | [omo-formal-plan-dual-review](./skills/omo-formal-plan-dual-review/) | [OMO（oh-my-openagent）](https://github.com/code-yeongyu/oh-my-openagent) 正式计划双审：仅在明确请求 Momus + Oracle 双审时，冻结同一计划版本并独立审查，仅最小修复计划，直到两者无条件批准同一 digest |
 | [OpenSSL](./skills/openssl/) | OpenSSL 面向 agent 的运行时指引，聚焦密钥、CSR、证书检查、TLS 校验与常见格式转换，并强调证书/私钥安全检查 |
 
-## 项目特性
-
-- **跨平台分发**: 通过 skills CLI 将同一组 skills 安装到多个主流 AI coding agents
-- **面向 agent 设计**: 使用明确触发条件、执行步骤、权限边界和完成标准约束运行时行为
-- **按需加载**: 复杂 skill 将运行时资料放入 references 和 scripts，减少无关上下文
-- **多领域覆盖**: 包含 PR review、金融系统测试、GitHub CLI、浏览器自动化、TLS 工具和 OMO 正式计划审查
-
 ## 开发
 
 - [AGENTS.md](./AGENTS.md) — skill 开发规范与设计原则
