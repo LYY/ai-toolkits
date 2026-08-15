@@ -1,6 +1,6 @@
 ---
 name: omo-formal-plan-dual-review
-description: Use ONLY when user requests Momus + Oracle double review, dual review, or automatic repair of current formal ulw-plan. Reviews and minimally repairs only current .omo formal plan until both reviewers unconditionally approve same plan digest.
+description: Use ONLY when user requests Momus + Oracle double review, dual review, or automatic repair of current formal ulw-plan. Reviews and minimally repairs only current .omo formal plan until both reviewers unconditionally approve same plan digest or an inflation gate pauses automatic repair.
 ---
 
 # Formal Plan Dual Review
@@ -50,7 +50,15 @@ For every round:
    Every eligible blocker must include its ID, violated criterion, exact location
    or reproduction, impact, causal evidence, minimal correction boundary, and
    closure assertion. Treat a finding missing one of those fields as a
-   non-blocking note.
+   non-blocking note. A clear `BLOCKED` receipt with zero eligible blockers is
+   not reconcilable: request exactly one receipt completion, with same lane and
+   same identity, on that same digest. That completion may add
+   a complete eligible blocker or retract the findings and return unconditional
+   `APPROVED`; it must not reopen content review. If it remains incomplete,
+   conditional, or unresolved, invalidate the pair and use transport recovery.
+   An approval note that is conditional on a substantive plan change, or that
+   itself proves a substantive blocker, is inconsistent with `APPROVED` and
+   cannot be accepted as benign.
 6. After a valid discovery pair, reconcile candidates and freeze an accepted
    blocker ledger: ID, root cause, correction boundary, and closure assertion.
    Later rounds must not rediscover unchanged plan content. They may admit only
@@ -97,6 +105,20 @@ acceptance criterion, executable QA, or delivery constraint; reproduce an
 existing regression or broken flow; or demonstrate a security, data-loss,
 compatibility, or external-contract risk with concrete causal evidence.
 
+Eligibility is a parent adjudication, not a vote for a suggested fix. A
+reproduction or mechanism suggestion alone is insufficient. The parent must
+independently prove explicit material contract impact and material plan-level
+necessity for discovery admission. Later closure admission additionally
+requires closure novelty or repair causation: the closure finding must be
+repair-caused, based on a newly verified fact unavailable to discovery, or a
+concrete D10 risk. This closure-only condition does not gate initial discovery
+admission. Mechanisms, including a reviewer-proposed controller, journal, wave
+ID, or lifecycle schema, never establish eligibility. The parent strips those
+mechanisms and retains only the smallest plan-level invariant or outcome. D10
+permits retaining a concrete security, data-loss, compatibility, or
+external-contract risk with causal evidence; it does not permit adding review
+machinery.
+
 Blockers based on source paths, consumers, tests, scripts, or symbols require
 current verification against permitted repository facts. An unverified path,
 stale reference, or inferred consumer is a non-blocking note. D06 and D07 may
@@ -124,12 +146,26 @@ After both valid receipts for same frozen digest arrive:
 4. Otherwise change only current formal plan. Apply every accepted blocker in
    one smallest aggregate repair. Use replacement-first: replace, simplify, or
    delete smallest relevant plan text before appending. Never add material
-   unrelated to a closure assertion.
+   unrelated to a closure assertion. Discovery has one aggregate repair
+   allowance. The first closure round has one aggregate closure repair
+   allowance. These allowances cover all accepted blockers in that phase and
+   do not authorize another automatic edit after the allowance is used.
 5. Re-read modified plan bytes and begin a closure round with its new digest.
    Verify ledger closure and repair regressions only. Do not reopen a closed
    root cause or accept an unchanged-baseline concern without new causal
-   evidence. Add an admissible novel blocker to the ledger before one further
-   aggregate repair; otherwise leave it as a note.
+   evidence. Add an admissible novel blocker to the ledger before the one
+   permitted aggregate closure repair; otherwise leave it as a note.
+6. Before any later automatic edit, pause if the applicable repair allowance is
+   exhausted, two repairs grow text without changing accepted root causes or
+   decision inventory, or cumulative text growth exceeds 25% while Scope and
+   decision inventory are unchanged. Growth is a signal, never a verdict: it
+   must not approve, reject, or erase a blocker. Make this terminal state
+   `INCONCLUSIVE`, retain the eligible blocker, and require the user to choose
+   exactly one route before any further current-plan mutation:
+   (A) authorize one compact invariant repair and a fresh round;
+   (B) end the current review and create a separate scope-expansion plan;
+   (C) stop review and simplify to the owner-approved decision inventory
+   without claiming approval.
 
 Keep formal plan decision-complete but non-bloated. It may retain only:
 

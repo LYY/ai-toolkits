@@ -1,0 +1,161 @@
+{
+  "schema_version": 2,
+  "cases": [
+    {
+      "case_id": "a-valid-blocked-receipt",
+      "prompt_path": "prompts/a-valid-blocked-receipt.md",
+      "prompt_sha256": "e1e5e00d1d97d81dbfbabf054cbfbdd33970e0b101484de87414d4e80e478e26",
+      "blocking_criteria": ["OMO-01"],
+      "behavior_class": "receipt",
+      "expected_outcome": "blocked-receipt-complete",
+      "red_observed_outcome": "blocked-receipt-complete",
+      "required_observations": ["eligible-blocker-reconciled"],
+      "red_false_criteria": [],
+      "red_false_observations": []
+    },
+    {
+      "case_id": "b-zero-blocker-completion",
+      "prompt_path": "prompts/b-zero-blocker-completion.md",
+      "prompt_sha256": "2b17af2b22dc57d014a031f3ab1bebb5a12123f82e8ad2b8bed4b75a7a0669e5",
+      "blocking_criteria": ["OMO-02"],
+      "behavior_class": "receipt",
+      "expected_outcome": "receipt-completion-request",
+      "red_observed_outcome": "receipt-completion-under-specified",
+      "required_observations": ["single-same-identity-completion"],
+      "red_false_criteria": ["OMO-02"],
+      "red_false_observations": ["single-same-identity-completion"]
+    },
+    {
+      "case_id": "c-unresolved-completion",
+      "prompt_path": "prompts/c-unresolved-completion.md",
+      "prompt_sha256": "a3661f9aa63aec724d125e3875abd9832c4fb3676a4ef375066a73fab091be2d",
+      "blocking_criteria": ["OMO-03"],
+      "behavior_class": "receipt",
+      "expected_outcome": "recovery-after-unresolved-completion",
+      "red_observed_outcome": "recovery-after-unresolved-completion",
+      "required_observations": ["invalid-pair-bounded-recovery"],
+      "red_false_criteria": [],
+      "red_false_observations": []
+    },
+    {
+      "case_id": "d-approved-benign-notes",
+      "prompt_path": "prompts/d-approved-benign-notes.md",
+      "prompt_sha256": "10c3277d58a8806c076677b3e0d735875eaec8cb4c56f8db3eb4ceb52a4aa40b",
+      "blocking_criteria": ["OMO-04"],
+      "behavior_class": "receipt",
+      "expected_outcome": "approved-with-benign-notes",
+      "red_observed_outcome": "approved-with-benign-notes",
+      "required_observations": ["benign-notes-approval-readback"],
+      "red_false_criteria": [],
+      "red_false_observations": []
+    },
+    {
+      "case_id": "e-approved-conditional-notes",
+      "prompt_path": "prompts/e-approved-conditional-notes.md",
+      "prompt_sha256": "4f460ba9859e6fb22d3d18ce4f9b4524401004e0240d6053e37c8d5c5d9151d6",
+      "blocking_criteria": ["OMO-04"],
+      "behavior_class": "receipt",
+      "expected_outcome": "approval-note-inconsistent",
+      "red_observed_outcome": "approval-note-unclassified",
+      "required_observations": ["conditional-note-invalidates-pair"],
+      "red_false_criteria": ["OMO-04"],
+      "red_false_observations": ["conditional-note-invalidates-pair"]
+    },
+    {
+      "case_id": "f-completion-to-blocked",
+      "prompt_path": "prompts/f-completion-to-blocked.md",
+      "prompt_sha256": "41ae4a9eb17a28252521d0f5ad556eb259f7a4d6d48c9cc15d56770a8fec3180",
+      "blocking_criteria": ["OMO-02", "OMO-03"],
+      "behavior_class": "receipt",
+      "expected_outcome": "completion-to-blocked",
+      "red_observed_outcome": "completion-blocker-rejected",
+      "required_observations": ["single-same-identity-completion", "completion-blocker-admitted"],
+      "red_false_criteria": ["OMO-02", "OMO-03"],
+      "red_false_observations": ["single-same-identity-completion", "completion-blocker-admitted"]
+    },
+    {
+      "case_id": "g-completion-to-approved",
+      "prompt_path": "prompts/g-completion-to-approved.md",
+      "prompt_sha256": "e1517f49304c69e0ee56ed21ebec15737ae06c533ad9dd843ba0fe1886105735",
+      "blocking_criteria": ["OMO-02", "OMO-04"],
+      "behavior_class": "receipt",
+      "expected_outcome": "completion-to-approved",
+      "red_observed_outcome": "completion-approval-under-specified",
+      "required_observations": ["single-same-identity-completion", "completion-approval-admitted"],
+      "red_false_criteria": ["OMO-02", "OMO-04"],
+      "red_false_observations": ["single-same-identity-completion", "completion-approval-admitted"]
+    },
+    {
+      "case_id": "h-approved-blocker-substantive-notes",
+      "prompt_path": "prompts/h-approved-blocker-substantive-notes.md",
+      "prompt_sha256": "88e9f08ea936b2e471454a3d325325f5793329a73f295f2008781dd753dd2425",
+      "blocking_criteria": ["OMO-04"],
+      "behavior_class": "receipt",
+      "expected_outcome": "approval-note-inconsistent",
+      "red_observed_outcome": "approval-note-unclassified",
+      "required_observations": ["substantive-note-invalidates-pair"],
+      "red_false_criteria": ["OMO-04"],
+      "red_false_observations": ["substantive-note-invalidates-pair"]
+    },
+    {
+      "case_id": "i-material-d10-external-contract",
+      "prompt_path": "prompts/i-material-d10-external-contract.md",
+      "prompt_sha256": "010e402da609244ba9dc03659b744bdeb459d337d0f2c9eb87fe001fd0986e94",
+      "blocking_criteria": ["OMO-05", "OMO-06"],
+      "behavior_class": "materiality",
+      "expected_outcome": "material-d10-blocker",
+      "red_observed_outcome": "materiality-gate-under-specified",
+      "required_observations": ["material-d10-preserved", "material-plan-necessity-proved", "review-mechanism-stripped"],
+      "red_false_criteria": ["OMO-06"],
+      "red_false_observations": ["material-plan-necessity-proved", "review-mechanism-stripped"]
+    },
+    {
+      "case_id": "j-recipe-wording-demotion",
+      "prompt_path": "prompts/j-recipe-wording-demotion.md",
+      "prompt_sha256": "08bf777dbef8827da4db45fd6a86a78954576c5bb873c9f54e2f69c2dec40c01",
+      "blocking_criteria": ["OMO-07"],
+      "behavior_class": "demotion",
+      "expected_outcome": "non-blocking-note",
+      "red_observed_outcome": "non-blocking-note",
+      "required_observations": ["recipes-demoted"],
+      "red_false_criteria": [],
+      "red_false_observations": []
+    },
+    {
+      "case_id": "k-closure-unchanged-root-rediscovery",
+      "prompt_path": "prompts/k-closure-unchanged-root-rediscovery.md",
+      "prompt_sha256": "569a63f83a20c2a5a50cc0a10aa38c27d5d83f52de28343630534416edf0fcf9",
+      "blocking_criteria": ["OMO-08"],
+      "behavior_class": "novelty",
+      "expected_outcome": "non-blocking-note",
+      "red_observed_outcome": "non-blocking-note",
+      "required_observations": ["unchanged-root-rejected"],
+      "red_false_criteria": [],
+      "red_false_observations": []
+    },
+    {
+      "case_id": "l-repair-caused-d10-compact-repair",
+      "prompt_path": "prompts/l-repair-caused-d10-compact-repair.md",
+      "prompt_sha256": "314734732bebf839bca4ce9a2e6845e0dc174df39454a756e4f1bc4f18c22d36",
+      "blocking_criteria": ["OMO-05", "OMO-09"],
+      "behavior_class": "compact-repair",
+      "expected_outcome": "compact-d10-repair",
+      "red_observed_outcome": "compact-repair-under-specified",
+      "required_observations": ["repair-caused-d10-preserved", "compact-repair-only"],
+      "red_false_criteria": ["OMO-09"],
+      "red_false_observations": ["compact-repair-only"]
+    },
+    {
+      "case_id": "m-budget-inflation-escalation",
+      "prompt_path": "prompts/m-budget-inflation-escalation.md",
+      "prompt_sha256": "4267eca07d93b56ceeeea825ce16c683745d3e5af270f9db735271bba3248d88",
+      "blocking_criteria": ["OMO-10"],
+      "behavior_class": "escalation",
+      "expected_outcome": "inconclusive-user-routes",
+      "red_observed_outcome": "inflation-escalation-absent",
+      "required_observations": ["eligible-blocker-preserved", "automatic-edits-paused", "three-user-routes-offered"],
+      "red_false_criteria": ["OMO-10"],
+      "red_false_observations": ["automatic-edits-paused", "three-user-routes-offered"]
+    }
+  ]
+}
